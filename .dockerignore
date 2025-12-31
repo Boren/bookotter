@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+*.egg
+.pytest_cache
+.coverage
+htmlcov
+.mypy_cache
+.ruff_cache
+venv
+.venv
+env
+
+# Node
+frontend/node_modules
+frontend/dist
+
+# Data and logs (mounted as volumes)
+data
+*.log
+
+# Config with secrets
+config.yaml
+
+# Documentation
+*.md
+!README.md
+!CHANGELOG.md
+LICENSE
+
+# Docker
+Dockerfile.dev
+docker-compose*.yml
+
+# Development files
+.env
+.env.*

@@ -1,0 +1,64 @@
+# BookOtter Configuration File
+
+# Hardcover API Settings
+hardcover:
+  api_token: "Bearer YOUR_API_TOKEN_HERE"  # Get from https://hardcover.app/account/api
+  api_url: "https://api.hardcover.app/v1/graphql"
+
+# Readarr API Settings
+readarr:
+  api_key: "YOUR_READARR_API_KEY"  # Get from Settings → General → Security
+  base_url: "http://localhost:8787"  # Your Readarr instance URL
+  # Path mappings for when Readarr is running in Docker/container
+  path_mappings:
+    - readarr_path: "/data/"  # Path as seen by Readarr (inside container)
+      local_path: "/path/to/books/"  # Actual path on host machine
+  # Auto-add missing books to Readarr
+  auto_add:
+    enabled: false  # Set to true to automatically add books from "want to read" list to Readarr
+    search_immediately: true  # Trigger automatic search after adding book
+
+# Kindle Devices (supports multiple Kindles)
+kindles:
+  - id: "main"                           # Unique identifier for this Kindle
+    name: "My Kindle"                    # Display name
+    hostname: "your-kindle-hostname"     # Your Kindle's Tailscale hostname or IP
+    port: 22                             # SSH port (default: 22)
+    username: "root"                     # SSH username (usually 'root' for jailbroken Kindles)
+    password: ""                         # Leave empty if using SSH key
+    ssh_key_path: "~/.ssh/id_rsa"        # Path to SSH private key (if using key auth)
+    destination_path: "/mnt/us/books/"   # Destination path on Kindle
+  # Add more Kindles by duplicating the block above:
+  # - id: "backup"
+  #   name: "Backup Kindle"
+  #   hostname: "kindle-2.tailnet.ts.net"
+  #   ...
+
+# Matching Settings
+matching:
+  use_isbn: true  # Try ISBN matching first
+  use_fuzzy: true  # Fall back to fuzzy title/author matching
+  fuzzy_threshold: 80  # Minimum similarity score (0-100) for fuzzy matching
+
+# Sync Settings - Which book statuses to sync (can be overridden by CLI flags)
+sync:
+  include_statuses:
+    want_to_read: true          # Status ID 1: Always synced
+    currently_reading: false    # Status ID 2: Set to true to sync currently reading books
+    read: false                 # Status ID 3: Set to true to sync already read books
+
+# Transfer Settings
+transfer:
+  dry_run: false  # Set to true to simulate without actually transferring files
+  skip_existing: true  # Skip files that already exist on Kindle
+  folder_organization: "flat"  # Options: flat, author, series, author_series
+  # Cleanup options - remove books from Kindle that aren't in sync list
+  cleanup_enabled: false
+  cleanup_sdr_folders: true  # Also remove .sdr reading data folders
+  cleanup_protected_paths: []  # Paths to never delete (e.g., ["/mnt/us/documents/"])
+
+# Logging Settings
+logging:
+  log_file: "bookotter.log"
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  console_output: true

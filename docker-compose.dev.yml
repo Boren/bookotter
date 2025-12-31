@@ -1,0 +1,71 @@
+name: bookotter
+
+# Development Docker Compose with watch mode
+# Usage: docker compose -f docker-compose.dev.yml up --watch
+#
+# This configuration enables hot-reload for both frontend and backend:
+# - Python files sync and uvicorn auto-reloads
+# - Frontend files sync and Vite HMR updates the browser
+# - Dependency changes trigger a rebuild
+
+services:
+  bookotter-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: bookotter-dev
+    ports:
+      - "6887:6887"   # Backend API
+      - "5173:5173"   # Vite dev server
+    volumes:
+      # Persistent data (config, database, logs)
+      - ./data:/app/data
+
+      # Book files from Readarr - adjust this path to match your setup
+      - /mnt/user/media/books:/books:ro
+
+      # SSH keys for Kindle access
+      - ~/.ssh:/root/.ssh:ro
+    environment:
+      - TZ=Europe/Oslo
+      - BOOKOTTER_DATA_DIR=/app/data
+      - VITE_API_URL=http://localhost:6887
+
+    develop:
+      watch:
+        # Backend Python files - sync and let uvicorn --reload handle it
+        - action: sync
+          path: ./backend
+          target: /app/backend
+          ignore:
+            - __pycache__/
+            - "*.pyc"
+
+        # Frontend source - sync for Vite HMR
+        - action: sync
+          path: ./frontend/src
+          target: /app/frontend/src
+          ignore:
+            - "*.test.*"
+
+        - action: sync
+          path: ./frontend/index.html
+          target: /app/frontend/index.html
+
+        - action: sync
+          path: ./frontend/tailwind.config.js
+          target: /app/frontend/tailwind.config.js
+
+        - action: sync
+          path: ./frontend/vite.config.ts
+          target: /app/frontend/vite.config.ts
+
+        # Dependency changes require rebuild
+        - action: rebuild
+          path: ./requirements.txt
+
+        - action: rebuild
+          path: ./frontend/package.json
+
+        - action: rebuild
+          path: ./frontend/pnpm-lock.yaml

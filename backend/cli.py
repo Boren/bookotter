@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""
+BookOtter CLI - Command line interface using backend services.
+
+Usage:
+    python -m backend.cli [--dry-run] [--config CONFIG] [--skip-kindle-test]
+                          [--include-currently-reading] [--include-read]
+"""
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+from typing import Any
+
+from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+from rich.table import Table
+
+from backend.clients.hardcover_client import HardcoverClient
+from backend.clients.kindle_client import KindleClient
+from backend.clients.readarr_client import ReadarrClient
+from backend.config import load_config
+from backend.services.sync_service import SyncService
+
+
+class CLIRunner:
+    """CLI wrapper for SyncService with Rich terminal output."""
+
+    def __init__(
+        self,
+        config_path: str = "config.yaml",
+        include_currently_reading: bool = False,
+        include_read: bool = False,
+    ):
+        """
+        Initialize the CLI runner.
+
+        Args:
+            config_path: Path to configuration file
+            include_currently_reading: Include books with 'Currently Reading' status
+            include_read: Include books with 'Read' status
+        """
+        # Set config path environment variable for backend.config
+        if config_path != "config.yaml":
+            os.environ["BOOKOTTER_CONFIG"] = config_path
+
+        self.config = load_config()
+        self.console = Console()
+        self._setup_logging()
+
+        # Build list of status IDs to sync
+        self.status_ids = [1]  # Always include "Want to Read"
+
+        sync_config = self.config.get("sync", {}).get("include_statuses", {})
+
+        if include_currently_reading or sync_config.get("currently_reading", False):
+            self.status_ids.append(2)
+
+        if include_read or sync_config.get("read", False):
+            self.status_ids.append(3)
+
+        # Progress tracking
+        self._progress = None
+        self._task_id = None
+        self._current_book = ""
+
+        # Statistics
+        self.stats = {
+            "total_books": 0,
+            "matched": 0,
+            "transferred": 0,
+            "failed": 0,
+            "not_found": 0,
+            "skipped": 0,
+            "added_to_readarr": 0,
+            "cleaned_up": 0,
+        }
+
+    def _setup_logging(self):
+        """Configure logging with dual handlers: file + console."""
+        log_config = self.config.get("logging", {})
+        log_level = getattr(logging, log_config.get("log_level", "INFO"))
+
+        # Create file handler
+        file_handler = logging.FileHandler(log_config.get("log_file", "bookotter.log"))
+        file_handler.setLevel(log_level)
+        file_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        file_handler.setFormatter(file_formatter)
+
+        # Configure root logger with file handler only
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+        root_logger.addHandler(file_handler)
+
+        # Suppress verbose third-party logs
+        logging.getLogger("paramiko").setLevel(logging.WARNING)
+
+        self.logger = logging.getLogger(__name__)
+
+    def _console_info(self, message: str, emoji: str = "ℹ"):
+        """Display info message to console and log to file."""
+        self.console.print(f"[cyan]{emoji}[/cyan] {message}")
+        self.logger.info(message)
+
+    def _console_success(self, message: str, emoji: str = "✓"):
+        """Display success message to console and log to file."""
+        self.console.print(f"[green]{emoji}[/green] {message}")
+        self.logger.info(message)
+
+    def _console_warning(self, message: str, emoji: str = "⚠"):
+        """Display warning message to console and log to file."""
+        self.console.print(f"[yellow]{emoji}[/yellow] {message}")
+        self.logger.warning(message)
+
+    def _console_error(self, message: str, emoji: str = "✗"):
+        """Display error message to console and log to file."""
+        self.console.print(f"[red]{emoji}[/red] {message}")
+        self.logger.error(message)
+
+    def test_connections(self, skip_kindle: bool = False) -> tuple[bool, bool]:
+        """
+        Test connections to all services.
+
+        Returns:
+            Tuple of (all_passed, kindle_unreachable)
+        """
+        self.console.print("\n[bold cyan]Testing connections...[/bold cyan]")
+        self.logger.info("Testing connections to all services")
+
+        hardcover_config = self.config.get("hardcover", {})
+        readarr_config = self.config.get("readarr", {})
+
+        # Test Hardcover
+        hardcover = HardcoverClient(
+            api_token=hardcover_config.get("api_token", ""),
+            api_url=hardcover_config.get("api_url", "https://api.hardcover.app/v1/graphql"),
+        )
+        if not hardcover.test_connection():
+            self._console_error("Failed to connect to Hardcover API")
+            return (False, False)
+        self._console_success("Connected to Hardcover")
+
+        # Test Readarr
+        readarr = ReadarrClient(
+            api_key=readarr_config.get("api_key", ""),
+            base_url=readarr_config.get("base_url", "http://localhost:8787"),
+        )
+        if not readarr.test_connection():
+            self._console_error("Failed to connect to Readarr API")
+            return (False, False)
+        self._console_success("Connected to Readarr")
+
+        # Test Kindle SSH
+        if not skip_kindle:
+            kindles = self.config.get("kindles", [])
+            kindle_config = kindles[0] if kindles else None
+
+            if kindle_config:
+                try:
+                    kindle_client = KindleClient.from_config(kindle_config)
+                    if kindle_client.test_connection():
+                        self._console_success("Connected to Kindle via SSH")
+                    else:
+                        return (False, True)
+                except Exception as e:
+                    self._console_error(f"Kindle SSH connection failed: {e}")
+                    return (False, True)
+            else:
+                self._console_warning("No Kindle configured")
+        else:
+            self._console_info("Skipping Kindle SSH connection test", emoji="⏭")
+
+        self._console_success("All connection tests passed!")
+        return (True, False)
+
+    async def _handle_event(self, event: str, data: Any):
+        """Handle events from the sync service."""
+        if event == "sync_started":
+            self.console.print()
+            self.console.rule("[bold cyan]Starting BookOtter[/bold cyan]", style="cyan")
+            self.console.print()
+
+            status_names = {1: "Want to Read", 2: "Currently Reading", 3: "Read"}
+            status_labels = [status_names.get(sid, str(sid)) for sid in self.status_ids]
+            self.console.print(f"[dim]Syncing books with statuses: {', '.join(status_labels)}[/dim]\n")
+
+        elif event == "books_fetched":
+            self.stats["total_books"] = data.get("total_books", 0)
+
+        elif event == "book_progress":
+            book = data.get("book", {})
+            current = data.get("current", 0)
+            data.get("total", 0)
+            title = book.get("title", "Unknown")
+            author = book.get("author", "")
+            status = book.get("status", "")
+
+            if self._progress and self._task_id is not None:
+                self._progress.update(self._task_id, completed=current - 1, current_book=f"{title} by {author}")
+
+        elif event == "book_completed":
+            book = data.get("book", {})
+            title = book.get("title", "Unknown")
+            status = book.get("status", "")
+            file_size = book.get("file_size", 0)
+            error_message = book.get("error_message", "")
+
+            # Print status based on result
+            if status == "not_found":
+                self.console.print(f"   [yellow]⚠[/yellow] Not found: {title}")
+                self.stats["not_found"] += 1
+            elif status == "matched_no_files":
+                self.console.print(f"   [yellow]⚠[/yellow] No EPUB files: {title}")
+            elif status == "added_to_readarr":
+                self.console.print(f"   [blue]📥[/blue] Added to Readarr: {title}")
+                self.stats["added_to_readarr"] += 1
+            elif status == "add_failed":
+                self.console.print(f"   [red]✗[/red] Failed to add: {title}")
+            elif status == "transferred":
+                size_str = self._format_size(file_size)
+                self.console.print(f"   [green]✓[/green] Transferred: {title} ({size_str})")
+                self.stats["transferred"] += 1
+                self.stats["matched"] += 1
+            elif status == "skipped":
+                self.console.print(f"   [dim]⏭ Skipped (already on Kindle): {title}[/dim]")
+                self.stats["skipped"] += 1
+                self.stats["matched"] += 1
+            elif status == "failed":
+                self.console.print(f"   [red]✗[/red] Failed: {title} - {error_message}")
+                self.stats["failed"] += 1
+            elif status == "dry_run":
+                self.console.print(f"   [dim][DRY RUN] Would transfer: {title}[/dim]")
+                self.stats["transferred"] += 1
+                self.stats["matched"] += 1
+
+            if self._progress and self._task_id is not None:
+                self._progress.advance(self._task_id)
+
+        elif event == "transfer_progress":
+            # Transfer progress is shown via the progress bar
+            pass
+
+        elif event == "cleanup_started":
+            self.console.print("\n[cyan]Starting cleanup phase...[/cyan]")
+
+        elif event == "cleanup_completed":
+            cleaned = data.get("cleaned_up", 0)
+            self.stats["cleaned_up"] = cleaned
+            if cleaned > 0:
+                self.console.print(f"   [green]✓[/green] Removed {cleaned} orphaned books")
+
+        elif event == "sync_completed":
+            stats = data.get("stats", {})
+            self.stats.update(stats)
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Format file size for display."""
+        if size_bytes == 0:
+            return "0 B"
+        size_kb = size_bytes / 1024
+        if size_kb > 1024:
+            return f"{size_kb / 1024:.1f} MB"
+        return f"{size_kb:.0f} KB"
+
+    def print_summary(self):
+        """Print summary statistics."""
+        status_names = {1: "Want to Read", 2: "Currently Reading", 3: "Read"}
+        status_labels = [status_names.get(sid) for sid in self.status_ids]
+        status_str = ", ".join(status_labels)
+
+        # Log to file
+        self.logger.info("\n" + "=" * 80)
+        self.logger.info("BookOtter Summary")
+        self.logger.info("=" * 80)
+        self.logger.info(f"Synced statuses:               {status_str}")
+        self.logger.info(f"Total books fetched:           {self.stats['total_books']}")
+        self.logger.info(f"Books found in Readarr:        {self.stats['matched']}")
+        self.logger.info(f"Books not found:               {self.stats['not_found']}")
+        if self.stats.get("added_to_readarr", 0) > 0:
+            self.logger.info(f"Added to Readarr:              {self.stats['added_to_readarr']}")
+        self.logger.info(f"Successfully transferred:      {self.stats['transferred']}")
+        self.logger.info(f"Skipped (already on Kindle):   {self.stats['skipped']}")
+        self.logger.info(f"Transfer failures:             {self.stats['failed']}")
+        if self.stats.get("cleaned_up", 0) > 0:
+            self.logger.info(f"Cleaned up:                    {self.stats['cleaned_up']}")
+        self.logger.info("=" * 80)
+
+        # Display to console
+        self.console.print()
+        self.console.rule("[bold cyan]Summary[/bold cyan]", style="cyan")
+        self.console.print()
+
+        table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+        table.add_column("Category", style="cyan", width=30)
+        table.add_column("Count", justify="right", style="bold")
+
+        table.add_row("Synced statuses", status_str)
+        table.add_row("Total books", str(self.stats["total_books"]))
+        table.add_row("Matched in Readarr", f"[green]{self.stats['matched']}[/green]")
+        table.add_row(
+            "Not found", f"[yellow]{self.stats['not_found']}[/yellow]" if self.stats["not_found"] > 0 else "0"
+        )
+
+        if self.stats.get("added_to_readarr", 0) > 0:
+            table.add_row("Added to Readarr", f"[blue]{self.stats['added_to_readarr']}[/blue]")
+
+        table.add_row("Successfully transferred", f"[green]{self.stats['transferred']}[/green]")
+        table.add_row(
+            "Skipped (already on Kindle)", f"[dim]{self.stats['skipped']}[/dim]" if self.stats["skipped"] > 0 else "0"
+        )
+        table.add_row("Transfer failures", f"[red]{self.stats['failed']}[/red]" if self.stats["failed"] > 0 else "0")
+
+        if self.stats.get("cleaned_up", 0) > 0:
+            table.add_row("Cleaned up", f"[yellow]{self.stats['cleaned_up']}[/yellow]")
+
+        self.console.print(table)
+        self.console.print()
+
+    async def run(self, skip_kindle_test: bool = False, dry_run: bool = False):
+        """Run the complete sync process."""
+        try:
+            # Test connections first
+            all_passed, kindle_unreachable = self.test_connections(skip_kindle=skip_kindle_test)
+
+            if not all_passed:
+                if kindle_unreachable:
+                    skip_if_unreachable = self.config.get("kindle", {}).get("skip_if_unreachable", False)
+                    # Check kindles list format too
+                    kindles = self.config.get("kindles", [])
+                    if kindles and kindles[0].get("skip_if_unreachable", False):
+                        skip_if_unreachable = True
+
+                    if skip_if_unreachable:
+                        self.console.print("[yellow]⚠[/yellow] Kindle unreachable - skipping this run")
+                        self.logger.info("Kindle unreachable, skipping run due to skip_if_unreachable setting")
+                        sys.exit(0)
+                    else:
+                        self._console_error("Failed to connect to Kindle via SSH")
+                        self.logger.error("Connection tests failed. Please check your configuration.")
+                        sys.exit(1)
+                else:
+                    self.logger.error("Connection tests failed. Please check your configuration.")
+                    sys.exit(1)
+
+            # Create sync service with event callback
+            sync_service = SyncService(event_callback=self._handle_event)
+
+            # Override dry_run if specified
+            if dry_run:
+                self.config.setdefault("transfer", {})["dry_run"] = True
+
+            # Run sync with progress bar
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TextColumn("•"),
+                TextColumn("[cyan]{task.fields[current_book]}"),
+                console=self.console,
+                transient=False,
+            ) as progress:
+                self._progress = progress
+                self._task_id = progress.add_task(
+                    "[cyan]Processing books...",
+                    total=100,  # Will be updated when books_fetched event arrives
+                    current_book="",
+                )
+
+                # Run the sync
+                await sync_service.run_sync(dry_run=dry_run, trigger_type="cli")
+
+            # Print summary
+            self.print_summary()
+
+        except KeyboardInterrupt:
+            self.logger.info("\nProcess interrupted by user")
+            self.print_summary()
+            sys.exit(0)
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {e}", exc_info=True)
+            sys.exit(1)
+
+
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description="Sync Hardcover 'want to read' books to Kindle via Readarr")
+    parser.add_argument("--config", default="config.yaml", help="Path to configuration file (default: config.yaml)")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate transfers without actually copying files")
+    parser.add_argument("--skip-kindle-test", action="store_true", help="Skip Kindle SSH connection test")
+    parser.add_argument(
+        "--include-currently-reading", action="store_true", help="Include books with 'Currently Reading' status"
+    )
+    parser.add_argument("--include-read", action="store_true", help="Include books with 'Read' status")
+
+    args = parser.parse_args()
+
+    # Create CLI runner
+    runner = CLIRunner(
+        config_path=args.config,
+        include_currently_reading=args.include_currently_reading,
+        include_read=args.include_read,
+    )
+
+    # Run sync
+    asyncio.run(
+        runner.run(
+            skip_kindle_test=args.skip_kindle_test,
+            dry_run=args.dry_run,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,25 @@
+# BookOtter dependencies
+# Generated from pyproject.toml via: uv export --no-dev --no-hashes
+# For faster installs, use: uv pip install -r pyproject.toml
+
+# Core dependencies
+requests>=2.31.0
+PyYAML>=6.0.1
+paramiko>=3.4.0
+python-Levenshtein>=0.25.0
+fuzzywuzzy>=0.18.0
+rich>=13.7.0
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# File handling
+aiofiles>=23.0.0
+python-multipart>=0.0.6

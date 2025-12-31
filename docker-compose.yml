@@ -1,0 +1,31 @@
+name: bookotter
+
+services:
+  bookotter:
+    build: .
+    container_name: bookotter
+    ports:
+      - "6887:6887"
+    volumes:
+      # Persistent data (config, database, logs)
+      - ./data:/app/data
+
+      # Book files from Readarr - adjust this path to match your setup
+      # The path should match what's in your path_mappings config
+      - /mnt/user/media/books:/books:ro
+
+      # SSH keys for Kindle access
+      - ~/.ssh:/root/.ssh:ro
+    environment:
+      - TZ=Europe/Oslo
+      - BOOKOTTER_DATA_DIR=/app/data
+    restart: unless-stopped
+
+    # For Unraid, you may need to add:
+    # network_mode: bridge
+    # Or connect to an existing network:
+    # networks:
+    #   - your_network
+
+# Development mode with hot-reload:
+# docker compose -f docker-compose.dev.yml up --watch
