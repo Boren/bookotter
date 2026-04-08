@@ -151,6 +151,16 @@ def get_default_config() -> dict:
                 "search_immediately": True,
             },
         },
+        "prowlarr": {
+            "api_key": "",
+            "base_url": "http://localhost:9696",
+        },
+        "qbittorrent": {
+            "base_url": "http://localhost:8080",
+            "username": "admin",
+            "password": "",
+            "category": "books",
+        },
         "kindles": [
             {
                 "id": "default",
@@ -182,6 +192,21 @@ def get_default_config() -> dict:
             "cleanup_enabled": False,  # Remove books not in sync list
             "cleanup_sdr_folders": True,  # Also remove .sdr reading data
             "cleanup_protected_paths": [],  # Paths to never delete from
+        },
+        "library": {
+            "root_folders": [],  # [{path, name, folder_organization}]
+            "download_path": "",  # For display only — qBit manages actual paths
+        },
+        "pipeline": {
+            "enabled": True,
+            "search_on_add": True,  # Auto-search Prowlarr when book added
+            "import_on_complete": True,  # Auto-import when download completes
+            "kindle_sync_on_import": True,  # Auto-sync to Kindle after import
+            "status_actions": {
+                "want_to_read": {"download": True, "kindle_sync": True},
+                "currently_reading": {"download": True, "kindle_sync": True},
+                "read": {"download": True, "kindle_sync": False},
+            },
         },
         "logging": {
             "log_file": "bookotter.log",
