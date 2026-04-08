@@ -40,6 +40,8 @@ dependencies = [
     # File handling
     "aiofiles>=25.0.0",
     "python-multipart>=0.0.24",
+    # EPUB handling
+    "ebooklib>=0.18.0",
 ]
 
 [project.urls]
