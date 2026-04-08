@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend import __app_name__, __version__
-from backend.api.routes import config, kindles, logs, schedules, sync
+from backend.api.routes import config, kindles, library, logs, root_folders, schedules, services, sync
 from backend.config import DATA_DIR, load_config
 from backend.database import init_db
 from backend.services.scheduler_service import scheduler
@@ -121,8 +121,11 @@ app.add_middleware(
 # API routes
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+app.include_router(services.router, tags=["services"])
 app.include_router(kindles.router, prefix="/api/kindles", tags=["kindles"])
+app.include_router(root_folders.router, prefix="/api/root-folders", tags=["root-folders"])
 app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
+app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
 
