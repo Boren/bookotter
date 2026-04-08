@@ -65,6 +65,15 @@ class Author(Base):
     # Relationships
     books = relationship("Book", back_populates="author")
 
+    def to_dict(self):
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "hardcover_id": self.hardcover_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 class RootFolder(Base):
     """Represents a root folder where books are stored."""
@@ -116,6 +125,34 @@ class Book(Base):
 
     # Indexes
     __table_args__ = (Index("ix_book_status_created", "status", "created_at"),)
+
+    def to_dict(self):
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "author_id": self.author_id,
+            "author": self.author.to_dict() if self.author else None,
+            "hardcover_id": self.hardcover_id,
+            "isbn": self.isbn,
+            "description": self.description,
+            "publisher": self.publisher,
+            "language": self.language,
+            "tags": self.tags,
+            "rating": self.rating,
+            "read_date": self.read_date.isoformat() if self.read_date else None,
+            "cover_url": self.cover_url,
+            "series_name": self.series_name,
+            "series_position": self.series_position,
+            "status": self.status,
+            "root_folder_id": self.root_folder_id,
+            "file_path": self.file_path,
+            "file_size": self.file_size,
+            "search_attempts": self.search_attempts,
+            "last_searched_at": self.last_searched_at.isoformat() if self.last_searched_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 class Download(Base):
