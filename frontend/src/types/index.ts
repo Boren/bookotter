@@ -47,9 +47,17 @@ export interface RootFolder {
 
 export type DownloadStatus = 'queued' | 'downloading' | 'completed' | 'importing' | 'imported' | 'failed';
 
+export interface DownloadBook {
+  id: number;
+  title: string;
+  author: string | null;
+  cover_url: string | null;
+}
+
 export interface Download {
   id: number;
   book_id: number;
+  book: DownloadBook | null;
   torrent_hash: string;
   torrent_name: string;
   indexer_name: string;
@@ -202,6 +210,8 @@ export interface Config {
       search_immediately: boolean;
     };
   };
+  prowlarr: ProwlarrConfig;
+  qbittorrent: QBittorrentConfig;
   kindles: Kindle[];
   matching: {
     use_isbn: boolean;

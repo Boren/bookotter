@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { Config, Kindle } from '../types'
+import type { Config, Kindle, RootFolder, FolderOrganization } from '../types'
 
 const config = ref<Config | null>(null)
 const loading = ref(true)
@@ -20,6 +20,17 @@ const kindleForm = ref({
   ssh_key_path: '~/.ssh/id_rsa',
   destination_path: '/mnt/us/books/',
 })
+
+// Root folders
+const rootFolders = ref<RootFolder[]>([])
+const loadingFolders = ref(false)
+const showRootFolderForm = ref(false)
+const rootFolderForm = ref({
+  name: '',
+  path: '',
+  folder_organization: 'flat' as FolderOrganization,
+})
+const rootFolderError = ref<string | null>(null)
 
 const fetchConfig = async () => {
   try {
@@ -74,6 +85,10 @@ const testConnection = async (service: string, kindleId?: string) => {
         api_key: config.value?.readarr?.api_key,
         base_url: config.value?.readarr?.base_url
       }
+    } else if (service === 'prowlarr') {
+      url = '/prowlarr/test'
+    } else if (service === 'qbittorrent') {
+      url = '/qbittorrent/test'
     } else if (kindleId) {
       url = `/api/config/test/kindle/${kindleId}`
     } else {
@@ -159,7 +174,79 @@ const deleteKindle = async (id: string) => {
   }
 }
 
-onMounted(fetchConfig)
+// Root folder management
+const fetchRootFolders = async () => {
+  loadingFolders.value = true
+  try {
+    const response = await fetch('/api/root-folders')
+    if (response.ok) {
+      const data = await response.json()
+      rootFolders.value = data.folders
+    }
+  } catch (e) {
+    console.error('Failed to fetch root folders:', e)
+  } finally {
+    loadingFolders.value = false
+  }
+}
+
+const openRootFolderForm = () => {
+  rootFolderForm.value = { name: '', path: '', folder_organization: 'flat' }
+  rootFolderError.value = null
+  showRootFolderForm.value = true
+}
+
+const closeRootFolderForm = () => {
+  showRootFolderForm.value = false
+  rootFolderError.value = null
+}
+
+const saveRootFolder = async () => {
+  rootFolderError.value = null
+  try {
+    const response = await fetch('/api/root-folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rootFolderForm.value),
+    })
+
+    if (response.ok) {
+      closeRootFolderForm()
+      fetchRootFolders()
+    } else {
+      const data = await response.json()
+      rootFolderError.value = data.detail || 'Failed to create root folder'
+    }
+  } catch (e) {
+    rootFolderError.value = 'Failed to create root folder'
+  }
+}
+
+const deleteRootFolder = async (id: number) => {
+  if (!confirm('Delete this root folder?')) return
+
+  try {
+    await fetch(`/api/root-folders/${id}`, { method: 'DELETE' })
+    fetchRootFolders()
+  } catch (e) {
+    console.error('Failed to delete root folder:', e)
+  }
+}
+
+const folderOrgLabel = (org: string) => {
+  const labels: Record<string, string> = {
+    flat: 'Flat',
+    author: 'By Author',
+    series: 'By Series',
+    author_series: 'Author / Series',
+  }
+  return labels[org] || org
+}
+
+onMounted(() => {
+  fetchConfig()
+  fetchRootFolders()
+})
 </script>
 
 <template>
@@ -167,7 +254,7 @@ onMounted(fetchConfig)
     <!-- Page Header -->
     <div class="page-header">
       <h1 class="page-title">Settings</h1>
-      <p class="page-subtitle">Configure KindleSync connections and preferences</p>
+      <p class="page-subtitle">Configure BookOtter connections and preferences</p>
     </div>
 
     <!-- Loading -->
@@ -283,6 +370,176 @@ onMounted(fetchConfig)
                 <p class="text-xs text-stone-500">Automatically add books to Readarr when found</p>
               </div>
             </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prowlarr Settings -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-6">
+          <div class="flex items-center gap-3">
+            <div class="icon-container">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-lg font-display font-semibold text-stone-900">Prowlarr</h2>
+              <p class="text-sm text-stone-500">Indexer manager for book searches</p>
+            </div>
+          </div>
+          <button
+            @click="testConnection('prowlarr')"
+            :disabled="testingService === 'prowlarr'"
+            class="btn btn-secondary"
+          >
+            <svg v-if="testingService === 'prowlarr'" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span v-else>Test Connection</span>
+          </button>
+        </div>
+
+        <div v-if="testResults.prowlarr" class="mb-6 p-4 rounded-xl animate-fade-in" :class="testResults.prowlarr.success ? 'bg-success-50 border border-success-100' : 'bg-error-50 border border-error-100'">
+          <p class="text-sm font-medium" :class="testResults.prowlarr.success ? 'text-success-700' : 'text-error-700'">
+            {{ testResults.prowlarr.success ? testResults.prowlarr.message : testResults.prowlarr.error }}
+          </p>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="label">Base URL</label>
+            <input v-model="config.prowlarr.base_url" type="text" class="input" placeholder="http://localhost:9696" />
+          </div>
+          <div>
+            <label class="label">API Key</label>
+            <input v-model="config.prowlarr.api_key" type="password" class="input" />
+            <p class="mt-1.5 text-xs text-stone-500">
+              Found in Prowlarr under Settings &rarr; General &rarr; API Key
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- qBittorrent Settings -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-6">
+          <div class="flex items-center gap-3">
+            <div class="icon-container">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-lg font-display font-semibold text-stone-900">qBittorrent</h2>
+              <p class="text-sm text-stone-500">Download client for book files</p>
+            </div>
+          </div>
+          <button
+            @click="testConnection('qbittorrent')"
+            :disabled="testingService === 'qbittorrent'"
+            class="btn btn-secondary"
+          >
+            <svg v-if="testingService === 'qbittorrent'" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span v-else>Test Connection</span>
+          </button>
+        </div>
+
+        <div v-if="testResults.qbittorrent" class="mb-6 p-4 rounded-xl animate-fade-in" :class="testResults.qbittorrent.success ? 'bg-success-50 border border-success-100' : 'bg-error-50 border border-error-100'">
+          <p class="text-sm font-medium" :class="testResults.qbittorrent.success ? 'text-success-700' : 'text-error-700'">
+            {{ testResults.qbittorrent.success ? testResults.qbittorrent.message : testResults.qbittorrent.error }}
+          </p>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="label">Base URL</label>
+            <input v-model="config.qbittorrent.base_url" type="text" class="input" placeholder="http://localhost:8080" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="label">Username</label>
+              <input v-model="config.qbittorrent.username" type="text" class="input" placeholder="admin" />
+            </div>
+            <div>
+              <label class="label">Password</label>
+              <input v-model="config.qbittorrent.password" type="password" class="input" />
+            </div>
+          </div>
+          <div>
+            <label class="label">Category</label>
+            <input v-model="config.qbittorrent.category" type="text" class="input" placeholder="books" />
+            <p class="mt-1.5 text-xs text-stone-500">
+              Downloads will be tagged with this category in qBittorrent
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Root Folders -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-6">
+          <div class="flex items-center gap-3">
+            <div class="icon-container-primary">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-lg font-display font-semibold text-stone-900">Root Folders</h2>
+              <p class="text-sm text-stone-500">Where your book library is stored</p>
+            </div>
+          </div>
+          <button @click="openRootFolderForm()" class="btn btn-primary">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Add Folder
+          </button>
+        </div>
+
+        <div v-if="loadingFolders" class="flex justify-center py-8">
+          <div class="flex items-center gap-3 text-stone-500">
+            <svg class="animate-spin h-5 w-5 text-kindle-600" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span class="text-sm font-medium">Loading folders...</span>
+          </div>
+        </div>
+
+        <div v-else-if="rootFolders.length === 0" class="text-center py-8 text-stone-500">
+          <p class="text-sm">No root folders configured</p>
+          <p class="text-xs mt-1 text-stone-400">Add a folder to organize your book library</p>
+        </div>
+
+        <div v-else class="space-y-3">
+          <div
+            v-for="folder in rootFolders"
+            :key="folder.id"
+            class="border border-stone-200 rounded-xl p-4 hover:border-stone-300 transition-colors"
+          >
+            <div class="flex items-center justify-between">
+              <div class="min-w-0 flex-1">
+                <p class="font-medium text-stone-900">{{ folder.name }}</p>
+                <p class="text-sm text-stone-500 font-mono truncate">{{ folder.path }}</p>
+                <span class="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-stone-100 text-stone-600">
+                  {{ folderOrgLabel(folder.folder_organization) }}
+                </span>
+              </div>
+              <button
+                @click="deleteRootFolder(folder.id)"
+                class="shrink-0 ml-4 p-2 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors"
+              >
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -623,6 +880,61 @@ onMounted(fetchConfig)
             <button @click="saveKindle" class="btn btn-primary">
               {{ editingKindleId ? 'Save Changes' : 'Add Kindle' }}
             </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Root Folder Form Modal -->
+    <Transition
+      enter-active-class="transition-opacity duration-200"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-200"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div v-if="showRootFolderForm" class="modal-overlay" @click.self="closeRootFolderForm">
+        <div class="modal-content max-w-lg">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-display font-semibold text-stone-900">Add Root Folder</h2>
+            <button @click="closeRootFolderForm" class="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+
+          <div v-if="rootFolderError" class="mb-4 p-4 rounded-xl bg-error-50 border border-error-100 animate-fade-in">
+            <p class="text-sm font-medium text-error-700">{{ rootFolderError }}</p>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="label">Name</label>
+              <input v-model="rootFolderForm.name" type="text" class="input" placeholder="My Books" />
+            </div>
+            <div>
+              <label class="label">Path</label>
+              <input v-model="rootFolderForm.path" type="text" class="input font-mono text-sm" placeholder="/books" />
+              <p class="mt-1.5 text-xs text-stone-500">
+                Absolute path where book files will be stored
+              </p>
+            </div>
+            <div>
+              <label class="label">Folder Organization</label>
+              <select v-model="rootFolderForm.folder_organization" class="input">
+                <option value="flat">Flat (all books in root)</option>
+                <option value="author">By Author</option>
+                <option value="series">By Series (or Author)</option>
+                <option value="author_series">Author / Series</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mt-6 flex justify-end gap-3">
+            <button @click="closeRootFolderForm" class="btn btn-secondary">Cancel</button>
+            <button @click="saveRootFolder" class="btn btn-primary">Add Folder</button>
           </div>
         </div>
       </div>
