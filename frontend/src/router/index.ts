@@ -24,6 +24,16 @@ const router = createRouter({
       component: () => import('../views/ScheduleView.vue'),
     },
     {
+      path: '/downloads',
+      name: 'downloads',
+      component: () => import('../views/DownloadsView.vue'),
+    },
+    {
+      path: '/library/books/:id',
+      name: 'book-detail',
+      component: () => import('../views/BookDetailView.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/SettingsView.vue'),

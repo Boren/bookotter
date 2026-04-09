@@ -5,10 +5,23 @@ import type { Book } from '../types';
 export const useLibraryStore = defineStore('library', () => {
   // State
   const books = ref<Book[]>([]);
+  const total = ref(0);
+  const currentBook = ref<Book | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const selectedBooks = ref<Set<number>>(new Set());
+
+  // Filter / sort / pagination
+  const searchQuery = ref('');
   const filterStatus = ref<string | null>(null);
+  const filterAuthor = ref<string | null>(null);
+  const sortBy = ref('created_at');
+  const sortOrder = ref<'asc' | 'desc'>('desc');
+  const limit = ref(50);
+  const offset = ref(0);
+
+  // Accumulated authors for filter dropdown
+  const knownAuthors = ref<string[]>([]);
 
   // Error handling
   const clearError = () => {
@@ -17,61 +30,159 @@ export const useLibraryStore = defineStore('library', () => {
 
   // Actions
   const fetchBooks = async () => {
-    // TODO: Implement fetchBooks - fetch from /api/library/books
-    console.log('TODO: fetchBooks');
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const params = new URLSearchParams();
+      if (filterStatus.value) params.set('status', filterStatus.value);
+      if (filterAuthor.value) params.set('author', filterAuthor.value);
+      if (searchQuery.value) params.set('search', searchQuery.value);
+      params.set('sort_by', sortBy.value);
+      params.set('sort_order', sortOrder.value);
+      params.set('limit', String(limit.value));
+      params.set('offset', String(offset.value));
+
+      const response = await fetch(`/api/library/books?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch books');
+      const data = await response.json();
+      books.value = data.books;
+      total.value = data.total;
+
+      // Accumulate known authors for filter dropdown
+      const newAuthors = data.books
+        .map((b: Book) => b.author?.name)
+        .filter((name: string | undefined): name is string => !!name);
+      const authorSet = new Set([...knownAuthors.value, ...newAuthors]);
+      knownAuthors.value = Array.from(authorSet).sort();
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch books';
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const fetchBook = async (id: number) => {
+    isLoading.value = true;
+    error.value = null;
+    currentBook.value = null;
+    try {
+      const response = await fetch(`/api/library/books/${id}`);
+      if (!response.ok) {
+        if (response.status === 404) throw new Error('Book not found');
+        throw new Error('Failed to fetch book');
+      }
+      currentBook.value = await response.json();
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch book';
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const updateBook = async (id: number, data: Record<string, unknown>) => {
+    error.value = null;
+    try {
+      const response = await fetch(`/api/library/books/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to update book');
+      }
+      const updated: Book = await response.json();
+      currentBook.value = updated;
+      const idx = books.value.findIndex((b) => b.id === id);
+      if (idx !== -1) books.value[idx] = updated;
+      return updated;
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to update book';
+      throw e;
+    }
+  };
+
+  const deleteBook = async (id: number) => {
+    error.value = null;
+    try {
+      const response = await fetch(`/api/library/books/${id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to delete book');
+      }
+      currentBook.value = null;
+      books.value = books.value.filter((b) => b.id !== id);
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to delete book';
+      throw e;
+    }
   };
 
   const searchBooks = async (query: string) => {
-    // TODO: Implement searchBooks - search in library
-    console.log('TODO: searchBooks', query);
+    searchQuery.value = query;
+    offset.value = 0;
+    await fetchBooks();
   };
 
   const selectBook = (bookId: number) => {
-    // TODO: Implement selectBook - add to selectedBooks
-    console.log('TODO: selectBook', bookId);
+    selectedBooks.value.add(bookId);
   };
 
   const deselectBook = (bookId: number) => {
-    // TODO: Implement deselectBook - remove from selectedBooks
-    console.log('TODO: deselectBook', bookId);
+    selectedBooks.value.delete(bookId);
   };
 
   const clearSelection = () => {
-    // TODO: Implement clearSelection - clear all selected books
-    console.log('TODO: clearSelection');
+    selectedBooks.value.clear();
   };
 
   const setFilterStatus = (status: string | null) => {
-    // TODO: Implement setFilterStatus - filter books by status
-    console.log('TODO: setFilterStatus', status);
+    filterStatus.value = status;
+    offset.value = 0;
   };
 
   // Computed
   const bookCount = computed(() => books.value.length);
-
   const selectedCount = computed(() => selectedBooks.value.size);
+  const totalPages = computed(() => Math.ceil(total.value / limit.value));
+  const currentPage = computed(() => Math.floor(offset.value / limit.value) + 1);
 
   const filteredBooks = computed(() => {
-    if (!filterStatus.value) return books.value;
-    // TODO: Implement filtering logic
+    // Filtering is server-side
     return books.value;
   });
 
   return {
     // State
     books,
+    total,
+    currentBook,
     isLoading,
     error,
     selectedBooks,
+    searchQuery,
     filterStatus,
+    filterAuthor,
+    sortBy,
+    sortOrder,
+    limit,
+    offset,
+    knownAuthors,
 
     // Computed
     bookCount,
     selectedCount,
+    totalPages,
+    currentPage,
     filteredBooks,
 
     // Actions
     fetchBooks,
+    fetchBook,
+    updateBook,
+    deleteBook,
     searchBooks,
     selectBook,
     deselectBook,

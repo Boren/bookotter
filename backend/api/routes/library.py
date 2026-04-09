@@ -39,6 +39,7 @@ class BookUpdateRequest(BaseModel):
     publisher: str | None = None
     language: str | None = None
     tags: list[str] | None = None
+    rating: float | None = None
     cover_url: str | None = None
     series_name: str | None = None
     series_position: float | None = None
