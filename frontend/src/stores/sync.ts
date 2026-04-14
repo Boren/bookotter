@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type {
+  Book,
   BookProgressEvent,
   BookResult,
   SyncRun,
@@ -20,6 +21,12 @@ export const useSyncStore = defineStore('sync', () => {
   const latestChanges = ref<BookResult[]>([]);
   const wsConnected = ref(false);
   const error = ref<string | null>(null);
+
+  // Pipeline state
+  const pipelineStats = ref<{ total: number; by_status: Record<string, number>; total_size: number } | null>(null);
+  const recentBooks = ref<Book[]>([]);
+  const hardcoverSyncing = ref(false);
+  const kindleSyncing = ref(false);
 
   // Error handling
   const setError = (message: string) => {
@@ -130,8 +137,18 @@ export const useSyncStore = defineStore('sync', () => {
         fetchStatus();
         break;
 
+      case 'book_wanted':
+      case 'download_started':
+      case 'download_completed':
+        fetchPipelineStats();
+        break;
+
+      case 'import_completed':
+        fetchPipelineStats();
+        fetchRecentBooks();
+        break;
+
       case 'pong':
-        // Keep-alive response
         break;
     }
   };
@@ -227,6 +244,69 @@ export const useSyncStore = defineStore('sync', () => {
     }
   };
 
+  const fetchPipelineStats = async () => {
+    try {
+      const response = await fetch('/api/library/stats');
+      if (response.ok) pipelineStats.value = await response.json();
+    } catch (e) {
+      console.error('Failed to fetch pipeline stats:', e);
+    }
+  };
+
+  const fetchRecentBooks = async () => {
+    try {
+      const response = await fetch('/api/library/books?sort=created_at&order=desc&limit=5');
+      if (response.ok) {
+        const data = await response.json();
+        recentBooks.value = data.books || data;
+      }
+    } catch (e) {
+      console.error('Failed to fetch recent books:', e);
+    }
+  };
+
+  const triggerHardcoverSync = async () => {
+    hardcoverSyncing.value = true;
+    try {
+      const response = await fetch('/api/sync/hardcover', { method: 'POST' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Hardcover sync failed');
+      }
+      return await response.json();
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Hardcover sync failed';
+      setError(errorMsg);
+      throw e;
+    } finally {
+      hardcoverSyncing.value = false;
+      fetchPipelineStats();
+      fetchRecentBooks();
+    }
+  };
+
+  const triggerKindleSync = async (kindle_device: string) => {
+    kindleSyncing.value = true;
+    try {
+      const response = await fetch('/api/sync/kindle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kindle_device }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Kindle sync failed');
+      }
+      return await response.json();
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Kindle sync failed';
+      setError(errorMsg);
+      throw e;
+    } finally {
+      kindleSyncing.value = false;
+    }
+  };
+
   // Computed
   const progressPercent = computed(() => {
     if (!progress.value) return 0;
@@ -254,7 +334,6 @@ export const useSyncStore = defineStore('sync', () => {
   });
 
   return {
-    // State
     isRunning,
     currentRunId,
     progress,
@@ -264,13 +343,15 @@ export const useSyncStore = defineStore('sync', () => {
     latestChanges,
     wsConnected,
     error,
+    pipelineStats,
+    recentBooks,
+    hardcoverSyncing,
+    kindleSyncing,
 
-    // Computed
     progressPercent,
     transferSpeedFormatted,
     transferEtaFormatted,
 
-    // Actions
     connectWebSocket,
     disconnectWebSocket,
     fetchStatus,
@@ -279,5 +360,9 @@ export const useSyncStore = defineStore('sync', () => {
     startSync,
     stopSync,
     clearError,
+    fetchPipelineStats,
+    fetchRecentBooks,
+    triggerHardcoverSync,
+    triggerKindleSync,
   };
 });
