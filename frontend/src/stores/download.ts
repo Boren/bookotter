@@ -1,15 +1,13 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { Book } from '../types';
+import type { Download } from '../types';
 
 export const useDownloadStore = defineStore('download', () => {
   // State
-  const queue = ref<Book[]>([]);
-  const isDownloading = ref(false);
-  const currentDownload = ref<Book | null>(null);
-  const downloadProgress = ref<number>(0);
+  const downloads = ref<Download[]>([]);
+  const loading = ref(false);
   const error = ref<string | null>(null);
-  const completedDownloads = ref<Book[]>([]);
+  const total = ref(0);
 
   // Error handling
   const clearError = () => {
@@ -17,79 +15,69 @@ export const useDownloadStore = defineStore('download', () => {
   };
 
   // Actions
-  const addToQueue = (book: Book) => {
-    // TODO: Implement addToQueue - add book to download queue
-    console.log('TODO: addToQueue', book);
+  const fetchDownloads = async (status?: string) => {
+    loading.value = true;
+    try {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      params.set('limit', '100');
+      const response = await fetch(`/api/downloads?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch downloads');
+      const data = await response.json();
+      downloads.value = data.downloads;
+      total.value = data.total;
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch downloads';
+    } finally {
+      loading.value = false;
+    }
   };
 
-  const removeFromQueue = (bookId: number) => {
-    // TODO: Implement removeFromQueue - remove book from queue
-    console.log('TODO: removeFromQueue', bookId);
-  };
-
-  const clearQueue = () => {
-    // TODO: Implement clearQueue - clear all queued downloads
-    console.log('TODO: clearQueue');
-  };
-
-  const startDownload = async () => {
-    // TODO: Implement startDownload - start downloading queued books
-    console.log('TODO: startDownload');
-  };
-
-  const pauseDownload = async () => {
-    // TODO: Implement pauseDownload - pause current download
-    console.log('TODO: pauseDownload');
-  };
-
-  const resumeDownload = async () => {
-    // TODO: Implement resumeDownload - resume paused download
-    console.log('TODO: resumeDownload');
-  };
-
-  const cancelDownload = async () => {
-    // TODO: Implement cancelDownload - cancel current download
-    console.log('TODO: cancelDownload');
-  };
-
-  const downloadToKindle = async (bookId: number, kindleDevice: string) => {
-    // TODO: Implement downloadToKindle - download book to specific kindle
-    console.log('TODO: downloadToKindle', bookId, kindleDevice);
+  const cancelDownload = async (downloadId: number) => {
+    try {
+      const response = await fetch(`/api/downloads/${downloadId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to cancel download');
+      await fetchDownloads();
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to cancel download';
+    }
   };
 
   // Computed
-  const queueLength = computed(() => queue.value.length);
+  const activeDownloads = computed(() =>
+    downloads.value.filter((d) => d.status === 'queued' || d.status === 'downloading'),
+  );
 
-  const completedCount = computed(() => completedDownloads.value.length);
+  const completedDownloads = computed(() =>
+    downloads.value.filter((d) => d.status === 'completed' || d.status === 'imported'),
+  );
 
-  const isQueueEmpty = computed(() => queue.value.length === 0);
+  const failedDownloads = computed(() => downloads.value.filter((d) => d.status === 'failed'));
 
-  const progressPercent = computed(() => downloadProgress.value);
+  const isDownloading = computed(() => downloads.value.some((d) => d.status === 'downloading'));
+
+  const queueLength = computed(() => activeDownloads.value.length);
+
+  const isQueueEmpty = computed(() => downloads.value.length === 0);
 
   return {
     // State
-    queue,
-    isDownloading,
-    currentDownload,
-    downloadProgress,
+    downloads,
+    loading,
     error,
-    completedDownloads,
+    total,
 
     // Computed
+    activeDownloads,
+    completedDownloads,
+    failedDownloads,
+    isDownloading,
     queueLength,
-    completedCount,
     isQueueEmpty,
-    progressPercent,
 
     // Actions
-    addToQueue,
-    removeFromQueue,
-    clearQueue,
-    startDownload,
-    pauseDownload,
-    resumeDownload,
+    fetchDownloads,
     cancelDownload,
-    downloadToKindle,
     clearError,
   };
 });

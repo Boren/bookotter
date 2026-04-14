@@ -29,6 +29,11 @@ const router = createRouter({
       component: () => import('../views/DownloadsView.vue'),
     },
     {
+      path: '/library',
+      name: 'library',
+      component: () => import('../views/LibraryView.vue'),
+    },
+    {
       path: '/library/books/:id',
       name: 'book-detail',
       component: () => import('../views/BookDetailView.vue'),
