@@ -2,7 +2,6 @@
 Pipeline state machine for book and download status transitions with validation.
 """
 
-
 from backend.models.book import BookStatus, DownloadStatus
 
 # Valid state transitions for books

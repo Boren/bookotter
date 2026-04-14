@@ -581,7 +581,7 @@ class TestProcessImportingBooks:
         book_id = book.id
 
         mock_imp = MagicMock()
-        mock_imp.import_epub.side_effect = IOError("Disk full")
+        mock_imp.import_epub.side_effect = OSError("Disk full")
         service = make_service(db_session, import_service=mock_imp)
         service.process_importing_books()
 

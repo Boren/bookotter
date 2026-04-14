@@ -10,7 +10,6 @@ from backend.services.epub_service import (
     EpubMetadata,
     EpubReadError,
     EpubService,
-    EpubValidationError,
     EpubWriteError,
 )
 
