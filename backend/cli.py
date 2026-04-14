@@ -15,14 +15,11 @@ import sys
 from typing import Any
 
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 from rich.table import Table
 
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
-from backend.clients.readarr_client import ReadarrClient
 from backend.config import load_config
-from backend.services.sync_service import SyncService
 
 
 class CLIRunner:
@@ -74,7 +71,6 @@ class CLIRunner:
             "failed": 0,
             "not_found": 0,
             "skipped": 0,
-            "added_to_readarr": 0,
             "cleaned_up": 0,
         }
 
@@ -130,7 +126,6 @@ class CLIRunner:
         self.logger.info("Testing connections to all services")
 
         hardcover_config = self.config.get("hardcover", {})
-        readarr_config = self.config.get("readarr", {})
 
         # Test Hardcover
         hardcover = HardcoverClient(
@@ -141,16 +136,6 @@ class CLIRunner:
             self._console_error("Failed to connect to Hardcover API")
             return (False, False)
         self._console_success("Connected to Hardcover")
-
-        # Test Readarr
-        readarr = ReadarrClient(
-            api_key=readarr_config.get("api_key", ""),
-            base_url=readarr_config.get("base_url", "http://localhost:8787"),
-        )
-        if not readarr.test_connection():
-            self._console_error("Failed to connect to Readarr API")
-            return (False, False)
-        self._console_success("Connected to Readarr")
 
         # Test Kindle SSH
         if not skip_kindle:
@@ -213,9 +198,6 @@ class CLIRunner:
                 self.stats["not_found"] += 1
             elif status == "matched_no_files":
                 self.console.print(f"   [yellow]⚠[/yellow] No EPUB files: {title}")
-            elif status == "added_to_readarr":
-                self.console.print(f"   [blue]📥[/blue] Added to Readarr: {title}")
-                self.stats["added_to_readarr"] += 1
             elif status == "add_failed":
                 self.console.print(f"   [red]✗[/red] Failed to add: {title}")
             elif status == "transferred":
@@ -276,10 +258,8 @@ class CLIRunner:
         self.logger.info("=" * 80)
         self.logger.info(f"Synced statuses:               {status_str}")
         self.logger.info(f"Total books fetched:           {self.stats['total_books']}")
-        self.logger.info(f"Books found in Readarr:        {self.stats['matched']}")
+        self.logger.info(f"Books matched:                 {self.stats['matched']}")
         self.logger.info(f"Books not found:               {self.stats['not_found']}")
-        if self.stats.get("added_to_readarr", 0) > 0:
-            self.logger.info(f"Added to Readarr:              {self.stats['added_to_readarr']}")
         self.logger.info(f"Successfully transferred:      {self.stats['transferred']}")
         self.logger.info(f"Skipped (already on Kindle):   {self.stats['skipped']}")
         self.logger.info(f"Transfer failures:             {self.stats['failed']}")
@@ -298,13 +278,10 @@ class CLIRunner:
 
         table.add_row("Synced statuses", status_str)
         table.add_row("Total books", str(self.stats["total_books"]))
-        table.add_row("Matched in Readarr", f"[green]{self.stats['matched']}[/green]")
+        table.add_row("Matched", f"[green]{self.stats['matched']}[/green]")
         table.add_row(
             "Not found", f"[yellow]{self.stats['not_found']}[/yellow]" if self.stats["not_found"] > 0 else "0"
         )
-
-        if self.stats.get("added_to_readarr", 0) > 0:
-            table.add_row("Added to Readarr", f"[blue]{self.stats['added_to_readarr']}[/blue]")
 
         table.add_row("Successfully transferred", f"[green]{self.stats['transferred']}[/green]")
         table.add_row(
@@ -344,36 +321,10 @@ class CLIRunner:
                     self.logger.error("Connection tests failed. Please check your configuration.")
                     sys.exit(1)
 
-            # Create sync service with event callback
-            sync_service = SyncService(event_callback=self._handle_event)
-
-            # Override dry_run if specified
-            if dry_run:
-                self.config.setdefault("transfer", {})["dry_run"] = True
-
-            # Run sync with progress bar
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                TextColumn("•"),
-                TextColumn("[cyan]{task.fields[current_book]}"),
-                console=self.console,
-                transient=False,
-            ) as progress:
-                self._progress = progress
-                self._task_id = progress.add_task(
-                    "[cyan]Processing books...",
-                    total=100,  # Will be updated when books_fetched event arrives
-                    current_book="",
-                )
-
-                # Run the sync
-                await sync_service.run_sync(dry_run=dry_run, trigger_type="cli")
-
-            # Print summary
-            self.print_summary()
+            self._console_info("CLI sync is no longer supported. Use the web UI or API instead.")
+            self._console_info("  Hardcover sync: POST /api/sync/hardcover")
+            self._console_info("  Kindle sync:    POST /api/sync/kindle")
+            sys.exit(0)
 
         except KeyboardInterrupt:
             self.logger.info("\nProcess interrupted by user")
@@ -386,7 +337,7 @@ class CLIRunner:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Sync Hardcover 'want to read' books to Kindle via Readarr")
+    parser = argparse.ArgumentParser(description="Sync Hardcover 'want to read' books to Kindle")
     parser.add_argument("--config", default="config.yaml", help="Path to configuration file (default: config.yaml)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate transfers without actually copying files")
     parser.add_argument("--skip-kindle-test", action="store_true", help="Skip Kindle SSH connection test")

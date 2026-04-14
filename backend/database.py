@@ -38,6 +38,6 @@ def get_db():
 
 def init_db():
     """Create all database tables."""
-    from backend.models import book, sync_run  # noqa: F401 - Import models to register them
+    from backend.models import book  # noqa: F401 - Import models to register them
 
     Base.metadata.create_all(bind=engine)

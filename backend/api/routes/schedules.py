@@ -49,7 +49,6 @@ def schedule_to_response(schedule: dict) -> dict:
         "kindle_device": schedule.get("kindle_device"),
         "dry_run": schedule.get("dry_run", False),
         "next_run_at": next_run.isoformat() if next_run else None,
-        # last_run_at could be derived from SyncRun history if needed
         "last_run_at": None,
     }
 
@@ -107,17 +106,17 @@ async def create_schedule(body: ScheduleCreate):
 
     # Register with scheduler
     try:
-        from backend.services.sync_service import run_scheduled_sync
+        from backend.api.routes.sync import _run_kindle_sync_background
 
         scheduler.add_sync_job(
             job_id=f"schedule_{schedule_id}",
             cron_expression=body.cron_expression,
-            sync_func=run_scheduled_sync,
+            sync_func=_run_kindle_sync_background,
             kindle_device=body.kindle_device,
             dry_run=body.dry_run,
         )
     except ImportError:
-        pass  # Sync service not available
+        pass
 
     return {"success": True, "schedule": schedule_to_response(schedule)}
 
@@ -141,12 +140,12 @@ async def update_schedule_route(schedule_id: str, body: ScheduleUpdate):
     job_id = f"schedule_{schedule_id}"
     if updated.get("enabled", True):
         try:
-            from backend.services.sync_service import run_scheduled_sync
+            from backend.api.routes.sync import _run_kindle_sync_background
 
             scheduler.add_sync_job(
                 job_id=job_id,
                 cron_expression=updated["cron_expression"],
-                sync_func=run_scheduled_sync,
+                sync_func=_run_kindle_sync_background,
                 kindle_device=updated.get("kindle_device"),
                 dry_run=updated.get("dry_run", False),
             )
@@ -185,12 +184,12 @@ async def toggle_schedule(schedule_id: str):
     job_id = f"schedule_{schedule_id}"
     if new_enabled:
         try:
-            from backend.services.sync_service import run_scheduled_sync
+            from backend.api.routes.sync import _run_kindle_sync_background
 
             scheduler.add_sync_job(
                 job_id=job_id,
                 cron_expression=updated["cron_expression"],
-                sync_func=run_scheduled_sync,
+                sync_func=_run_kindle_sync_background,
                 kindle_device=updated.get("kindle_device"),
                 dry_run=updated.get("dry_run", False),
             )

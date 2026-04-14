@@ -96,15 +96,6 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduler started")
 
-    # Load schedules from config.yaml
-    try:
-        from backend.services.sync_service import run_scheduled_sync
-
-        loaded = scheduler.load_schedules_from_config(run_scheduled_sync)
-        logger.info(f"Loaded {loaded} schedule(s) from config.yaml")
-    except Exception as e:
-        logger.error(f"Failed to load schedules from config: {e}")
-
     pipeline = None
     app_config = load_config()
 
@@ -197,7 +188,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title=__app_name__,
-    description="Sync books from Hardcover reading lists to Kindle via Readarr",
+    description="Sync books from Hardcover reading lists to Kindle",
     version=__version__,
     lifespan=lifespan,
 )

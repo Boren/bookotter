@@ -142,15 +142,6 @@ def get_default_config() -> dict:
             "api_token": "",
             "api_url": "https://api.hardcover.app/v1/graphql",
         },
-        "readarr": {
-            "api_key": "",
-            "base_url": "http://localhost:8787",
-            "path_mappings": [],
-            "auto_add": {
-                "enabled": False,
-                "search_immediately": True,
-            },
-        },
         "prowlarr": {
             "api_key": "",
             "base_url": "http://localhost:9696",

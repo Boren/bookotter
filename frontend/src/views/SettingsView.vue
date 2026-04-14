@@ -79,12 +79,6 @@ const testConnection = async (service: string, kindleId?: string) => {
         api_token: config.value?.hardcover?.api_token,
         api_url: config.value?.hardcover?.api_url
       }
-    } else if (service === 'readarr') {
-      url = '/api/config/test/readarr'
-      body = {
-        api_key: config.value?.readarr?.api_key,
-        base_url: config.value?.readarr?.base_url
-      }
     } else if (service === 'prowlarr') {
       url = '/prowlarr/test'
     } else if (service === 'qbittorrent') {
@@ -313,63 +307,6 @@ onMounted(() => {
           <div>
             <label class="label">API URL</label>
             <input v-model="config.hardcover.api_url" type="text" class="input" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Readarr Settings -->
-      <div class="card">
-        <div class="flex items-center justify-between mb-6">
-          <div class="flex items-center gap-3">
-            <div class="icon-container">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
-              </svg>
-            </div>
-            <div>
-              <h2 class="text-lg font-display font-semibold text-stone-900">Readarr</h2>
-              <p class="text-sm text-stone-500">Your book library manager</p>
-            </div>
-          </div>
-          <button
-            @click="testConnection('readarr')"
-            :disabled="testingService === 'readarr'"
-            class="btn btn-secondary"
-          >
-            <svg v-if="testingService === 'readarr'" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-            </svg>
-            <span v-else>Test Connection</span>
-          </button>
-        </div>
-
-        <div v-if="testResults.readarr" class="mb-6 p-4 rounded-xl animate-fade-in" :class="testResults.readarr.success ? 'bg-success-50 border border-success-100' : 'bg-error-50 border border-error-100'">
-          <p class="text-sm font-medium" :class="testResults.readarr.success ? 'text-success-700' : 'text-error-700'">
-            {{ testResults.readarr.success ? testResults.readarr.message : testResults.readarr.error }}
-          </p>
-        </div>
-
-        <div class="space-y-4">
-          <div>
-            <label class="label">Base URL</label>
-            <input v-model="config.readarr.base_url" type="text" class="input" placeholder="http://localhost:8787" />
-          </div>
-          <div>
-            <label class="label">API Key</label>
-            <input v-model="config.readarr.api_key" type="password" class="input" />
-          </div>
-          <div>
-            <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
-              <input type="checkbox" v-model="config.readarr.auto_add.enabled" class="sr-only peer" />
-              <div class="toggle" :class="config.readarr.auto_add.enabled ? 'toggle-on' : 'toggle-off'">
-                <span class="toggle-knob"></span>
-              </div>
-              <div>
-                <span class="text-sm font-medium text-stone-700">Auto-add missing books</span>
-                <p class="text-xs text-stone-500">Automatically add books to Readarr when found</p>
-              </div>
-            </label>
           </div>
         </div>
       </div>
@@ -689,7 +626,7 @@ onMounted(() => {
           </div>
           <div>
             <h2 class="text-lg font-display font-semibold text-stone-900">Matching</h2>
-            <p class="text-sm text-stone-500">How books are matched in Readarr</p>
+            <p class="text-sm text-stone-500">How books are matched</p>
           </div>
         </div>
         <div class="space-y-4">

@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
-from backend.clients.readarr_client import ReadarrClient
 from backend.config import load_config, mask_sensitive_data, update_config
 
 router = APIRouter()
@@ -35,13 +34,6 @@ class HardcoverTestRequest(BaseModel):
 
     api_token: str | None = None
     api_url: str | None = None
-
-
-class ReadarrTestRequest(BaseModel):
-    """Request body for testing Readarr connection with UI values."""
-
-    api_key: str | None = None
-    base_url: str | None = None
 
 
 @router.get("")
@@ -86,36 +78,6 @@ async def test_hardcover_connection(request: HardcoverTestRequest = None) -> Con
         client = HardcoverClient(
             api_token=api_token,
             api_url=api_url,
-        )
-
-        result = client.test_connection()
-        return ConnectionTestResult(
-            success=result.get("success", False),
-            message=result.get("message"),
-            error=result.get("error"),
-        )
-
-    except Exception as e:
-        return ConnectionTestResult(success=False, error=str(e))
-
-
-@router.post("/test/readarr")
-async def test_readarr_connection(request: ReadarrTestRequest = None) -> ConnectionTestResult:
-    """Test connection to Readarr API using provided or saved credentials."""
-    config = load_config()
-    readarr_config = config.get("readarr", {})
-
-    # Use request values if provided, otherwise fall back to saved config
-    api_key = (request.api_key if request else None) or readarr_config.get("api_key")
-    base_url = (request.base_url if request else None) or readarr_config.get("base_url", "http://localhost:8787")
-
-    if not api_key:
-        return ConnectionTestResult(success=False, error="API key not configured")
-
-    try:
-        client = ReadarrClient(
-            api_key=api_key,
-            base_url=base_url,
         )
 
         result = client.test_connection()
