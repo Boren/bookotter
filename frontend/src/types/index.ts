@@ -8,7 +8,14 @@ export interface Author {
   created_at: string;
 }
 
-export type BookStatus = 'wanted' | 'searching' | 'grabbed' | 'downloading' | 'importing' | 'in_library' | 'failed';
+export type BookStatus =
+  | 'wanted'
+  | 'searching'
+  | 'grabbed'
+  | 'downloading'
+  | 'importing'
+  | 'in_library'
+  | 'failed';
 
 export interface Book {
   id: number;
@@ -45,7 +52,13 @@ export interface RootFolder {
   created_at: string;
 }
 
-export type DownloadStatus = 'queued' | 'downloading' | 'completed' | 'importing' | 'imported' | 'failed';
+export type DownloadStatus =
+  | 'queued'
+  | 'downloading'
+  | 'completed'
+  | 'importing'
+  | 'imported'
+  | 'failed';
 
 export interface DownloadBook {
   id: number;

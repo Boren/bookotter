@@ -8,7 +8,11 @@ export const useSyncStore = defineStore('sync', () => {
   const error = ref<string | null>(null);
 
   // Pipeline state
-  const pipelineStats = ref<{ total: number; by_status: Record<string, number>; total_size: number } | null>(null);
+  const pipelineStats = ref<{
+    total: number;
+    by_status: Record<string, number>;
+    total_size: number;
+  } | null>(null);
   const recentBooks = ref<Book[]>([]);
   const hardcoverSyncing = ref(false);
   const kindleSyncing = ref(false);

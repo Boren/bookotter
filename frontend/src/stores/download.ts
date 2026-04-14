@@ -45,11 +45,11 @@ export const useDownloadStore = defineStore('download', () => {
 
   // Computed
   const activeDownloads = computed(() =>
-    downloads.value.filter((d) => d.status === 'queued' || d.status === 'downloading'),
+    downloads.value.filter((d) => d.status === 'queued' || d.status === 'downloading')
   );
 
   const completedDownloads = computed(() =>
-    downloads.value.filter((d) => d.status === 'completed' || d.status === 'imported'),
+    downloads.value.filter((d) => d.status === 'completed' || d.status === 'imported')
   );
 
   const failedDownloads = computed(() => downloads.value.filter((d) => d.status === 'failed'));
