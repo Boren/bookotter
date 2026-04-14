@@ -5,18 +5,17 @@ hardcover:
   api_token: "Bearer YOUR_API_TOKEN_HERE"  # Get from https://hardcover.app/account/api
   api_url: "https://api.hardcover.app/v1/graphql"
 
-# Readarr API Settings
-readarr:
-  api_key: "YOUR_READARR_API_KEY"  # Get from Settings → General → Security
-  base_url: "http://localhost:8787"  # Your Readarr instance URL
-  # Path mappings for when Readarr is running in Docker/container
-  path_mappings:
-    - readarr_path: "/data/"  # Path as seen by Readarr (inside container)
-      local_path: "/path/to/books/"  # Actual path on host machine
-  # Auto-add missing books to Readarr
-  auto_add:
-    enabled: false  # Set to true to automatically add books from "want to read" list to Readarr
-    search_immediately: true  # Trigger automatic search after adding book
+# Prowlarr (Search Indexer)
+prowlarr:
+  api_key: ""                    # Prowlarr API key
+  base_url: "http://localhost:9696"  # Prowlarr URL
+
+# qBittorrent (Download Client)
+qbittorrent:
+  base_url: "http://localhost:8080"  # qBittorrent Web UI URL
+  username: "admin"
+  password: ""                    # qBittorrent Web UI password
+  category: "books"              # Torrent category for BookOtter downloads
 
 # Kindle Devices (supports multiple Kindles)
 kindles:
@@ -33,6 +32,28 @@ kindles:
   #   name: "Backup Kindle"
   #   hostname: "kindle-2.tailnet.ts.net"
   #   ...
+
+# Library Settings
+library:
+  root_folders: []               # Managed via web UI
+  download_path: ""              # Display only — qBittorrent manages actual paths
+
+# Pipeline (Automation)
+pipeline:
+  enabled: true
+  search_on_add: true            # Auto-search Prowlarr when book added
+  import_on_complete: true       # Auto-import when download completes
+  kindle_sync_on_import: true    # Auto-sync to Kindle after import
+  status_actions:
+    want_to_read:
+      download: true
+      kindle_sync: true
+    currently_reading:
+      download: true
+      kindle_sync: true
+    read:
+      download: true
+      kindle_sync: false
 
 # Matching Settings
 matching:

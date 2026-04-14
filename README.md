@@ -4,23 +4,23 @@
 
 # BookOtter
 
-Automatically transfer books from your Readarr library to your Kindle based on your Hardcover reading lists.
+Self-hosted book management platform — automatically search, download, and manage your ebook library from your Hardcover reading lists.
 
 ## Features
 
+- **Full Book Pipeline**: Hardcover sync → Prowlarr search → qBittorrent download → EPUB import with metadata → Kindle sync
+- **Library Browser**: Browse your book collection with cover images, filtering, and sorting
+- **Search Page**: Search for books via Prowlarr indexers and grab results for download
+- **Download Queue**: Real-time download progress tracking via qBittorrent
+- **Book Detail & Metadata Editor**: Edit title, author, series, and other metadata per book
+- **EPUB Metadata Writing**: Automatically writes title, author, and series info into EPUB files
+- **Folder Organization**: Configurable library structure — flat, by author, by series, or by author/series
+- **Pipeline Automation**: Configurable status → action mapping (e.g., "want to read" triggers search + download + Kindle sync)
+- **Multi-Kindle Support**: Configure multiple Kindle devices and choose which to sync to
+- **Scheduled Syncs**: Configure cron-like schedules via the web UI
+- **Real-time Progress**: Live WebSocket updates during operations
 - **Web Interface**: Modern Vue 3 dashboard for configuration, scheduling, and monitoring
 - **Docker Support**: Run in a container with easy deployment
-- **Scheduled Syncs**: Configure cron-like schedules via the web UI
-- **Multi-Kindle Support**: Configure multiple Kindle devices and choose which to sync to
-- **Real-time Progress**: Live WebSocket updates during sync operations
-- **Sync History**: View past syncs and per-book results
-- Fetches books from Hardcover API with configurable reading statuses:
-  - "Want to Read" (default)
-  - "Currently Reading" (optional)
-  - "Read" (optional)
-- Matches books with your Readarr library using ISBN or fuzzy title/author matching
-- Transfers EPUB files to your Kindle via SSH (over Tailscale)
-- Skip books already on your Kindle
 - Comprehensive logging and error handling
 - Dry-run mode for testing
 
@@ -28,7 +28,8 @@ Automatically transfer books from your Readarr library to your Kindle based on y
 
 - Docker (recommended) or Python 3.11+
 - Hardcover account with API token
-- Readarr instance with API access
+- Prowlarr instance for book search
+- qBittorrent instance for downloads
 - Kindle with SSH access (jailbroken) connected via Tailscale
 
 ### Kindle Setup
@@ -88,8 +89,8 @@ services:
       # Persistent data (config, database, logs)
       - ./data:/app/data
 
-      # Book files from Readarr - adjust to match your setup
-      - /mnt/user/media/books:/books:ro
+      # Book library (organized EPUBs)
+      - ./library:/app/library
 
       # SSH keys for Kindle access
       - ~/.ssh:/root/.ssh:ro
@@ -103,36 +104,33 @@ services:
 | Mount | Purpose |
 |-------|---------|
 | `./data:/app/data` | Config file, SQLite database, and logs |
-| `/path/to/books:/books:ro` | Book files from Readarr (read-only) |
+| `./library:/app/library` | Book library — organized EPUBs managed by BookOtter |
 | `~/.ssh:/root/.ssh:ro` | SSH keys for Kindle access |
-
-### Path Mappings
-
-Since your books are mounted differently in Docker vs Readarr, configure path mappings in `config.yaml`:
-
-```yaml
-readarr:
-  path_mappings:
-    - readarr_path: "/data/"        # Path as Readarr sees it
-      local_path: "/books/"          # Path in BookOtter container
-```
 
 ## Web Interface
 
 The web UI provides:
 
-### Dashboard
-- Start/stop syncs manually
-- Select target Kindle device
-- Choose which book statuses to sync
-- View real-time progress with WebSocket updates
-- See latest sync statistics
+### Library
+- Browse your book collection with cover images
+- Filter by status, author, series
+- Sort by title, date added, author
+- View book details and edit metadata
 
-### History
-- View all past sync runs
-- See per-book results (transferred, skipped, not found, failed)
-- Filter by status
-- Delete old sync records
+### Search
+- Search for books via Prowlarr indexers
+- View search results with size, seeders, indexer info
+- Grab results to start downloading via qBittorrent
+
+### Downloads
+- View active download queue with real-time progress
+- Cancel downloads
+- Live speed and ETA from qBittorrent
+
+### Dashboard
+- Trigger Hardcover sync and Kindle sync manually
+- View real-time progress with WebSocket updates
+- See library statistics
 
 ### Schedule
 - Create cron-like schedules
@@ -142,10 +140,11 @@ The web UI provides:
 
 ### Settings
 - Configure Hardcover API token
-- Configure Readarr connection
+- Configure Prowlarr and qBittorrent connections
 - Manage multiple Kindle devices
+- Manage root folders for library organization
 - Test all connections
-- Configure matching thresholds
+- Configure pipeline automation
 
 ### Logs
 - View application logs in real-time
@@ -197,16 +196,17 @@ hardcover:
   api_token: "YOUR_API_TOKEN"  # From https://hardcover.app/account/api
   api_url: "https://api.hardcover.app/v1/graphql"
 
-# Readarr API Settings
-readarr:
-  api_key: "YOUR_READARR_API_KEY"
-  base_url: "http://readarr:8787"  # Or your Readarr URL
-  path_mappings:
-    - readarr_path: "/data/"
-      local_path: "/books/"
-  auto_add:
-    enabled: false
-    search_immediately: true
+# Prowlarr (Search Indexer)
+prowlarr:
+  api_key: "YOUR_PROWLARR_API_KEY"
+  base_url: "http://localhost:9696"
+
+# qBittorrent (Download Client)
+qbittorrent:
+  base_url: "http://localhost:8080"
+  username: "admin"
+  password: "YOUR_QBITTORRENT_PASSWORD"
+  category: "books"
 
 # Kindle Devices (multiple supported)
 kindles:
@@ -222,6 +222,28 @@ kindles:
     name: "Backup Kindle"
     hostname: "kindle2.tailnet"
     # ...
+
+# Library Settings
+library:
+  root_folders: []          # Managed via web UI
+  download_path: ""         # Display only — qBittorrent manages actual paths
+
+# Pipeline (Automation)
+pipeline:
+  enabled: true
+  search_on_add: true       # Auto-search when book added
+  import_on_complete: true  # Auto-import when download completes
+  kindle_sync_on_import: true  # Auto-sync to Kindle after import
+  status_actions:
+    want_to_read:
+      download: true
+      kindle_sync: true
+    currently_reading:
+      download: true
+      kindle_sync: true
+    read:
+      download: true
+      kindle_sync: false
 
 # Matching Settings
 matching:
@@ -240,6 +262,7 @@ sync:
 transfer:
   dry_run: false
   skip_existing: true
+  folder_organization: "flat"  # flat, author, series, author_series
 
 # Logging Settings
 logging:
@@ -248,6 +271,28 @@ logging:
   console_output: true
 ```
 
+### Pipeline Configuration
+
+The pipeline automates the full book lifecycle. When a Hardcover sync finds books matching configured statuses, the pipeline can automatically:
+
+1. **Search** Prowlarr for available downloads
+2. **Download** via qBittorrent with the configured category
+3. **Import** completed downloads into the library with EPUB metadata
+4. **Sync** imported books to your Kindle
+
+Control which statuses trigger which actions via `pipeline.status_actions`. For example, you might want "read" books downloaded for your library but not automatically sent to Kindle.
+
+### Folder Organization
+
+The `transfer.folder_organization` setting controls how books are organized in your library and on Kindle:
+
+| Mode | Structure |
+|------|-----------|
+| `flat` | All books in root folder |
+| `author` | `Author Name/book.epub` |
+| `series` | `Series Name/book.epub` |
+| `author_series` | `Author Name/Series Name/book.epub` |
+
 ## API Endpoints
 
 The web server exposes a REST API:
@@ -255,17 +300,28 @@ The web server exposes a REST API:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/health` | GET | Health check |
-| `/api/sync/start` | POST | Start a sync |
-| `/api/sync/stop` | POST | Cancel running sync |
+| `/api/library/books` | GET | List books with filtering/pagination |
+| `/api/library/books/{id}` | GET | Get book details |
+| `/api/library/books` | POST | Add a book |
+| `/api/library/books/{id}` | PUT | Update book metadata |
+| `/api/library/books/{id}` | DELETE | Delete a book |
+| `/api/search` | GET | Search Prowlarr indexers |
+| `/api/search/grab` | POST | Grab a search result for download |
+| `/api/search/auto/{book_id}` | POST | Auto-search for a book |
+| `/api/downloads` | GET | List active downloads |
+| `/api/downloads/{id}` | DELETE | Cancel a download |
+| `/api/root-folders` | GET/POST | Root folder management |
 | `/api/sync/status` | GET | Get sync status |
-| `/api/sync/runs` | GET | List sync history |
-| `/api/sync/runs/{id}` | GET | Get sync run details |
+| `/api/sync/hardcover` | POST | Trigger Hardcover sync |
+| `/api/sync/kindle` | POST | Trigger Kindle sync |
+| `/prowlarr/test` | POST | Test Prowlarr connection |
+| `/qbittorrent/test` | POST | Test qBittorrent connection |
+| `/prowlarr/indexers` | GET | List Prowlarr indexers |
 | `/api/config` | GET/PUT | Configuration management |
-| `/api/config/test/{service}` | POST | Test connection |
 | `/api/kindles` | GET/POST | Kindle management |
 | `/api/schedules` | GET/POST | Schedule management |
 | `/api/logs` | GET | Get log entries |
-| `/api/ws` | WebSocket | Real-time sync events |
+| `/api/ws` | WebSocket | Real-time events |
 
 ## Development
 
@@ -305,13 +361,32 @@ bookotter/
 │   ├── main.py              # FastAPI app
 │   ├── config.py            # Configuration management
 │   ├── database.py          # SQLAlchemy setup
-│   ├── models/              # Database models
+│   ├── models/              # Database models (books, downloads, etc.)
 │   ├── api/routes/          # API endpoints
+│   │   ├── library.py       # Book CRUD and browsing
+│   │   ├── search.py        # Prowlarr search and grab
+│   │   ├── downloads.py     # Download queue
+│   │   ├── sync.py          # Hardcover and Kindle sync
+│   │   ├── services.py      # Connection tests (Prowlarr, qBittorrent)
+│   │   ├── root_folders.py  # Root folder management
+│   │   └── ...              # config, kindles, schedules, logs
 │   ├── services/            # Business logic
-│   └── clients/             # API clients
+│   │   ├── pipeline_service.py      # Full automation pipeline
+│   │   ├── pipeline_states.py       # Book state machine
+│   │   ├── hardcover_sync_service.py # Hardcover sync
+│   │   ├── search_service.py        # Search orchestration
+│   │   ├── download_service.py      # Download management
+│   │   ├── import_service.py        # EPUB import with metadata
+│   │   ├── epub_service.py          # EPUB metadata read/write
+│   │   └── ...              # scheduler, websocket manager
+│   └── clients/             # External service clients
+│       ├── hardcover_client.py    # Hardcover GraphQL API
+│       ├── prowlarr_client.py     # Prowlarr REST API
+│       ├── qbittorrent_client.py  # qBittorrent Web API
+│       └── kindle_client.py       # Kindle SSH/SFTP
 ├── frontend/
 │   ├── src/
-│   │   ├── views/           # Vue components
+│   │   ├── views/           # Vue page components
 │   │   ├── stores/          # Pinia stores
 │   │   └── router/          # Vue Router
 │   └── package.json
@@ -321,7 +396,7 @@ bookotter/
 │   └── bookotter.log
 ├── Dockerfile
 ├── docker-compose.yml
-└── requirements.txt
+└── config.yaml.example
 ```
 
 ## Development Workflow
@@ -377,13 +452,23 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 
 ### "Connection test failed"
 - Verify your API tokens and keys are correct
-- Check that Readarr is running and accessible from the container
+- Check that Prowlarr and qBittorrent are running and accessible from the container
 - Ensure your Kindle is connected via Tailscale and SSH is enabled
 
-### "No books found in Readarr"
-- Books may be using different editions with different ISBNs
-- Try lowering the `fuzzy_threshold` in settings
-- Check if books are actually in your Readarr library
+### "Prowlarr search returned no results"
+- Verify your Prowlarr instance has book indexers configured
+- Test the search directly in Prowlarr's web UI to confirm indexers work
+- Check that the Prowlarr API key is correct in settings
+
+### "qBittorrent connection failed"
+- Verify qBittorrent Web UI is enabled (Options → Web UI)
+- Check username and password are correct
+- If running in Docker, ensure BookOtter can reach qBittorrent's network address
+
+### "EPUB import failed"
+- Ensure the downloaded file is a valid EPUB
+- Check that the library root folder exists and is writable
+- Verify volume mounts in Docker are correct
 
 ### "Transfer failed"
 - Verify SSH credentials are correct
@@ -392,16 +477,17 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 - Verify you have enough space on Kindle
 
 ### Docker networking issues
-- Ensure BookOtter can reach your Readarr instance
+- Ensure BookOtter can reach Prowlarr and qBittorrent instances
 - If using container names, ensure they're on the same Docker network
 - Use host IP or hostname accessible from the container
 
 ## Security Notes
 
-- Keep your `config.yaml` private (contains API keys)
-- Use SSH keys instead of passwords when possible
+- Keep your `config.yaml` private — it contains API keys and passwords
+- Prowlarr API key and qBittorrent password are stored in plain text in the config file
+- Use SSH keys instead of passwords for Kindle connections when possible
 - Hardcover API tokens expire January 1st each year
-- The web UI has no authentication - run behind a reverse proxy or VPN
+- The web UI has no authentication — run behind a reverse proxy or VPN
 - Never commit `config.yaml` to version control
 
 ### SSH Host Key Verification
@@ -419,5 +505,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [Hardcover](https://hardcover.app) - Book tracking platform
-- [Readarr](https://readarr.com) - Book collection manager
+- [Prowlarr](https://prowlarr.com) - Indexer manager/proxy
+- [qBittorrent](https://www.qbittorrent.org) - BitTorrent client
 - [Tailscale](https://tailscale.com) - Secure network connectivity
