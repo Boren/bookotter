@@ -105,9 +105,91 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to load schedules from config: {e}")
 
+    pipeline = None
+    app_config = load_config()
+
+    try:
+        prowlarr_config = app_config.get("prowlarr", {})
+        qbt_config = app_config.get("qbittorrent", {})
+
+        if prowlarr_config.get("api_key") and qbt_config.get("password"):
+            from backend.clients.prowlarr_client import ProwlarrClient
+            from backend.clients.qbittorrent_client import QBittorrentClient
+            from backend.database import SessionLocal
+            from backend.services.download_service import DownloadService
+            from backend.services.epub_service import EpubService
+            from backend.services.import_service import ImportService
+            from backend.services.pipeline_service import PipelineService
+            from backend.services.search_service import SearchService
+
+            prowlarr = ProwlarrClient(
+                api_key=prowlarr_config["api_key"],
+                base_url=prowlarr_config.get("base_url", "http://localhost:9696"),
+            )
+            qbt = QBittorrentClient(
+                username=qbt_config.get("username", "admin"),
+                password=qbt_config["password"],
+                base_url=qbt_config.get("base_url", "http://localhost:8080"),
+            )
+            epub_service = EpubService()
+            search_service = SearchService(prowlarr)
+            download_service = DownloadService(qbt, SessionLocal)
+            import_service = ImportService(db=SessionLocal(), epub_service=epub_service)
+
+            pipeline = PipelineService(
+                search_service=search_service,
+                download_service=download_service,
+                import_service=import_service,
+            )
+            pipeline.start_monitoring()
+            logger.info("Pipeline monitoring started")
+        else:
+            logger.info("Pipeline not started: Prowlarr/qBittorrent not fully configured")
+    except Exception as e:
+        logger.error(f"Failed to start pipeline monitoring: {e}")
+
+    try:
+        hc_config = app_config.get("hardcover", {})
+        if hc_config.get("api_token"):
+            from apscheduler.triggers.interval import IntervalTrigger
+
+            from backend.clients.hardcover_client import HardcoverClient
+            from backend.database import SessionLocal
+            from backend.services.hardcover_sync_service import HardcoverSyncService
+
+            def _scheduled_hardcover_sync():
+                config = load_config()
+                client = HardcoverClient(
+                    api_token=config["hardcover"]["api_token"],
+                    api_url=config["hardcover"].get("api_url", "https://api.hardcover.app/v1/graphql"),
+                )
+                service = HardcoverSyncService(hardcover_client=client, config=config)
+                db = SessionLocal()
+                try:
+                    result = service.sync_hardcover_lists(db)
+                    logger.info(f"Scheduled Hardcover sync result: {result}")
+                finally:
+                    db.close()
+
+            scheduler.scheduler.add_job(
+                _scheduled_hardcover_sync,
+                trigger=IntervalTrigger(minutes=30),
+                id="hardcover_poller",
+                name="Hardcover list poller",
+                replace_existing=True,
+            )
+            logger.info("Hardcover poller registered (every 30 minutes)")
+        else:
+            logger.info("Hardcover poller not started: API token not configured")
+    except Exception as e:
+        logger.error(f"Failed to register Hardcover poller: {e}")
+
     yield
 
-    # Shutdown
+    if pipeline:
+        pipeline.stop_monitoring()
+        logger.info("Pipeline monitoring stopped")
+
     scheduler.shutdown()
     logger.info("Scheduler stopped")
 
