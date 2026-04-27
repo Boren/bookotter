@@ -40,17 +40,22 @@ class HardcoverSyncService:
         self.emit_callback = emit_callback
 
     def sync_hardcover_lists(self, db: Session) -> dict:
-        """Poll Hardcover for books with download-enabled statuses and add new ones to the DB."""
-        status_actions = self.config.get("pipeline", {}).get("status_actions", {})
+        """Poll Hardcover for books with enabled statuses and add new ones to the DB."""
+        # `sync.include_statuses` is the UI-controlled toggle for which statuses to fetch.
+        # `pipeline.status_actions` controls per-status downstream actions (download /
+        # kindle_sync), not whether a status is fetched from Hardcover in the first place.
+        sync_config = self.config.get("sync", {}).get("include_statuses", {})
 
-        status_ids = [
-            HARDCOVER_STATUS_MAP[key]
-            for key, actions in status_actions.items()
-            if actions.get("download") and key in HARDCOVER_STATUS_MAP
-        ]
+        status_ids: list[int] = []
+        if sync_config.get("currently_reading", False):
+            status_ids.append(HARDCOVER_STATUS_MAP["currently_reading"])
+        if sync_config.get("want_to_read", True):  # default True matches get_default_config()
+            status_ids.append(HARDCOVER_STATUS_MAP["want_to_read"])
+        if sync_config.get("read", False):
+            status_ids.append(HARDCOVER_STATUS_MAP["read"])
 
         if not status_ids:
-            logger.info("No Hardcover statuses configured for download, skipping sync")
+            logger.info("No Hardcover statuses enabled in sync.include_statuses, skipping sync")
             return {"new_books": 0, "existing_skipped": 0, "errors": 0}
 
         logger.info(f"Syncing Hardcover lists for status IDs: {status_ids}")
