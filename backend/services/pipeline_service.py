@@ -269,7 +269,9 @@ class PipelineService:
 
         results = self.search_service.search_book(book.title, author_name)
         if not results:
-            logger.info(f"No EPUB results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})")
+            logger.info(
+                f"No EPUB results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
+            )
             # Return book to WANTED state for retry on next pipeline cycle
             if not transition_book(book, BookStatus.WANTED):
                 logger.warning(f"Could not transition '{book.title}' back to WANTED, leaving in current state")
