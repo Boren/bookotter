@@ -43,6 +43,35 @@ export const useDownloadStore = defineStore('download', () => {
     }
   };
 
+  const handleWebSocketMessage = (message: { event: string; data: unknown }) => {
+    if (message.event === 'download_started') {
+      // Refresh downloads list when a new download starts
+      fetchDownloads();
+    } else if (message.event === 'download_progress') {
+      // Update progress for a specific download
+      const data = message.data as {
+        download_id?: number;
+        progress?: number;
+        download_speed?: number;
+        eta?: number;
+      };
+      if (data.download_id) {
+        const idx = downloads.value.findIndex((d) => d.id === data.download_id);
+        if (idx !== -1) {
+          downloads.value[idx] = {
+            ...downloads.value[idx],
+            progress: data.progress ?? downloads.value[idx].progress,
+            download_speed: data.download_speed ?? downloads.value[idx].download_speed,
+            eta: data.eta ?? downloads.value[idx].eta,
+          };
+        }
+      }
+    } else if (message.event === 'download_completed' || message.event === 'import_completed') {
+      // Refresh downloads list when a download completes or import finishes
+      fetchDownloads();
+    }
+  };
+
   // Computed
   const activeDownloads = computed(() =>
     downloads.value.filter((d) => d.status === 'queued' || d.status === 'downloading')
@@ -79,5 +108,6 @@ export const useDownloadStore = defineStore('download', () => {
     fetchDownloads,
     cancelDownload,
     clearError,
+    handleWebSocketMessage,
   };
 });

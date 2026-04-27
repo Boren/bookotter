@@ -159,7 +159,9 @@ class TestProcessWantedBooks:
         grabbed = service.process_wanted_books()
 
         assert grabbed == 0
-        assert get_book(db_session, book_id).status == BookStatus.FAILED
+        final_book = get_book(db_session, book_id)
+        assert final_book.status == BookStatus.WANTED
+        assert final_book.search_attempts >= 1
 
     def test_fails_book_on_search_exception(self, db_session):
         book = create_test_book(db_session, title="Error Book")

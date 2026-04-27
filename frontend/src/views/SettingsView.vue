@@ -90,9 +90,9 @@ const testConnection = async (service: string, kindleId?: string) => {
         api_url: config.value?.hardcover?.api_url
       }
     } else if (service === 'prowlarr') {
-      url = '/prowlarr/test'
+      url = '/api/prowlarr/test'
     } else if (service === 'qbittorrent') {
-      url = '/qbittorrent/test'
+      url = '/api/qbittorrent/test'
     } else if (kindleId) {
       url = `/api/config/test/kindle/${kindleId}`
     } else {
@@ -594,6 +594,78 @@ onMounted(() => {
 
             <div v-if="testResults[`kindle_${kindle.id}`]" class="mt-3 p-3 rounded-lg text-sm animate-fade-in" :class="testResults[`kindle_${kindle.id}`].success ? 'bg-success-50 text-success-700' : 'bg-error-50 text-error-700'">
               {{ testResults[`kindle_${kindle.id}`].success ? 'Connected!' : testResults[`kindle_${kindle.id}`].error }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline Settings -->
+      <div class="card">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="icon-container-primary">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-display font-semibold text-stone-900">Pipeline Automation</h2>
+            <p class="text-sm text-stone-500">Configure automatic actions based on book status</p>
+          </div>
+        </div>
+
+        <div class="space-y-6">
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.pipeline.enabled" class="sr-only peer" />
+            <div class="toggle" :class="config.pipeline.enabled ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <div>
+              <span class="text-sm font-medium text-stone-700">Enable Pipeline</span>
+              <p class="text-xs text-stone-500">Master switch for all automated actions</p>
+            </div>
+          </label>
+
+          <div v-if="config.pipeline.enabled" class="space-y-4 pl-4 border-l-2 border-stone-100">
+            <div class="space-y-3">
+              <h3 class="text-sm font-medium text-stone-900">Want to Read</h3>
+              <div class="flex gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                  <span class="text-sm text-stone-700">Auto-download</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.kindle_sync" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                  <span class="text-sm text-stone-700">Auto-sync to Kindle</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="space-y-3">
+              <h3 class="text-sm font-medium text-stone-900">Currently Reading</h3>
+              <div class="flex gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                  <span class="text-sm text-stone-700">Auto-download</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.kindle_sync" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                  <span class="text-sm text-stone-700">Auto-sync to Kindle</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="space-y-3">
+              <h3 class="text-sm font-medium text-stone-900">Read</h3>
+              <div class="flex gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="config.pipeline.status_actions.read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                  <span class="text-sm text-stone-700">Auto-download</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="config.pipeline.status_actions.read.kindle_sync" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                  <span class="text-sm text-stone-700">Auto-sync to Kindle</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>

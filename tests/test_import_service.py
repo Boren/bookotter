@@ -8,8 +8,8 @@ import pytest
 
 from backend.models.book import Author, Book, BookStatus, FolderOrganization, RootFolder
 from backend.services.import_service import (
+    BookImportError,
     ImportDuplicateError,
-    ImportError,
     ImportInvalidEpubError,
     ImportService,
     ImportStateError,
@@ -235,7 +235,7 @@ class TestCopyToLibrary:
 
     def test_raises_on_missing_source(self, db_session, tmp_path: Path) -> None:
         svc = self._service(db_session)
-        with pytest.raises(ImportError, match="not found"):
+        with pytest.raises(BookImportError, match="not found"):
             svc.copy_to_library(tmp_path / "ghost.epub", tmp_path / "dest.epub")
 
 
@@ -284,7 +284,7 @@ class TestWriteMetadata:
         book = _make_book(db_session, rf)
         svc = ImportService(db_session, epub_service=mock_epub)
 
-        with pytest.raises(ImportError, match="Failed to write metadata"):
+        with pytest.raises(BookImportError, match="Failed to write metadata"):
             svc.write_metadata(book, lib_root / "book.epub")
 
 
@@ -425,7 +425,7 @@ class TestImportBook:
         mock_epub.write_metadata.side_effect = Exception("Metadata error")
         svc = ImportService(db_session, epub_service=mock_epub)
 
-        with pytest.raises(ImportError):
+        with pytest.raises(BookImportError):
             svc.import_book(book.id, source_epub)
 
         assert book.status == BookStatus.FAILED.value

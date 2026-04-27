@@ -24,9 +24,50 @@ const handleSearch = async () => {
   await searchStore.search(titleQuery.value, authorQuery.value)
 }
 
+const showGrabModal = ref(false)
+const grabTitle = ref('')
+const grabAuthor = ref('')
+const pendingResult = ref<SearchResult | null>(null)
+const grabLoading = ref(false)
+const grabError = ref('')
+
 const handleGrab = async (result: SearchResult) => {
-  if (!bookId.value) return
-  await searchStore.grabRelease(bookId.value, result)
+  if (bookId.value) {
+    // Already have a book context — grab directly
+    await searchStore.grabRelease(bookId.value, result)
+    return
+  }
+  // No book context — show modal to create/select book
+  pendingResult.value = result
+  grabTitle.value = bookTitle.value || titleQuery.value
+  grabAuthor.value = authorQuery.value
+  showGrabModal.value = true
+}
+
+const confirmGrab = async () => {
+  if (!pendingResult.value || !grabTitle.value.trim()) {
+    grabError.value = 'Title is required'
+    return
+  }
+  grabLoading.value = true
+  grabError.value = ''
+  try {
+    // Create a new WANTED book first, then grab
+    const bookResp = await fetch('/api/library/books', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: grabTitle.value.trim(), author_name: grabAuthor.value.trim() || undefined }),
+    })
+    if (!bookResp.ok) throw new Error('Failed to create book')
+    const book = await bookResp.json()
+    await searchStore.grabRelease(book.id, pendingResult.value)
+    showGrabModal.value = false
+    pendingResult.value = null
+  } catch (e) {
+    grabError.value = e instanceof Error ? e.message : 'Failed to grab'
+  } finally {
+    grabLoading.value = false
+  }
 }
 
 const formatSize = (bytes: number) => {
@@ -249,10 +290,11 @@ const hasSearched = computed(() => searchStore.query.length > 0)
           <thead>
             <tr>
               <th class="table-header text-left">Title</th>
+              <th class="table-header text-left whitespace-nowrap">Format</th>
               <th class="table-header text-right whitespace-nowrap">Size</th>
               <th class="table-header text-right whitespace-nowrap">Seeders</th>
               <th class="table-header text-left">Indexer</th>
-              <th v-if="bookId" class="table-header text-right">Action</th>
+              <th class="table-header text-right">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -267,6 +309,15 @@ const hasSearched = computed(() => searchStore.query.length > 0)
                   {{ result.title }}
                 </p>
                 <p class="text-xs text-stone-500 mt-0.5">{{ result.publish_date ? new Date(result.publish_date).toLocaleDateString() : '' }}</p>
+              </td>
+              <td class="table-cell whitespace-nowrap">
+                <span
+                  class="badge"
+                  :class="result.format_hint === 'ebook' ? 'badge-success' : 'badge-neutral'"
+                  :title="result.format_reason || ''"
+                >
+                  {{ result.format_hint === 'ebook' ? 'EPUB' : 'Uncertain' }}
+                </span>
               </td>
               <td class="table-cell text-right text-stone-600 tabular-nums whitespace-nowrap">
                 {{ formatSize(result.size) }}
@@ -285,7 +336,7 @@ const hasSearched = computed(() => searchStore.query.length > 0)
               <td class="table-cell">
                 <span class="badge badge-neutral">{{ result.indexer }}</span>
               </td>
-              <td v-if="bookId" class="table-cell text-right">
+              <td class="table-cell text-right">
                 <button
                   @click="handleGrab(result)"
                   :disabled="isGrabbing(result.guid)"
@@ -304,16 +355,6 @@ const hasSearched = computed(() => searchStore.query.length > 0)
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <!-- No book context info -->
-      <div v-if="!bookId" class="mt-4 pt-4 border-t border-stone-100">
-        <p class="text-sm text-stone-500 flex items-center gap-2">
-          <svg class="w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          Navigate from a book to grab releases. Search results are for preview only.
-        </p>
       </div>
     </div>
 
@@ -346,5 +387,34 @@ const hasSearched = computed(() => searchStore.query.length > 0)
         </p>
       </div>
     </div>
+
+    <!-- Grab Modal -->
+    <Teleport to="body">
+      <div v-if="showGrabModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showGrabModal = false">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <h2 class="text-lg font-semibold text-stone-900 mb-4">Create Book & Grab</h2>
+          <p class="text-sm text-stone-600 mb-4">
+            This release will be added to a new book in your library.
+          </p>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">Title <span class="text-error-500">*</span></label>
+              <input v-model="grabTitle" type="text" placeholder="Book title" class="input w-full" @keyup.enter="confirmGrab" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">Author</label>
+              <input v-model="grabAuthor" type="text" placeholder="Author name (optional)" class="input w-full" @keyup.enter="confirmGrab" />
+            </div>
+            <p v-if="grabError" class="text-sm text-error-600">{{ grabError }}</p>
+          </div>
+          <div class="flex justify-end gap-3 mt-6">
+            <button @click="showGrabModal = false" class="btn btn-secondary">Cancel</button>
+            <button @click="confirmGrab" :disabled="grabLoading" class="btn btn-primary">
+              {{ grabLoading ? 'Grabbing...' : 'Grab Release' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

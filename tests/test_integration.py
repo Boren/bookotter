@@ -120,7 +120,7 @@ class TestFullPipelineHappyPath:
 
 class TestPipelineSearchFailures:
     def test_no_search_results_marks_failed(self, db_session):
-        """Book transitions to FAILED when search returns no results."""
+        """Book returns to WANTED when search returns no results."""
         book = create_test_book(db_session, title="Nonexistent Book")
         db_session.commit()
         book_id = book.id
@@ -132,7 +132,7 @@ class TestPipelineSearchFailures:
         results = pipeline.run_pipeline()
 
         final = refresh_book(db_session, book_id)
-        assert final.status == BookStatus.FAILED
+        assert final.status == BookStatus.WANTED
         assert final.search_attempts >= 1
         assert results["wanted"] == 0
 

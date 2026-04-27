@@ -23,19 +23,19 @@ def sanitize_path_component(name: str) -> str:
     return sanitized or "_"
 
 
-class ImportError(Exception):
+class BookImportError(Exception):
     pass
 
 
-class ImportDuplicateError(ImportError):
+class ImportDuplicateError(BookImportError):
     pass
 
 
-class ImportInvalidEpubError(ImportError):
+class ImportInvalidEpubError(BookImportError):
     pass
 
 
-class ImportStateError(ImportError):
+class ImportStateError(BookImportError):
     pass
 
 
@@ -57,7 +57,7 @@ class ImportService:
             ImportStateError: Book not found, no root folder, or invalid state.
             ImportInvalidEpubError: Source is not a valid EPUB.
             ImportDuplicateError: Destination file already exists.
-            ImportError: Copy or metadata-write failure.
+            BookImportError: Copy or metadata-write failure.
         """
         epub_path = Path(epub_path)
 
@@ -94,7 +94,7 @@ class ImportService:
             book.file_size = dest_path.stat().st_size
 
             if not transition_book(book, BookStatus.IN_LIBRARY.value):
-                raise ImportError(f"Failed to transition book {book_id} to IN_LIBRARY")
+                raise BookImportError(f"Failed to transition book {book_id} to IN_LIBRARY")
 
             self.db.flush()
             logger.info("Successfully imported book %d to %s", book_id, dest_path)
@@ -142,20 +142,20 @@ class ImportService:
         """Copy EPUB from source to dest, creating parent dirs. Never hardlinks.
 
         Raises:
-            ImportError: Source missing or OS-level copy failure.
+            BookImportError: Source missing or OS-level copy failure.
         """
         source = Path(source)
         dest = Path(dest)
 
         if not source.exists():
-            raise ImportError(f"Source file not found: {source}")
+            raise BookImportError(f"Source file not found: {source}")
 
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             shutil.copy2(source, dest)
         except OSError as e:
-            raise ImportError(f"Failed to copy {source} to {dest}: {e}") from e
+            raise BookImportError(f"Failed to copy {source} to {dest}: {e}") from e
 
         return dest
 
@@ -163,7 +163,7 @@ class ImportService:
         """Write Book metadata (title, authors, series, description) into the EPUB.
 
         Raises:
-            ImportError: Wraps any EpubService error.
+            BookImportError: Wraps any EpubService error.
         """
         author_name = book.author.name if book.author else None
 
@@ -178,4 +178,24 @@ class ImportService:
         try:
             self.epub_service.write_metadata(epub_path, metadata)
         except Exception as e:
-            raise ImportError(f"Failed to write metadata to {epub_path}: {e}") from e
+            raise BookImportError(f"Failed to write metadata to {epub_path}: {e}") from e
+
+    def import_epub(self, book: Book, file_path: str) -> bool:
+        """Adapter called by the pipeline orchestrator.
+
+        Wraps import_book() with a bool return value for pipeline compatibility.
+        Returns True on successful import, False if an exception is raised.
+
+        Args:
+            book: The Book model instance to import for.
+            file_path: Absolute path string to the EPUB file to import.
+
+        Returns:
+            True if import succeeded, False if any error occurred.
+        """
+        try:
+            self.import_book(book.id, file_path)
+            return True
+        except Exception as exc:
+            logger.error("import_epub failed for book %d ('%s'): %s", book.id, book.title, exc)
+            return False

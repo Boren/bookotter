@@ -99,6 +99,11 @@ export interface SearchResult {
   magnet_url: string;
   categories: number[];
   publish_date: string;
+  // Phase 1 filter rewrite — server-side classification.
+  // 'audiobook' and 'ebook-other' verdicts are filtered out server-side
+  // and never reach the frontend.
+  format_hint?: 'ebook' | 'unknown';
+  format_reason?: string;
 }
 
 // Config Types
@@ -174,6 +179,7 @@ export interface Config {
   prowlarr: ProwlarrConfig;
   qbittorrent: QBittorrentConfig;
   kindles: Kindle[];
+  pipeline: PipelineConfig;
   matching: {
     use_isbn: boolean;
     use_fuzzy: boolean;

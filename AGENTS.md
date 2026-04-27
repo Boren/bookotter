@@ -37,23 +37,43 @@ uvicorn backend.main:app --host 0.0.0.0 --port 6887 --reload
 python -m backend.cli --dry-run
 ```
 
+### Tests
+
+```bash
+pytest tests/                # Run all tests
+pytest tests/ -v             # Verbose output
+pytest tests/ --cov          # With coverage
+```
+
 ### CI checks (must pass before merge)
 
 1. `ruff check .` + `ruff format --check .`
-2. `pnpm lint` + `pnpm build:check` (in `frontend/`)
-
-No test suite exists yet. pytest is in dev deps but there are no test files.
+2. `pytest tests/`
+3. `pnpm lint` + `pnpm build:check` (in `frontend/`)
 
 ## Architecture
 
 ```
 backend/
   main.py              → FastAPI app, serves static frontend from ../static/
-  cli.py               → Rich CLI, wraps SyncService
+  cli.py               → Rich CLI, wraps PipelineService
   config.py            → YAML config loader (single source of truth for all config)
   database.py          → SQLAlchemy/SQLite (sync history only, NOT config)
-  clients/             → API clients: hardcover (GraphQL), prowlarr (REST), qbittorrent (REST), kindle (SSH/SFTP)
-  services/            → sync_service (orchestrator), scheduler_service, websocket_manager
+  clients/
+    hardcover_client.py    → Hardcover GraphQL API
+    prowlarr_client.py     → Prowlarr REST API
+    qbittorrent_client.py  → qBittorrent Web API
+    kindle_client.py       → Kindle SSH/SFTP
+  services/
+    pipeline_service.py      → Pipeline orchestrator
+    pipeline_states.py       → Book state machine
+    hardcover_sync_service.py → Hardcover sync
+    search_service.py        → Prowlarr search
+    download_service.py      → qBittorrent download management
+    import_service.py        → EPUB import with metadata
+    epub_service.py          → EPUB metadata read/write
+    scheduler_service.py     → Schedule management
+    websocket_manager.py     → WebSocket event broadcasting
   api/routes/          → FastAPI route modules
 frontend/
   src/views/           → Vue page components

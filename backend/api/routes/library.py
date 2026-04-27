@@ -3,14 +3,20 @@ Library API routes.
 Handles book CRUD operations and browsing with filtering/pagination.
 """
 
+import logging
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from backend.database import get_db
-from backend.models.book import Author, Book, BookStatus
+from backend.models.book import Author, Book, BookStatus, RootFolder
+from backend.services.epub_service import EpubMetadata, EpubService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -97,6 +103,52 @@ async def list_books(
     }
 
 
+@router.get("/authors")
+async def list_authors(db: Session = Depends(get_db)):
+    """List all authors with their book count."""
+    authors = db.query(Author).all()
+    return {
+        "authors": [
+            {
+                "id": a.id,
+                "name": a.name,
+                "hardcover_id": a.hardcover_id,
+                "book_count": len(a.books),
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in authors
+        ],
+        "total": len(authors),
+    }
+
+
+@router.get("/stats")
+async def get_library_stats(db: Session = Depends(get_db)):
+    """Get library statistics: total books by status, author count, total size."""
+    total_books = db.query(Book).count()
+
+    status_counts = {}
+    for status in BookStatus:
+        count = db.query(Book).filter(Book.status == status.value).count()
+        status_counts[status.value] = count
+
+    author_count = db.query(Author).count()
+
+    total_size = (
+        db.query(func.sum(Book.file_size))
+        .filter(Book.status == BookStatus.IN_LIBRARY.value, Book.file_size.isnot(None))
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total_books": total_books,
+        "by_status": status_counts,
+        "author_count": author_count,
+        "total_size_bytes": total_size,
+    }
+
+
 @router.get("/books/{book_id}")
 async def get_book(book_id: int, db: Session = Depends(get_db)):
     book = db.query(Book).options(joinedload(Book.author)).filter(Book.id == book_id).first()
@@ -154,6 +206,27 @@ async def update_book(book_id: int, body: BookUpdateRequest, db: Session = Depen
         setattr(book, field, value)
 
     book.updated_at = datetime.utcnow()
+
+    if book.file_path and book.root_folder_id:
+        try:
+            root_folder = db.query(RootFolder).filter(RootFolder.id == book.root_folder_id).first()
+            if root_folder:
+                epub_path = os.path.join(root_folder.path, book.file_path)
+                if os.path.exists(epub_path):
+                    author_name = book.author.name if book.author else None
+                    metadata = EpubMetadata(
+                        title=book.title,
+                        authors=[author_name] if author_name else [],
+                        series=book.series_name,
+                        series_position=book.series_position,
+                        description=book.description,
+                        publisher=book.publisher,
+                        language=book.language,
+                    )
+                    EpubService().write_metadata(epub_path, metadata)
+        except Exception as e:
+            logger.warning("Failed to write EPUB metadata for book %s: %s", book_id, e)
+
     db.commit()
     db.refresh(book)
 
@@ -165,6 +238,17 @@ async def delete_book(book_id: int, db: Session = Depends(get_db)):
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    if book.file_path and book.root_folder_id:
+        try:
+            root_folder = db.query(RootFolder).filter(RootFolder.id == book.root_folder_id).first()
+            if root_folder:
+                epub_path = os.path.join(root_folder.path, book.file_path)
+                if os.path.exists(epub_path):
+                    os.remove(epub_path)
+                    logger.info("Removed EPUB file: %s", epub_path)
+        except Exception as e:
+            logger.warning("Failed to remove EPUB file for book %s: %s", book_id, e)
 
     db.delete(book)
     db.commit()

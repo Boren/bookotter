@@ -3,6 +3,9 @@ Root Folder API routes.
 Handles CRUD operations for root folders where books are stored.
 """
 
+import os
+import shutil
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,6 +14,22 @@ from backend.database import get_db
 from backend.models.book import RootFolder
 
 router = APIRouter()
+
+
+def _get_free_space(path: str) -> int | None:
+    """Get free space in bytes for a given path."""
+    try:
+        return shutil.disk_usage(path).free
+    except OSError:
+        return None
+
+
+def _get_total_space(path: str) -> int | None:
+    """Get total space in bytes for a given path."""
+    try:
+        return shutil.disk_usage(path).total
+    except OSError:
+        return None
 
 
 class RootFolderCreate(BaseModel):
@@ -46,6 +65,8 @@ async def list_root_folders(db: Session = Depends(get_db)):
                 "path": f.path,
                 "folder_organization": f.folder_organization,
                 "created_at": f.created_at.isoformat(),
+                "free_space_bytes": _get_free_space(f.path),
+                "total_space_bytes": _get_total_space(f.path),
             }
             for f in folders
         ],
@@ -70,6 +91,12 @@ async def create_root_folder(
     existing = db.query(RootFolder).filter(RootFolder.path == body.path).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Root folder with path '{body.path}' already exists")
+
+    # Create directory if it doesn't exist
+    try:
+        os.makedirs(body.path, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Cannot create directory '{body.path}': {e}")
 
     folder = RootFolder(
         name=body.name,
@@ -117,12 +144,9 @@ async def update_root_folder(
     if not folder:
         raise HTTPException(status_code=404, detail=f"Root folder {folder_id} not found")
 
-    # Check if new path conflicts with existing folder
+    # Prevent path changes after creation
     if body.path and body.path != folder.path:
-        existing = db.query(RootFolder).filter(RootFolder.path == body.path).first()
-        if existing:
-            raise HTTPException(status_code=409, detail=f"Root folder with path '{body.path}' already exists")
-        folder.path = body.path
+        raise HTTPException(status_code=400, detail="Root folder path cannot be changed after creation")
 
     if body.name:
         folder.name = body.name

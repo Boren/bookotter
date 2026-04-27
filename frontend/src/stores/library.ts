@@ -9,7 +9,6 @@ export const useLibraryStore = defineStore('library', () => {
   const currentBook = ref<Book | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
-  const selectedBooks = ref<Set<number>>(new Set());
 
   // Filter / sort / pagination
   const searchQuery = ref('');
@@ -126,16 +125,17 @@ export const useLibraryStore = defineStore('library', () => {
     await fetchBooks();
   };
 
-  const selectBook = (bookId: number) => {
-    selectedBooks.value.add(bookId);
-  };
-
-  const deselectBook = (bookId: number) => {
-    selectedBooks.value.delete(bookId);
-  };
-
-  const clearSelection = () => {
-    selectedBooks.value.clear();
+  const createBook = async (title: string, authorName?: string) => {
+    const response = await fetch('/api/library/books', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, author_name: authorName }),
+    });
+    if (!response.ok) throw new Error('Failed to create book');
+    const book = await response.json();
+    books.value = [book, ...books.value];
+    total.value += 1;
+    return book;
   };
 
   const setFilterStatus = (status: string | null) => {
@@ -145,7 +145,6 @@ export const useLibraryStore = defineStore('library', () => {
 
   // Computed
   const bookCount = computed(() => books.value.length);
-  const selectedCount = computed(() => selectedBooks.value.size);
   const totalPages = computed(() => Math.ceil(total.value / limit.value));
   const currentPage = computed(() => Math.floor(offset.value / limit.value) + 1);
 
@@ -161,7 +160,6 @@ export const useLibraryStore = defineStore('library', () => {
     currentBook,
     isLoading,
     error,
-    selectedBooks,
     searchQuery,
     filterStatus,
     filterAuthor,
@@ -173,7 +171,6 @@ export const useLibraryStore = defineStore('library', () => {
 
     // Computed
     bookCount,
-    selectedCount,
     totalPages,
     currentPage,
     filteredBooks,
@@ -181,12 +178,10 @@ export const useLibraryStore = defineStore('library', () => {
     // Actions
     fetchBooks,
     fetchBook,
+    createBook,
     updateBook,
     deleteBook,
     searchBooks,
-    selectBook,
-    deselectBook,
-    clearSelection,
     setFilterStatus,
     clearError,
   };

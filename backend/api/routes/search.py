@@ -265,3 +265,43 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         "result_title": best.get("title"),
         "results_count": len(results),
     }
+
+
+@router.post("/preview/{book_id}")
+async def search_preview(book_id: int, db: Session = Depends(get_db)):
+    book = db.query(Book).options(joinedload(Book.author)).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    transition_book(book, BookStatus.SEARCHING.value)
+    book.search_attempts = (book.search_attempts or 0) + 1
+    book.last_searched_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        prowlarr = _get_prowlarr_client()
+        search_service = SearchService(prowlarr_client=prowlarr)
+        author_name = book.author.name if book.author else ""
+        results = search_service.search_book(title=book.title, author=author_name)
+
+    except HTTPException:
+        transition_book(book, BookStatus.WANTED.value)
+        db.commit()
+        raise
+    except Exception as e:
+        logger.error(f"Preview search failed for book {book_id}: {e}")
+        transition_book(book, BookStatus.WANTED.value)
+        db.commit()
+        raise HTTPException(status_code=502, detail=f"Search failed: {e}")
+
+    if not results:
+        transition_book(book, BookStatus.WANTED.value)
+        db.commit()
+
+    return {
+        "book_id": book.id,
+        "book_title": book.title,
+        "book_author": book.author.name if book.author else None,
+        "results": results,
+        "total": len(results),
+    }

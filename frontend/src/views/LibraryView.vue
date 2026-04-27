@@ -5,6 +5,40 @@ import type { BookStatus } from '../types'
 
 const store = useLibraryStore()
 
+const showAddModal = ref(false)
+const addTitle = ref('')
+const addAuthor = ref('')
+const addError = ref('')
+const addLoading = ref(false)
+
+const openAddModal = () => {
+  addTitle.value = ''
+  addAuthor.value = ''
+  addError.value = ''
+  showAddModal.value = true
+}
+
+const closeAddModal = () => {
+  showAddModal.value = false
+}
+
+const handleAddBook = async () => {
+  if (!addTitle.value.trim()) {
+    addError.value = 'Title is required'
+    return
+  }
+  addLoading.value = true
+  addError.value = ''
+  try {
+    await store.createBook(addTitle.value.trim(), addAuthor.value.trim() || undefined)
+    closeAddModal()
+  } catch (e) {
+    addError.value = e instanceof Error ? e.message : 'Failed to add book'
+  } finally {
+    addLoading.value = false
+  }
+}
+
 const searchInput = ref('')
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -104,6 +138,12 @@ onUnmounted(() => {
         <p v-if="!store.isLoading && store.total > 0" class="text-sm text-stone-500 tabular-nums">
           {{ store.total }} {{ store.total === 1 ? 'book' : 'books' }}
         </p>
+        <button @click="openAddModal" class="btn btn-primary">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add Book
+        </button>
       </div>
     </div>
 
@@ -223,10 +263,11 @@ onUnmounted(() => {
       v-else-if="store.books.length > 0"
       class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5"
     >
-      <div
+      <router-link
         v-for="(book, index) in store.books"
         :key="book.id"
-        class="group animate-fade-in-up"
+        :to="{ name: 'book-detail', params: { id: book.id } }"
+        class="group animate-fade-in-up block"
         :style="{ animationDelay: `${Math.min(index, 15) * 30}ms` }"
       >
         <!-- Cover -->
@@ -274,7 +315,7 @@ onUnmounted(() => {
             {{ book.series_name }}<span v-if="book.series_position"> #{{ book.series_position }}</span>
           </p>
         </div>
-      </div>
+      </router-link>
     </div>
 
     <!-- Empty State -->
@@ -330,5 +371,31 @@ onUnmounted(() => {
         </svg>
       </button>
     </div>
+
+    <!-- Add Book Modal -->
+    <Teleport to="body">
+      <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="closeAddModal">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <h2 class="text-lg font-semibold text-stone-900 mb-4">Add Book</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">Title <span class="text-error-500">*</span></label>
+              <input v-model="addTitle" type="text" placeholder="Book title" class="input w-full" @keyup.enter="handleAddBook" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-1">Author</label>
+              <input v-model="addAuthor" type="text" placeholder="Author name (optional)" class="input w-full" @keyup.enter="handleAddBook" />
+            </div>
+            <p v-if="addError" class="text-sm text-error-600">{{ addError }}</p>
+          </div>
+          <div class="flex justify-end gap-3 mt-6">
+            <button @click="closeAddModal" class="btn btn-secondary">Cancel</button>
+            <button @click="handleAddBook" :disabled="addLoading" class="btn btn-primary">
+              {{ addLoading ? 'Adding...' : 'Add Book' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

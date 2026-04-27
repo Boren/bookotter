@@ -135,6 +135,13 @@ async def lifespan(app: FastAPI):
             )
             pipeline.start_monitoring()
             logger.info("Pipeline monitoring started")
+
+            # Reconcile download states with qBittorrent
+            try:
+                download_service.reconcile_on_startup()
+                logger.info("Download reconciliation completed on startup")
+            except Exception as e:
+                logger.error(f"Download reconciliation failed on startup: {e}")
         else:
             logger.info("Pipeline not started: Prowlarr/qBittorrent not fully configured")
     except Exception as e:
@@ -206,7 +213,7 @@ app.add_middleware(
 # API routes
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
-app.include_router(services.router, tags=["services"])
+app.include_router(services.router, prefix="/api", tags=["services"])
 app.include_router(browse.router, prefix="/api/browse", tags=["browse"])
 app.include_router(kindles.router, prefix="/api/kindles", tags=["kindles"])
 app.include_router(root_folders.router, prefix="/api/root-folders", tags=["root-folders"])

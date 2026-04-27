@@ -420,6 +420,42 @@ class DownloadService:
         finally:
             db.close()
 
+    def add_torrent(self, download: "Download") -> bool:
+        """Add an existing QUEUED download's torrent to qBittorrent.
+
+        Called by the pipeline when a book transitions from GRABBED to DOWNLOADING.
+        Uses the download_url field which stores the magnet link or HTTP torrent URL.
+
+        Args:
+            download: A Download model instance with download_url and category set.
+
+        Returns:
+            True if the torrent was added successfully, False otherwise.
+        """
+        if not download.download_url:
+            logger.error("Download %d has no URL — cannot add to qBittorrent", download.id)
+            return False
+        return self.qbit.add_torrent(torrent_url=download.download_url, category=self.category)
+
+    def get_completed_file_path(self, download: "Download") -> str | None:
+        """Check if a torrent download is complete and return the EPUB file path.
+
+        Delegates to QBittorrentClient.get_completed_file_path using the
+        download's torrent_hash. Returns the path as a string, or None if the
+        download is not yet complete or the torrent is not found.
+
+        Args:
+            download: A Download model instance with torrent_hash set.
+
+        Returns:
+            Absolute path string to the downloaded EPUB, or None if not complete.
+        """
+        if not download.torrent_hash:
+            logger.warning("Download %d has no torrent_hash — cannot check completion", download.id)
+            return None
+        result = self.qbit.get_completed_file_path(download.torrent_hash)
+        return str(result) if result is not None else None
+
     def _configure_file_priorities(self, torrent_hash: str) -> "str | None":
         """
         For multi-file torrents, set priority 0 on all non-EPUB files.

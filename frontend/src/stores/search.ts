@@ -12,6 +12,12 @@ export const useSearchStore = defineStore('search', () => {
   const grabbingIds = ref<Record<string, boolean>>({});
   const grabMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const previewResults = ref<Record<number, SearchResult[]>>({});
+  const previewLoading = ref<Record<number, boolean>>({});
+  const previewErrors = ref<Record<number, string | null>>({});
+  const autoSearching = ref<Record<number, boolean>>({});
+  const autoSearchMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Error handling
   const clearError = () => {
     error.value = null;
@@ -107,6 +113,72 @@ export const useSearchStore = defineStore('search', () => {
     grabMessage.value = null;
   };
 
+  const previewForBook = async (bookId: number) => {
+    previewLoading.value[bookId] = true;
+    previewErrors.value[bookId] = null;
+    try {
+      const response = await fetch(`/api/search/preview/${bookId}`, { method: 'POST' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ detail: 'Preview failed' }));
+        throw new Error(data.detail || `Preview failed (${response.status})`);
+      }
+      const data = await response.json();
+      previewResults.value[bookId] = data.results || [];
+    } catch (e) {
+      previewErrors.value[bookId] = e instanceof Error ? e.message : 'Preview failed';
+      previewResults.value[bookId] = [];
+    } finally {
+      previewLoading.value[bookId] = false;
+    }
+  };
+
+  const clearPreviewForBook = (bookId: number) => {
+    delete previewResults.value[bookId];
+    delete previewLoading.value[bookId];
+    delete previewErrors.value[bookId];
+  };
+
+  const autoSearchForBook = async (bookId: number) => {
+    autoSearching.value[bookId] = true;
+    autoSearchMessage.value = null;
+    try {
+      const response = await fetch(`/api/search/auto/${bookId}`, { method: 'POST' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ detail: 'Auto-search failed' }));
+        throw new Error(data.detail || `Auto-search failed (${response.status})`);
+      }
+      const data = await response.json();
+      if (data.success) {
+        const truncated =
+          data.result_title && data.result_title.length > 60
+            ? `${data.result_title.substring(0, 60)}...`
+            : data.result_title;
+        autoSearchMessage.value = {
+          type: 'success',
+          text: truncated ? `Grabbed "${truncated}" — download queued` : 'Download queued',
+        };
+      } else {
+        autoSearchMessage.value = {
+          type: 'error',
+          text: data.message || 'No results found',
+        };
+      }
+      return data;
+    } catch (e) {
+      autoSearchMessage.value = {
+        type: 'error',
+        text: e instanceof Error ? e.message : 'Auto-search failed',
+      };
+      return null;
+    } finally {
+      autoSearching.value[bookId] = false;
+    }
+  };
+
+  const clearAutoSearchMessage = () => {
+    autoSearchMessage.value = null;
+  };
+
   // Computed
   const resultCount = computed(() => results.value.length);
 
@@ -123,6 +195,11 @@ export const useSearchStore = defineStore('search', () => {
     error,
     grabbingIds,
     grabMessage,
+    previewResults,
+    previewLoading,
+    previewErrors,
+    autoSearching,
+    autoSearchMessage,
 
     // Computed
     resultCount,
@@ -135,5 +212,9 @@ export const useSearchStore = defineStore('search', () => {
     clearSearch,
     clearError,
     clearGrabMessage,
+    previewForBook,
+    clearPreviewForBook,
+    autoSearchForBook,
+    clearAutoSearchMessage,
   };
 });

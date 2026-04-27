@@ -88,7 +88,9 @@ class TestSearchBook:
 class TestFilterResults:
     def test_keeps_epub_results(self, service):
         results = [make_result("Book.epub")]
-        assert service.filter_results(results) == results
+        filtered = service.filter_results(results)
+        assert len(filtered) == 1
+        assert filtered[0]["title"] == "Book.epub"
 
     def test_removes_non_epub_results(self, service):
         results = [make_result("Book.pdf"), make_result("Book.mobi"), make_result("Book.azw3")]
@@ -109,10 +111,12 @@ class TestFilterResults:
     def test_empty_list_returns_empty(self, service):
         assert service.filter_results([]) == []
 
-    def test_none_title_is_not_epub(self, service):
+    def test_none_title_unknown_format_is_kept(self, service):
         result = make_result()
         result["title"] = None
-        assert service.filter_results([result]) == []
+        filtered = service.filter_results([result])
+        assert len(filtered) == 1
+        assert filtered[0]["format_hint"] == "unknown"
 
 
 class TestRankResults:

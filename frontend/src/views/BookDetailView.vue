@@ -22,6 +22,9 @@ const editForm = ref({
   description: '',
   tags: '',
   rating: null as number | null,
+  publisher: '',
+  language: '',
+  read_date: '',
 })
 
 const hoverRating = ref(0)
@@ -89,6 +92,9 @@ const enterEditMode = () => {
     description: book.value.description ?? '',
     tags: book.value.tags?.join(', ') ?? '',
     rating: book.value.rating,
+    publisher: book.value.publisher ?? '',
+    language: book.value.language ?? '',
+    read_date: book.value.read_date ? book.value.read_date.split('T')[0] : '',
   }
   isEditing.value = true
   saveSuccess.value = false
@@ -114,6 +120,9 @@ const handleSave = async () => {
       description: editForm.value.description || null,
       tags,
       rating: editForm.value.rating,
+      publisher: editForm.value.publisher || null,
+      language: editForm.value.language || null,
+      read_date: editForm.value.read_date ? new Date(editForm.value.read_date).toISOString() : null,
     })
     isEditing.value = false
     saveSuccess.value = true
@@ -422,6 +431,44 @@ onMounted(() => {
                   </div>
                 </div>
 
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label class="label">Publisher</label>
+                    <input
+                      v-model="editForm.publisher"
+                      type="text"
+                      class="input"
+                      placeholder="Publisher name"
+                    />
+                  </div>
+                  <div>
+                    <label class="label">Language</label>
+                    <select v-model="editForm.language" class="input">
+                      <option value="">Unknown</option>
+                      <option value="en">English</option>
+                      <option value="es">Spanish</option>
+                      <option value="fr">French</option>
+                      <option value="de">German</option>
+                      <option value="pt">Portuguese</option>
+                      <option value="it">Italian</option>
+                      <option value="nl">Dutch</option>
+                      <option value="ru">Russian</option>
+                      <option value="zh">Chinese</option>
+                      <option value="ja">Japanese</option>
+                      <option value="ko">Korean</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="label">Read Date</label>
+                  <input
+                    v-model="editForm.read_date"
+                    type="date"
+                    class="input"
+                  />
+                </div>
+
                 <div>
                   <label class="label">Description</label>
                   <textarea
@@ -557,10 +604,6 @@ onMounted(() => {
             <p class="text-sm text-stone-800">{{ book.language ?? '—' }}</p>
           </div>
           <div>
-            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">File Size</p>
-            <p class="text-sm text-stone-800">{{ formatFileSize(book.file_size) }}</p>
-          </div>
-          <div>
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Added</p>
             <p class="text-sm text-stone-800">{{ formatDate(book.created_at) }}</p>
           </div>
@@ -575,6 +618,33 @@ onMounted(() => {
           <div v-if="book.read_date">
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Read Date</p>
             <p class="text-sm text-stone-800">{{ formatDate(book.read_date) }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- File Info Card -->
+      <div class="card animate-fade-in-up stagger-2">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="icon-container">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h2 class="text-lg font-display font-semibold text-stone-900">File Info</h2>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">File Path</p>
+            <p class="text-sm text-stone-800 font-mono break-all">{{ book.file_path ?? '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">File Size</p>
+            <p class="text-sm text-stone-800">{{ formatFileSize(book.file_size) }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Root Folder ID</p>
+            <p class="text-sm text-stone-800">{{ book.root_folder_id ?? '—' }}</p>
           </div>
         </div>
       </div>

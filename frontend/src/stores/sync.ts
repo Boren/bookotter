@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { Book, WebSocketMessage } from '../types';
+import { useDownloadStore } from './download';
 
 export const useSyncStore = defineStore('sync', () => {
   const isRunning = ref(false);
@@ -80,14 +81,22 @@ export const useSyncStore = defineStore('sync', () => {
   };
 
   const handleWebSocketMessage = (message: WebSocketMessage) => {
+    const downloadStore = useDownloadStore();
+
     switch (message.event) {
       case 'book_wanted':
       case 'download_started':
       case 'download_completed':
+        downloadStore.handleWebSocketMessage(message);
         fetchPipelineStats();
         break;
 
+      case 'download_progress':
+        downloadStore.handleWebSocketMessage(message);
+        break;
+
       case 'import_completed':
+        downloadStore.handleWebSocketMessage(message);
         fetchPipelineStats();
         fetchRecentBooks();
         break;
