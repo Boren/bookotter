@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { Config, Kindle, RootFolder, FolderOrganization } from '../types'
+
+import PathBrowserModal from '@/components/PathBrowserModal.vue'
+
+import type { Config, Kindle, RootFolder, FolderOrganization, PathBrowserMode } from '../types'
 
 const config = ref<Config | null>(null)
 const loading = ref(true)
@@ -31,6 +34,13 @@ const rootFolderForm = ref({
   folder_organization: 'flat' as FolderOrganization,
 })
 const rootFolderError = ref<string | null>(null)
+const showPathBrowser = ref(false)
+const pathBrowserMode = ref<PathBrowserMode>('local')
+const pathBrowserSelectMode = ref<'directory' | 'file'>('directory')
+const pathBrowserKindleId = ref<string | undefined>(undefined)
+const pathBrowserInitialPath = ref('/')
+const pathBrowserTitle = ref('Browse')
+const pathBrowserTarget = ref<'rootFolder' | 'kindleSshKey' | 'kindleDestination' | null>(null)
 
 const fetchConfig = async () => {
   try {
@@ -193,6 +203,45 @@ const openRootFolderForm = () => {
 const closeRootFolderForm = () => {
   showRootFolderForm.value = false
   rootFolderError.value = null
+}
+
+function openPathBrowser(target: typeof pathBrowserTarget.value) {
+  pathBrowserTarget.value = target
+  pathBrowserSelectMode.value = 'directory'
+
+  if (target === 'rootFolder') {
+    pathBrowserMode.value = 'local'
+    pathBrowserKindleId.value = undefined
+    pathBrowserInitialPath.value = rootFolderForm.value.path || '/'
+    pathBrowserTitle.value = 'Pick library root folder'
+  } else if (target === 'kindleSshKey') {
+    pathBrowserMode.value = 'local'
+    pathBrowserKindleId.value = undefined
+    const current = kindleForm.value.ssh_key_path || ''
+    const lastSlash = current.lastIndexOf('/')
+    pathBrowserInitialPath.value = current.startsWith('/') && lastSlash > 0 ? current.substring(0, lastSlash) : '/root/.ssh'
+    pathBrowserSelectMode.value = 'file'
+    pathBrowserTitle.value = 'Pick SSH key file'
+  } else if (target === 'kindleDestination') {
+    pathBrowserMode.value = 'kindle'
+    pathBrowserKindleId.value = editingKindleId.value || undefined
+    pathBrowserInitialPath.value = kindleForm.value.destination_path || '/mnt/us/'
+    pathBrowserTitle.value = 'Pick destination folder on Kindle'
+  }
+
+  showPathBrowser.value = true
+}
+
+function onPathSelected(path: string) {
+  if (pathBrowserTarget.value === 'rootFolder') {
+    rootFolderForm.value.path = path
+  } else if (pathBrowserTarget.value === 'kindleSshKey') {
+    kindleForm.value.ssh_key_path = path
+  } else if (pathBrowserTarget.value === 'kindleDestination') {
+    kindleForm.value.destination_path = path
+  }
+
+  pathBrowserTarget.value = null
 }
 
 const saveRootFolder = async () => {
@@ -804,11 +853,27 @@ onMounted(() => {
             </div>
             <div>
               <label class="label">SSH Key Path</label>
-              <input v-model="kindleForm.ssh_key_path" type="text" class="input font-mono text-sm" />
+              <div class="flex gap-2">
+                <input v-model="kindleForm.ssh_key_path" type="text" class="input font-mono text-sm flex-1" />
+                <button type="button" class="btn btn-secondary shrink-0" @click="openPathBrowser('kindleSshKey')">Browse</button>
+              </div>
+              <p class="mt-1.5 text-xs text-stone-500">Browse to pick your SSH private key file</p>
             </div>
             <div>
               <label class="label">Destination Path</label>
-              <input v-model="kindleForm.destination_path" type="text" class="input font-mono text-sm" />
+              <div class="flex gap-2">
+                <input v-model="kindleForm.destination_path" type="text" class="input font-mono text-sm flex-1" />
+                <button
+                  type="button"
+                  class="btn btn-secondary shrink-0"
+                  :disabled="!editingKindleId"
+                  :title="editingKindleId ? 'Browse paths on this Kindle' : 'Save the Kindle first to browse its filesystem'"
+                  @click="openPathBrowser('kindleDestination')"
+                >
+                  Browse
+                </button>
+              </div>
+              <p v-if="editingKindleId" class="mt-1.5 text-xs text-stone-500">Browse to pick a folder on this Kindle</p>
             </div>
           </div>
 
@@ -853,7 +918,10 @@ onMounted(() => {
             </div>
             <div>
               <label class="label">Path</label>
-              <input v-model="rootFolderForm.path" type="text" class="input font-mono text-sm" placeholder="/books" />
+              <div class="flex gap-2">
+                <input v-model="rootFolderForm.path" type="text" class="input font-mono text-sm flex-1" placeholder="/books" />
+                <button type="button" class="btn btn-secondary shrink-0" @click="openPathBrowser('rootFolder')">Browse</button>
+              </div>
               <p class="mt-1.5 text-xs text-stone-500">
                 Absolute path where book files will be stored
               </p>
@@ -876,5 +944,15 @@ onMounted(() => {
         </div>
       </div>
     </Transition>
+
+    <PathBrowserModal
+      v-model="showPathBrowser"
+      :mode="pathBrowserMode"
+      :kindle-id="pathBrowserKindleId"
+      :initial-path="pathBrowserInitialPath"
+      :title="pathBrowserTitle"
+      :select-mode="pathBrowserSelectMode"
+      @select="onPathSelected"
+    />
   </div>
 </template>
