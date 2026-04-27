@@ -21,7 +21,7 @@ services:
       # Persistent data (config, database, logs)
       - ./data:/app/data
 
-      # Book files from Readarr - adjust this path to match your setup
+      # Book library directory - adjust this path to match your setup
       - /mnt/user/media/books:/books:ro
 
       # SSH keys for Kindle access

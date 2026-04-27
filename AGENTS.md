@@ -52,7 +52,7 @@ backend/
   cli.py               → Rich CLI, wraps SyncService
   config.py            → YAML config loader (single source of truth for all config)
   database.py          → SQLAlchemy/SQLite (sync history only, NOT config)
-  clients/             → API clients: hardcover (GraphQL), readarr (REST), kindle (SSH/SFTP)
+  clients/             → API clients: hardcover (GraphQL), prowlarr (REST), qbittorrent (REST), kindle (SSH/SFTP)
   services/            → sync_service (orchestrator), scheduler_service, websocket_manager
   api/routes/          → FastAPI route modules
 frontend/
@@ -75,7 +75,6 @@ frontend/
 
 - **Python version mismatch**: `pyproject.toml` says `requires-python >= 3.14`, `ruff.toml` targets `py311`, CI uses Python 3.11. Docker image uses 3.14. Locally, 3.14 is expected.
 - **Frontend build output**: Vite builds to `frontend/dist/`, Docker copies it to `static/`. The `backend/static/` dir is gitignored.
-- **Path mappings**: Readarr runs in Docker with different filesystem paths. `config.yaml` `readarr.path_mappings` translates container paths to host/BookOtter paths.
 - **Biome scope**: `files.includes` only covers `*.ts` and `*.json` — Vue SFC files are NOT linted by Biome.
 - **Frontend path alias**: `@/*` maps to `frontend/src/*` (tsconfig paths).
 

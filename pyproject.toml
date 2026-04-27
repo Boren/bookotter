@@ -1,14 +1,14 @@
 [project]
 name = "bookotter"
 version = "0.1.0"
-description = "Automatically transfer books from Readarr to Kindle based on Hardcover reading lists"
+description = "Automatically sync books from Hardcover reading lists to Kindle via Prowlarr + qBittorrent"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.14"
 authors = [
     { name = "Fredrik Bore" }
 ]
-keywords = ["kindle", "readarr", "hardcover", "ebook", "sync"]
+keywords = ["kindle", "prowlarr", "qbittorrent", "hardcover", "ebook", "sync"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

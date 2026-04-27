@@ -33,20 +33,6 @@ def test_config():
             "api_token": "test_token_12345",
             "api_url": "https://api.hardcover.app/v1/graphql",
         },
-        "readarr": {
-            "api_key": "test_readarr_key",
-            "base_url": "http://localhost:8787",
-            "path_mappings": [
-                {
-                    "readarr_path": "/data/",
-                    "local_path": "/books/",
-                }
-            ],
-            "auto_add": {
-                "enabled": False,
-                "search_immediately": True,
-            },
-        },
         "kindles": [
             {
                 "id": "test_kindle",
