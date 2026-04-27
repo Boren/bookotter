@@ -266,3 +266,22 @@ export type WebSocketMessage =
   | { event: 'download_completed'; data: DownloadCompletedEvent }
   | { event: 'import_started'; data: ImportStartedEvent }
   | { event: 'import_completed'; data: ImportCompletedEvent };
+
+export interface BrowseEntry {
+  name: string;
+  type: 'dir' | 'file' | 'broken_symlink';
+  is_symlink: boolean;
+  size: number | null;
+}
+
+export interface BrowseResponse {
+  current_path: string;
+  parent_path: string | null;
+  exists: boolean;
+  is_dir: boolean;
+  is_writable: boolean | null;
+  entries: BrowseEntry[];
+  truncated: boolean;
+}
+
+export type PathBrowserMode = 'local' | 'kindle';
