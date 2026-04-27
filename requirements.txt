@@ -3,23 +3,26 @@
 # For faster installs, use: uv pip install -r pyproject.toml
 
 # Core dependencies
-requests>=2.31.0
-PyYAML>=6.0.1
-paramiko>=3.4.0
-python-Levenshtein>=0.25.0
+requests>=2.33.1
+PyYAML>=6.0.3
+paramiko>=4.0.0
+python-Levenshtein>=0.27.3
 fuzzywuzzy>=0.18.0
-rich>=13.7.0
+rich>=15.0.0
 
 # Web framework
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
+fastapi>=0.136.1
+uvicorn[standard]>=0.46.0
 
 # Database
-sqlalchemy>=2.0.0
+sqlalchemy>=2.0.49
 
 # Scheduling
-apscheduler>=3.10.0
+apscheduler>=3.11.2
 
 # File handling
-aiofiles>=23.0.0
-python-multipart>=0.0.6
+aiofiles>=25.1.0
+python-multipart>=0.0.26
+
+# EPUB handling
+ebooklib>=0.20
