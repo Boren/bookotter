@@ -6,13 +6,31 @@ Handles SSH connections and file transfers to Kindle devices.
 import logging
 import os
 import shlex
+import stat
 from collections.abc import Callable
+from pathlib import PurePosixPath
 
 import paramiko
 
 from backend.clients import ConnectionTestResult, classify_ssh_error
 
 logger = logging.getLogger(__name__)
+
+
+class KindleNotFoundError(Exception):
+    pass
+
+
+class KindlePermissionError(Exception):
+    pass
+
+
+class KindleConnectionError(Exception):
+    pass
+
+
+class KindleTimeoutError(Exception):
+    pass
 
 
 class KindleClient:
@@ -313,6 +331,102 @@ class KindleClient:
         except Exception:
             return False
 
+    def list_directory(self, remote_path: str, show_hidden: bool = False, max_entries: int = 1000) -> dict:
+        if not remote_path.startswith("/"):
+            raise ValueError("Path must be absolute")
+
+        normalized_path = str(PurePosixPath(remote_path))
+        effective_max_entries = max(0, min(max_entries, 1000))
+
+        try:
+            ssh = self._create_ssh_client()
+        except TimeoutError as e:
+            raise KindleTimeoutError(str(e)) from e
+        except (paramiko.SSHException, OSError) as e:
+            raise KindleConnectionError(str(e)) from e
+
+        sftp = None
+        try:
+            sftp = ssh.open_sftp()
+            channel = sftp.get_channel()
+            if channel is not None:
+                channel.settimeout(10)
+
+            try:
+                entries = sftp.listdir_attr(normalized_path)
+            except PermissionError as e:
+                raise KindlePermissionError(f"Permission denied: {normalized_path}") from e
+            except TimeoutError as e:
+                raise KindleTimeoutError(str(e)) from e
+            except OSError as e:
+                errno_value = getattr(e, "errno", None)
+                if errno_value in {2, None}:
+                    raise KindleNotFoundError(f"Path not found: {normalized_path}") from e
+                raise KindleConnectionError(str(e)) from e
+            except paramiko.SSHException as e:
+                raise KindleConnectionError(str(e)) from e
+
+            browse_entries = []
+            for entry in entries:
+                if not entry.filename:
+                    continue
+                if not show_hidden and entry.filename.startswith("."):
+                    continue
+
+                full_path = str(PurePosixPath(normalized_path) / entry.filename)
+                is_symlink = stat.S_ISLNK(entry.st_mode or 0)
+
+                if is_symlink:
+                    try:
+                        entry_stat = sftp.stat(full_path)
+                    except OSError:
+                        browse_entries.append(
+                            {
+                                "name": entry.filename,
+                                "type": "broken_symlink",
+                                "is_symlink": True,
+                                "size": None,
+                            }
+                        )
+                        continue
+                else:
+                    entry_stat = entry
+
+                entry_type = "dir" if stat.S_ISDIR(entry_stat.st_mode or 0) else "file"
+                browse_entries.append(
+                    {
+                        "name": entry.filename,
+                        "type": entry_type,
+                        "is_symlink": is_symlink,
+                        "size": None if entry_type == "dir" else entry_stat.st_size,
+                    }
+                )
+
+            browse_entries.sort(
+                key=lambda item: ({"dir": 0, "file": 1, "broken_symlink": 2}[item["type"]], item["name"].lower())
+            )
+            parent_path = None if normalized_path == "/" else str(PurePosixPath(normalized_path).parent)
+
+            return {
+                "current_path": normalized_path,
+                "parent_path": parent_path,
+                "exists": True,
+                "is_dir": True,
+                "is_writable": None,
+                "entries": browse_entries[:effective_max_entries],
+                "truncated": len(browse_entries) > effective_max_entries,
+            }
+        except TimeoutError as e:
+            raise KindleTimeoutError(str(e)) from e
+        except paramiko.SSHException as e:
+            raise KindleConnectionError(str(e)) from e
+        except OSError as e:
+            raise KindleConnectionError(str(e)) from e
+        finally:
+            if sftp is not None:
+                sftp.close()
+            ssh.close()
+
     def list_books(self) -> list[dict]:
         """
         List books currently on the Kindle.
@@ -369,7 +483,7 @@ class KindleClient:
             logger.error(f"Failed to delete file: {e}")
             return False
 
-    def list_all_books(self, protected_paths: list[str] = None) -> list[str]:
+    def list_all_books(self, protected_paths: list[str] | None = None) -> list[str]:
         """
         List all books on Kindle recursively, including subdirectories.
 
@@ -412,7 +526,7 @@ class KindleClient:
     def find_orphaned_books(
         self,
         expected_filenames: list[str],
-        protected_paths: list[str] = None,
+        protected_paths: list[str] | None = None,
     ) -> list[str]:
         """
         Find books on Kindle that are not in the expected list.
@@ -487,7 +601,7 @@ class KindleClient:
     def cleanup_orphaned_books(
         self,
         expected_filenames: list[str],
-        protected_paths: list[str] = None,
+        protected_paths: list[str] | None = None,
         delete_sdr: bool = True,
     ) -> dict:
         """

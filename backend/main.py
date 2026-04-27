@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend import __app_name__, __version__
 from backend.api.routes import (
+    browse,
     config,
     downloads,
     kindles,
@@ -206,6 +207,7 @@ app.add_middleware(
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(services.router, tags=["services"])
+app.include_router(browse.router, prefix="/api/browse", tags=["browse"])
 app.include_router(kindles.router, prefix="/api/kindles", tags=["kindles"])
 app.include_router(root_folders.router, prefix="/api/root-folders", tags=["root-folders"])
 app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])

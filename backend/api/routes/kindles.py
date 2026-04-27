@@ -8,7 +8,14 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.clients.kindle_client import KindleClient
+from backend.api.routes.browse import BrowseResponse
+from backend.clients.kindle_client import (
+    KindleClient,
+    KindleConnectionError,
+    KindleNotFoundError,
+    KindlePermissionError,
+    KindleTimeoutError,
+)
 from backend.config import (
     add_kindle,
     delete_kindle,
@@ -155,3 +162,26 @@ async def list_kindle_books(kindle_id: str):
         return {"success": True, "books": books, "count": len(books)}
     except Exception as e:
         return {"success": False, "error": str(e), "books": []}
+
+
+@router.get("/{kindle_id}/browse", response_model=BrowseResponse)
+async def browse_kindle_directory(kindle_id: str, path: str, show_hidden: bool = False):
+    kindle_config = get_kindle_by_id(kindle_id)
+    if not kindle_config:
+        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+
+    try:
+        client = KindleClient.from_config(kindle_config)
+        return client.list_directory(path, show_hidden=show_hidden, max_entries=1000)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except KindleNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except KindlePermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except KindleTimeoutError as e:
+        raise HTTPException(status_code=408, detail=str(e)) from e
+    except KindleConnectionError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
