@@ -43,20 +43,32 @@ def get_config_path() -> Path:
     return data_config
 
 
+def _deep_merge(base: dict, updates: dict) -> dict:
+    """Recursively merge updates into base dict, with updates taking priority."""
+    result = copy.deepcopy(base)
+    for key, value in updates.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def load_config() -> dict:
-    """Load configuration from config.yaml."""
+    """Load configuration from config.yaml, merged with defaults."""
     config_path = get_config_path()
 
     if not config_path.exists():
         return get_default_config()
 
     with open(config_path) as f:
-        config = yaml.safe_load(f) or {}
+        file_config = yaml.safe_load(f) or {}
 
     # Migrate old single-kindle format to multi-kindle if needed
-    config = _migrate_kindle_config(config)
+    file_config = _migrate_kindle_config(file_config)
 
-    return config
+    # Merge file config into defaults so new sections are always present
+    return _deep_merge(get_default_config(), file_config)
 
 
 def save_config(config: dict) -> None:
@@ -110,17 +122,6 @@ def update_config(updates: dict) -> dict:
     """
     config = load_config()
 
-    def _deep_merge(base: dict, updates: dict) -> dict:
-        """Recursively merge updates into base dict."""
-        result = copy.deepcopy(base)
-        for key, value in updates.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = _deep_merge(result[key], value)
-            elif value is not None:  # Don't overwrite with None
-                result[key] = value
-        return result
-
-    # Don't merge masked values
     def _remove_masked(obj: Any) -> Any:
         if isinstance(obj, dict):
             return {k: _remove_masked(v) for k, v in obj.items() if v != "***MASKED***"}
