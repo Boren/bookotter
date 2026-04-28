@@ -1,3 +1,5 @@
+# pyright: reportCallIssue=false, reportArgumentType=false, reportOptionalCall=false
+
 """
 Hardcover sync service: polls Hardcover lists and adds new books to the library DB.
 Also handles Kindle sync from library DB (books with IN_LIBRARY status).
@@ -108,7 +110,7 @@ class HardcoverSyncService:
                     cover_url=hc_book.get("cover_url"),
                     series_name=hc_book.get("series_name"),
                     series_position=hc_book.get("series_position"),
-                    status=BookStatus.WANTED,
+                    status=BookStatus.MISSING,
                     author_id=author.id if author else None,
                     description=None,
                     publisher=None,

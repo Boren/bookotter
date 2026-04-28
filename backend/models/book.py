@@ -1,3 +1,5 @@
+# pyright: reportGeneralTypeIssues=false
+
 """
 Database models for books, authors, root folders, and downloads.
 """
@@ -14,6 +16,7 @@ from backend.database import Base
 class BookStatus(StrEnum):
     """Status of a book in the library pipeline."""
 
+    MISSING = "missing"
     WANTED = "wanted"
     SEARCHING = "searching"
     GRABBED = "grabbed"

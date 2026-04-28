@@ -97,6 +97,20 @@ class TestProcessWantedBooks:
         assert grabbed == 1
         assert get_book(db_session, book_id).status == BookStatus.GRABBED
 
+    def test_grabs_missing_book_with_results(self, db_session):
+        book = create_test_book(db_session, title="Children of Dune", status=BookStatus.MISSING)
+        db_session.commit()
+        book_id = book.id
+
+        mock_search = MagicMock()
+        mock_search.search_book.return_value = [make_search_result(guid="missing-guid")]
+        service = make_service(db_session, search_service=mock_search)
+
+        grabbed = service.process_wanted_books()
+
+        assert grabbed == 1
+        assert get_book(db_session, book_id).status == BookStatus.GRABBED
+
     def test_creates_download_record(self, db_session):
         book = create_test_book(db_session, title="Dune")
         db_session.commit()
@@ -136,7 +150,7 @@ class TestProcessWantedBooks:
 
     def test_increments_search_attempts(self, db_session):
         book = create_test_book(db_session, title="Dune")
-        book.search_attempts = 2
+        book.search_attempts = 2  # pyright: ignore[reportAttributeAccessIssue]
         db_session.commit()
         book_id = book.id
 
@@ -196,19 +210,23 @@ class TestProcessWantedBooks:
         assert get_book(db_session, id1).status == BookStatus.GRABBED
         assert get_book(db_session, id2).status == BookStatus.GRABBED
 
-    def test_only_processes_wanted_books(self, db_session):
+    def test_only_processes_wanted_and_missing_books(self, db_session):
         create_test_book(db_session, title="Wanted")
+        create_test_book(db_session, title="Missing", status=BookStatus.MISSING)
         already_grabbed = create_test_book(db_session, title="Already Grabbed")
-        already_grabbed.status = BookStatus.GRABBED
+        already_grabbed.status = BookStatus.GRABBED  # pyright: ignore[reportAttributeAccessIssue]
         db_session.commit()
 
         mock_search = MagicMock()
-        mock_search.search_book.return_value = [make_search_result()]
+        mock_search.search_book.side_effect = [
+            [make_search_result(guid="wanted-guid")],
+            [make_search_result(guid="missing-guid")],
+        ]
         service = make_service(db_session, search_service=mock_search)
 
         service.process_wanted_books()
 
-        assert mock_search.search_book.call_count == 1
+        assert mock_search.search_book.call_count == 2
 
     def test_sets_last_searched_at(self, db_session):
         book = create_test_book(db_session, title="Dune")

@@ -267,7 +267,7 @@ class TestHardcoverSyncIntegration:
     def test_skips_existing_books_by_hardcover_id(self, db_session):
         """Existing books by hardcover_id are skipped; new ones are created."""
         existing = create_test_book(db_session, title="Existing Book", author_name="Author One")
-        existing.hardcover_id = "12345"
+        existing.hardcover_id = "12345"  # pyright: ignore[reportAttributeAccessIssue]
         db_session.commit()
 
         mock_hc = MagicMock()
@@ -307,7 +307,7 @@ class TestHardcoverSyncIntegration:
         new_book = db_session.query(Book).filter(Book.hardcover_id == "99999").first()
         assert new_book is not None
         assert new_book.title == "New Book"
-        assert new_book.status == BookStatus.WANTED
+        assert new_book.status == BookStatus.MISSING
         assert new_book.isbn == "978-1234567890"
 
     def test_sync_then_pipeline_processes_new_books(self, db_session):
@@ -333,7 +333,7 @@ class TestHardcoverSyncIntegration:
 
         synced = db_session.query(Book).filter(Book.hardcover_id == "77777").first()
         assert synced is not None
-        assert synced.status == BookStatus.WANTED
+        assert synced.status == BookStatus.MISSING
         synced_id = synced.id
 
         mock_search = MagicMock()

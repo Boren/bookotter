@@ -6,13 +6,14 @@ from backend.models.book import BookStatus, DownloadStatus
 
 # Valid state transitions for books
 VALID_BOOK_TRANSITIONS = {
-    BookStatus.WANTED: {BookStatus.SEARCHING, BookStatus.FAILED},
+    BookStatus.MISSING: {BookStatus.SEARCHING, BookStatus.FAILED},
+    BookStatus.WANTED: {BookStatus.SEARCHING, BookStatus.FAILED, BookStatus.MISSING},
     BookStatus.SEARCHING: {BookStatus.GRABBED, BookStatus.FAILED, BookStatus.WANTED},
     BookStatus.GRABBED: {BookStatus.DOWNLOADING, BookStatus.FAILED, BookStatus.SEARCHING},
     BookStatus.DOWNLOADING: {BookStatus.IMPORTING, BookStatus.FAILED, BookStatus.GRABBED},
     BookStatus.IMPORTING: {BookStatus.IN_LIBRARY, BookStatus.FAILED},
     BookStatus.IN_LIBRARY: set(),  # Terminal state
-    BookStatus.FAILED: {BookStatus.WANTED, BookStatus.SEARCHING},  # Can retry
+    BookStatus.FAILED: {BookStatus.WANTED, BookStatus.MISSING, BookStatus.SEARCHING},  # Can retry
 }
 
 # Valid state transitions for downloads
@@ -38,15 +39,22 @@ def can_transition(current_status: str, target_status: str, is_download: bool = 
     Returns:
         True if transition is valid, False otherwise
     """
-    transitions = VALID_DOWNLOAD_TRANSITIONS if is_download else VALID_BOOK_TRANSITIONS
+    if is_download:
+        try:
+            current = DownloadStatus(current_status)
+            target = DownloadStatus(target_status)
+        except ValueError:
+            return False
+
+        return target in VALID_DOWNLOAD_TRANSITIONS.get(current, set())
 
     try:
-        current = DownloadStatus(current_status) if is_download else BookStatus(current_status)
-        target = DownloadStatus(target_status) if is_download else BookStatus(target_status)
+        current = BookStatus(current_status)
+        target = BookStatus(target_status)
     except ValueError:
         return False
 
-    return target in transitions.get(current, set())
+    return target in VALID_BOOK_TRANSITIONS.get(current, set())
 
 
 def transition_book(book, target_status: str) -> bool:
