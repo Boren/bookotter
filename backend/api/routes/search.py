@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false
 """
 Search and grab API routes.
 Handles manual book search via Prowlarr and grabbing results for download.
@@ -39,6 +40,9 @@ class SearchResultItem(BaseModel):
     categories: list[dict] | None = None
     protocol: str | None = None
     publish_date: str | None = None
+    age_days: float = 0.0
+    rejections: list[str] = []
+    approved: bool = True
 
 
 class GrabRequest(BaseModel):
@@ -79,6 +83,7 @@ def _get_qbittorrent_client() -> QBittorrentClient:
 async def search_books(
     query: str = Query(..., min_length=1, description="Book title to search for"),
     author: str = Query(default="", description="Author name (optional)"),
+    db: Session = Depends(get_db),
 ):
     """
     Search for books via Prowlarr.
@@ -87,9 +92,9 @@ async def search_books(
     """
     try:
         prowlarr = _get_prowlarr_client()
-        search_service = SearchService(prowlarr_client=prowlarr)
+        search_service = SearchService(prowlarr_client=prowlarr, db=db)
         results = search_service.search_book(title=query, author=author)
-        return {"results": results, "total": len(results)}
+        return {"results": [result.to_dict() for result in results], "total": len(results)}
 
     except HTTPException:
         raise
@@ -186,7 +191,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
 
     try:
         prowlarr = _get_prowlarr_client()
-        search_service = SearchService(prowlarr_client=prowlarr)
+        search_service = SearchService(prowlarr_client=prowlarr, db=db)
         results = search_service.search_book(title=book.title, author=author_name)
 
     except HTTPException:
@@ -200,14 +205,25 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"success": False, "message": "No results found", "book_id": book_id, "results_count": 0}
 
-    best = results[0]
-    download_url = best.get("magnet_url") or best.get("download_url")
+    approved_results = [result for result in results if result.approved]
+    if not approved_results:
+        transition_book(book, BookStatus.WANTED.value)
+        db.commit()
+        return {
+            "success": False,
+            "message": "No approved results found",
+            "book_id": book_id,
+            "results_count": len(results),
+        }
+
+    best = approved_results[0]
+    download_url = best.magnet_url or best.download_url
     if not download_url:
         transition_book(book, BookStatus.WANTED.value)
         db.commit()
         return {"success": False, "message": "Best result has no download URL", "book_id": book_id}
 
-    torrent_hash = best.get("guid") or hashlib.sha1(download_url.encode()).hexdigest()
+    torrent_hash = best.guid or hashlib.sha1(download_url.encode()).hexdigest()
 
     existing = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
     if existing:
@@ -241,11 +257,11 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
     download = Download(
         book_id=book.id,
         torrent_hash=torrent_hash,
-        torrent_name=best.get("title") or "Unknown",
-        indexer_name=best.get("indexer") or "Unknown",
+        torrent_name=best.title or "Unknown",
+        indexer_name=best.indexer or "Unknown",
         download_url=download_url,
-        size=best.get("size") or 0,
-        seeders=best.get("seeders") or 0,
+        size=best.size or 0,
+        seeders=best.seeders or 0,
         status=DownloadStatus.QUEUED.value,
     )
     db.add(download)
@@ -255,14 +271,14 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(download)
 
-    logger.info(f"Auto-grabbed '{best.get('title')}' for book '{book.title}' (download_id={download.id})")
+    logger.info(f"Auto-grabbed '{best.title}' for book '{book.title}' (download_id={download.id})")
 
     return {
         "success": True,
         "download_id": download.id,
         "book_id": book_id,
         "torrent_hash": torrent_hash,
-        "result_title": best.get("title"),
+        "result_title": best.title,
         "results_count": len(results),
     }
 
@@ -280,7 +296,7 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
 
     try:
         prowlarr = _get_prowlarr_client()
-        search_service = SearchService(prowlarr_client=prowlarr)
+        search_service = SearchService(prowlarr_client=prowlarr, db=db)
         author_name = book.author.name if book.author else ""
         results = search_service.search_book(title=book.title, author=author_name)
 
@@ -302,6 +318,6 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
         "book_id": book.id,
         "book_title": book.title,
         "book_author": book.author.name if book.author else None,
-        "results": results,
+        "results": [result.to_dict() for result in results],
         "total": len(results),
     }

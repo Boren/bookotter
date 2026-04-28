@@ -1,7 +1,12 @@
 import logging
 import re
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+
+from sqlalchemy.orm import Session
 
 from backend.clients.prowlarr_client import ProwlarrClient
+from backend.services.blocklist_service import BlocklistService
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +23,34 @@ AUDIO_CATEGORY_RANGE = range(3000, 4000)
 EBOOK_CATEGORY_RANGE = range(7000, 8000)
 
 
-class SearchService:
-    def __init__(self, prowlarr_client: ProwlarrClient):
-        self.prowlarr = prowlarr_client
+@dataclass
+class ScoredResult:
+    guid: str | None
+    indexer_id: int | None
+    indexer: str | None
+    title: str | None
+    size: int | None
+    seeders: int | None
+    leechers: int | None
+    download_url: str | None
+    magnet_url: str | None
+    publish_date: str | None
+    protocol: str | None
+    categories: list[dict] = field(default_factory=list)
+    age_days: float = 0.0
+    rejections: list[str] = field(default_factory=list)
+    approved: bool = True
 
-    def search_book(self, title: str, author: str = "") -> list[dict]:
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+class SearchService:
+    def __init__(self, prowlarr_client: ProwlarrClient, db: Session | None = None):
+        self.prowlarr = prowlarr_client
+        self.db = db
+
+    def search_book(self, title: str, author: str = "") -> list[ScoredResult]:
         logger.info(f"Searching for book: '{title}'" + (f" by '{author}'" if author else ""))
 
         raw_results = self.prowlarr.search_book(title=title, author=author)
@@ -30,29 +58,133 @@ class SearchService:
             logger.debug(f"No results from Prowlarr for: '{title}'")
             return []
 
-        kept = self.filter_results(raw_results)
-        ranked = self.rank_results(kept)
-        logger.info(f"Search for '{title}' returned {len(ranked)}/{len(raw_results)} results after classification")
+        blocklisted_set = self._blocklist_set()
+        scored = [self._evaluate(result, blocklisted_set) for result in raw_results]
+        ranked = self._rank(scored)
+        approved_count = sum(1 for result in ranked if result.approved)
+        logger.info(f"Search for '{title}' returned {approved_count}/{len(raw_results)} approved results")
         return ranked
 
     def filter_results(self, results: list[dict]) -> list[dict]:
-        kept: list[dict] = []
-        counts = {"ebook": 0, "ebook-other": 0, "unknown": 0, "audiobook": 0, "no-match": 0}
-        for r in results:
-            verdict, reason = self._classify(r)
-            counts[verdict] += 1
-            if verdict in ("ebook", "unknown"):
-                kept.append({**r, "format_hint": verdict, "format_reason": reason})
-        logger.info(
-            f"Filter: {len(kept)}/{len(results)} kept "
-            f"(ebook={counts['ebook']}, unknown={counts['unknown']}, "
-            f"dropped: ebook-other={counts['ebook-other']}, "
-            f"audiobook={counts['audiobook']}, no-match={counts['no-match']})"
-        )
-        return kept
+        blocklisted_set = self._blocklist_set()
+        return [result.to_dict() for result in self._rank([self._evaluate(raw, blocklisted_set) for raw in results])]
 
     def rank_results(self, results: list[dict]) -> list[dict]:
-        return sorted(results, key=self._rank_score, reverse=True)
+        blocklisted_set = self._blocklist_set()
+        normalized: list[ScoredResult] = [
+            self._coerce_result(result)
+            if "approved" in result or "rejections" in result or "age_days" in result
+            else self._evaluate(result, blocklisted_set)
+            for result in results
+        ]
+        ranked = self._rank(normalized)
+        return [result.to_dict() for result in ranked]
+
+    def _evaluate(self, raw: dict, blocklisted_set: set[tuple[str, str]]) -> ScoredResult:
+        verdict, reason = self._classify(raw)
+        title = raw.get("title") or ""
+        size = raw.get("size") or 0
+        seeders = raw.get("seeders") or 0
+        protocol = raw.get("protocol") or ""
+        indexer = raw.get("indexer")
+        guid = raw.get("guid")
+        rejections: list[str] = []
+
+        if AUDIOBOOK_RE.search(title):
+            rejections.append("Audiobook")
+
+        if indexer and guid and (indexer, guid) in blocklisted_set:
+            rejections.append("Blocklisted")
+
+        if protocol == "torrent" and seeders < 1:
+            rejections.append("No seeders")
+
+        if size < 10_000:
+            rejections.append("Size too small")
+
+        if size > 500 * 1024 * 1024:
+            rejections.append("Size too large")
+
+        if verdict == "ebook-other":
+            rejections.append(f"Non-EPUB format detected ({reason})")
+
+        if verdict == "no-match":
+            rejections.append("No book signals detected")
+
+        publish_date = raw.get("publish_date")
+        age_days = self._calculate_age_days(publish_date)
+
+        return ScoredResult(
+            guid=guid,
+            indexer_id=raw.get("indexer_id"),
+            indexer=indexer,
+            title=raw.get("title"),
+            size=raw.get("size"),
+            seeders=raw.get("seeders"),
+            leechers=raw.get("leechers"),
+            download_url=raw.get("download_url"),
+            magnet_url=raw.get("magnet_url"),
+            publish_date=publish_date,
+            protocol=raw.get("protocol"),
+            categories=raw.get("categories") or [],
+            age_days=age_days,
+            rejections=rejections,
+            approved=len(rejections) == 0,
+        )
+
+    def _blocklist_set(self) -> set[tuple[str, str]]:
+        if self.db is None:
+            return set()
+        return BlocklistService(self.db).get_set()
+
+    def _rank(self, results: list[ScoredResult]) -> list[ScoredResult]:
+        return sorted(
+            results,
+            key=lambda result: (
+                1 if result.approved else 0,
+                result.seeders or 0,
+                -(result.age_days or 0.0),
+            ),
+            reverse=True,
+        )
+
+    def _coerce_result(self, result: dict) -> ScoredResult:
+        publish_date = result.get("publish_date")
+        rejections = list(result.get("rejections") or [])
+        approved = result.get("approved")
+        if approved is None:
+            approved = len(rejections) == 0
+
+        return ScoredResult(
+            guid=result.get("guid"),
+            indexer_id=result.get("indexer_id"),
+            indexer=result.get("indexer"),
+            title=result.get("title"),
+            size=result.get("size"),
+            seeders=result.get("seeders"),
+            leechers=result.get("leechers"),
+            download_url=result.get("download_url"),
+            magnet_url=result.get("magnet_url"),
+            publish_date=publish_date,
+            protocol=result.get("protocol"),
+            categories=result.get("categories") or [],
+            age_days=result.get("age_days", self._calculate_age_days(publish_date)),
+            rejections=rejections,
+            approved=approved,
+        )
+
+    def _calculate_age_days(self, publish_date: str | None) -> float:
+        if not publish_date:
+            return 0.0
+
+        try:
+            parsed = datetime.fromisoformat(publish_date.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+            return float((datetime.utcnow() - parsed).days)
+        except ValueError:
+            logger.debug(f"Could not parse publish date: {publish_date}")
+            return 0.0
 
     def _classify(self, result: dict) -> tuple[str, str]:
         """
@@ -67,36 +199,23 @@ class SearchService:
             if isinstance(c, dict) and isinstance(c.get("id"), int)
         ]
 
-        # Layer 1: audiobook keyword in title
         ab = AUDIOBOOK_RE.search(title)
         if ab:
             return "audiobook", f"audiobook keyword: {ab.group()}"
 
-        # Layer 2: audio category
         audio_cats = [c for c in category_ids if c in AUDIO_CATEGORY_RANGE]
         if audio_cats:
             return "audiobook", f"audio category {audio_cats}"
 
-        # Layer 3: explicit EPUB hint (also fires on bundles like "[EPUB MOBI]")
         if EPUB_RE.search(title):
             return "ebook", "EPUB tag in title"
 
-        # Layer 4: explicit non-EPUB format only -- out of v1 scope
         non_epub = NON_EPUB_FORMAT_RE.search(title)
         if non_epub:
             return "ebook-other", f"non-EPUB format tag: {non_epub.group()} (no EPUB found)"
 
-        # Layer 5: book category without format tag -- keep optimistically
         book_cats = [c for c in category_ids if c in EBOOK_CATEGORY_RANGE]
         if book_cats:
             return "unknown", f"book category {book_cats}, no format tag"
 
-        # Layer 6: nothing matched
         return "no-match", "no signals (not audiobook, not in book category, no format tag)"
-
-    def _rank_score(self, result: dict) -> tuple[int, int, int]:
-        format_score = 1 if result.get("format_hint") == "ebook" else 0
-        seeders = result.get("seeders") or 0
-        size = result.get("size") or 0
-        size_score = 1 if PREFERRED_SIZE_MIN <= size <= PREFERRED_SIZE_MAX else 0
-        return (format_score, seeders, size_score)
