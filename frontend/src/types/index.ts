@@ -9,6 +9,7 @@ export interface Author {
 }
 
 export type BookStatus =
+  | 'missing'
   | 'wanted'
   | 'searching'
   | 'grabbed'
@@ -99,11 +100,23 @@ export interface SearchResult {
   magnet_url: string;
   categories: number[];
   publish_date: string;
+  age_days: number;
+  rejections: string[];
+  approved: boolean;
   // Phase 1 filter rewrite — server-side classification.
   // 'audiobook' and 'ebook-other' verdicts are filtered out server-side
   // and never reach the frontend.
   format_hint?: 'ebook' | 'unknown';
   format_reason?: string;
+}
+
+export interface BlocklistEntry {
+  id: number;
+  indexer: string;
+  release_guid: string;
+  title: string;
+  reason: string | null;
+  created_at: string;
 }
 
 // Config Types

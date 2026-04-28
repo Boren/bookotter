@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSearchStore } from '../stores/search'
 import type { SearchResult } from '../types'
+import SearchResultRow from '../components/SearchResultRow.vue'
 
 const route = useRoute()
 const searchStore = useSearchStore()
@@ -17,6 +18,20 @@ const bookId = computed(() => {
 
 const bookTitle = computed(() => {
   return (route.query.bookTitle as string) || null
+})
+
+const bookAuthor = computed(() => {
+  return (route.query.bookAuthor as string) || null
+})
+
+onMounted(() => {
+  if (bookTitle.value) {
+    titleQuery.value = bookTitle.value
+    if (bookAuthor.value) {
+      authorQuery.value = bookAuthor.value
+    }
+    handleSearch()
+  }
 })
 
 const handleSearch = async () => {
@@ -70,24 +85,70 @@ const confirmGrab = async () => {
   }
 }
 
-const formatSize = (bytes: number) => {
-  if (bytes >= 1_073_741_824) {
-    return `${(bytes / 1_073_741_824).toFixed(1)} GB`
-  }
-  if (bytes >= 1_048_576) {
-    return `${(bytes / 1_048_576).toFixed(1)} MB`
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(0)} KB`
-  }
-  return `${bytes} B`
-}
-
 const isGrabbing = (guid: string) => {
   return !!searchStore.grabbingIds[guid]
 }
 
 const hasSearched = computed(() => searchStore.query.length > 0)
+
+// Filtering and Sorting
+const hideRejected = ref(false)
+const hideAudiobooks = ref(false)
+
+type SortColumn = 'age' | 'title' | 'indexer' | 'size' | 'peers' | 'rejections'
+const sortBy = ref<SortColumn>('peers')
+const sortDir = ref<'asc' | 'desc'>('desc')
+
+const toggleSort = (col: SortColumn) => {
+  if (sortBy.value === col) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortBy.value = col
+    sortDir.value = col === 'title' || col === 'indexer' ? 'asc' : 'desc'
+  }
+}
+
+const filteredAndSortedResults = computed(() => {
+  let results = [...searchStore.results]
+
+  if (hideRejected.value) {
+    results = results.filter(r => r.approved)
+  }
+
+  if (hideAudiobooks.value) {
+    results = results.filter(r => {
+      if (!r.rejections) return true
+      return !r.rejections.some(rej => rej.toLowerCase().includes('audiobook'))
+    })
+  }
+
+  results.sort((a, b) => {
+    let cmp = 0
+    switch (sortBy.value) {
+      case 'age':
+        cmp = (a.age_days || 0) - (b.age_days || 0)
+        break
+      case 'title':
+        cmp = a.title.localeCompare(b.title)
+        break
+      case 'indexer':
+        cmp = a.indexer.localeCompare(b.indexer)
+        break
+      case 'size':
+        cmp = a.size - b.size
+        break
+      case 'peers':
+        cmp = (a.seeders || 0) - (b.seeders || 0)
+        break
+      case 'rejections':
+        cmp = (a.rejections?.length || 0) - (b.rejections?.length || 0)
+        break
+    }
+    return sortDir.value === 'asc' ? cmp : -cmp
+  })
+
+  return results
+})
 </script>
 
 <template>
@@ -273,7 +334,7 @@ const hasSearched = computed(() => searchStore.query.length > 0)
 
     <!-- Results Table -->
     <div v-else-if="searchStore.hasResults" class="card animate-fade-in-up">
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div class="flex items-center gap-3">
           <div class="icon-container">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,78 +342,74 @@ const hasSearched = computed(() => searchStore.query.length > 0)
             </svg>
           </div>
           <h2 class="text-lg font-display font-semibold text-stone-900">Results</h2>
+          <span class="badge badge-neutral">{{ filteredAndSortedResults.length }} found</span>
         </div>
-        <span class="badge badge-neutral">{{ searchStore.resultCount }} found</span>
+        
+        <div class="flex items-center gap-4 text-sm">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" v-model="hideRejected" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-500" />
+            <span class="text-stone-700">Hide rejected</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" v-model="hideAudiobooks" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-500" />
+            <span class="text-stone-700">Hide audiobooks</span>
+          </label>
+        </div>
       </div>
 
       <div class="overflow-x-auto -mx-6">
-        <table class="w-full min-w-[640px]">
+        <table class="w-full min-w-[800px]">
           <thead>
             <tr>
-              <th class="table-header text-left">Title</th>
-              <th class="table-header text-left whitespace-nowrap">Format</th>
-              <th class="table-header text-right whitespace-nowrap">Size</th>
-              <th class="table-header text-right whitespace-nowrap">Seeders</th>
-              <th class="table-header text-left">Indexer</th>
+              <th class="table-header text-left cursor-pointer hover:bg-stone-100 transition-colors" @click="toggleSort('age')">
+                <div class="flex items-center gap-1">
+                  Age
+                  <svg v-if="sortBy === 'age'" class="w-4 h-4" :class="sortDir === 'desc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </div>
+              </th>
+              <th class="table-header text-left cursor-pointer hover:bg-stone-100 transition-colors" @click="toggleSort('title')">
+                <div class="flex items-center gap-1">
+                  Title
+                  <svg v-if="sortBy === 'title'" class="w-4 h-4" :class="sortDir === 'desc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </div>
+              </th>
+              <th class="table-header text-left cursor-pointer hover:bg-stone-100 transition-colors" @click="toggleSort('indexer')">
+                <div class="flex items-center gap-1">
+                  Indexer
+                  <svg v-if="sortBy === 'indexer'" class="w-4 h-4" :class="sortDir === 'desc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </div>
+              </th>
+              <th class="table-header text-right cursor-pointer hover:bg-stone-100 transition-colors" @click="toggleSort('size')">
+                <div class="flex items-center justify-end gap-1">
+                  Size
+                  <svg v-if="sortBy === 'size'" class="w-4 h-4" :class="sortDir === 'desc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </div>
+              </th>
+              <th class="table-header text-right cursor-pointer hover:bg-stone-100 transition-colors" @click="toggleSort('peers')">
+                <div class="flex items-center justify-end gap-1">
+                  Peers (S/L)
+                  <svg v-if="sortBy === 'peers'" class="w-4 h-4" :class="sortDir === 'desc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </div>
+              </th>
+              <th class="table-header text-center cursor-pointer hover:bg-stone-100 transition-colors" @click="toggleSort('rejections')">
+                <div class="flex items-center justify-center gap-1">
+                  Rejections
+                  <svg v-if="sortBy === 'rejections'" class="w-4 h-4" :class="sortDir === 'desc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </div>
+              </th>
               <th class="table-header text-right">Action</th>
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="(result, index) in searchStore.results"
+            <SearchResultRow
+              v-for="(result, index) in filteredAndSortedResults"
               :key="result.guid"
-              class="table-row animate-fade-in"
+              :result="result"
+              :is-grabbing="isGrabbing(result.guid)"
+              @grab="handleGrab"
+              class="animate-fade-in"
               :style="{ animationDelay: `${index * 30}ms` }"
-            >
-              <td class="table-cell max-w-md">
-                <p class="font-medium text-stone-900 truncate" :title="result.title">
-                  {{ result.title }}
-                </p>
-                <p class="text-xs text-stone-500 mt-0.5">{{ result.publish_date ? new Date(result.publish_date).toLocaleDateString() : '' }}</p>
-              </td>
-              <td class="table-cell whitespace-nowrap">
-                <span
-                  class="badge"
-                  :class="result.format_hint === 'ebook' ? 'badge-success' : 'badge-neutral'"
-                  :title="result.format_reason || ''"
-                >
-                  {{ result.format_hint === 'ebook' ? 'EPUB' : 'Uncertain' }}
-                </span>
-              </td>
-              <td class="table-cell text-right text-stone-600 tabular-nums whitespace-nowrap">
-                {{ formatSize(result.size) }}
-              </td>
-              <td class="table-cell text-right tabular-nums">
-                <span
-                  class="inline-flex items-center gap-1"
-                  :class="result.seeders > 0 ? 'text-success-600' : 'text-stone-400'"
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
-                  </svg>
-                  {{ result.seeders }}
-                </span>
-              </td>
-              <td class="table-cell">
-                <span class="badge badge-neutral">{{ result.indexer }}</span>
-              </td>
-              <td class="table-cell text-right">
-                <button
-                  @click="handleGrab(result)"
-                  :disabled="isGrabbing(result.guid)"
-                  class="btn btn-sm btn-primary"
-                >
-                  <svg v-if="isGrabbing(result.guid)" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                  </svg>
-                  {{ isGrabbing(result.guid) ? 'Grabbing...' : 'Grab' }}
-                </button>
-              </td>
-            </tr>
+            />
           </tbody>
         </table>
       </div>

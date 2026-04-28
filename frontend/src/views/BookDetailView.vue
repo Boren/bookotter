@@ -2,17 +2,20 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
-import type { BookStatus } from '../types'
+import { useSearchStore } from '../stores/search'
+import StatusBadge from '../components/StatusBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
 const libraryStore = useLibraryStore()
+const searchStore = useSearchStore()
 
 const isEditing = ref(false)
 const isSaving = ref(false)
 const isDeleting = ref(false)
 const showDeleteConfirm = ref(false)
 const saveSuccess = ref(false)
+const isSearching = ref(false)
 
 const editForm = ref({
   title: '',
@@ -32,40 +35,6 @@ const hoverRating = ref(0)
 const bookId = computed(() => Number(route.params.id))
 
 const book = computed(() => libraryStore.currentBook)
-
-const statusOptions: { value: BookStatus; label: string }[] = [
-  { value: 'wanted', label: 'Wanted' },
-  { value: 'searching', label: 'Searching' },
-  { value: 'grabbed', label: 'Grabbed' },
-  { value: 'downloading', label: 'Downloading' },
-  { value: 'importing', label: 'Importing' },
-  { value: 'in_library', label: 'In Library' },
-  { value: 'failed', label: 'Failed' },
-]
-
-const statusDisplay = computed(() => {
-  if (!book.value) return null
-  return statusOptions.find((s) => s.value === book.value!.status) ?? { label: book.value.status }
-})
-
-const statusClass = computed(() => {
-  if (!book.value) return ''
-  switch (book.value.status) {
-    case 'in_library':
-      return 'badge-success'
-    case 'wanted':
-      return 'badge-info'
-    case 'searching':
-    case 'downloading':
-    case 'grabbed':
-    case 'importing':
-      return 'badge-warning'
-    case 'failed':
-      return 'badge-error'
-    default:
-      return 'badge-neutral'
-  }
-})
 
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return '—'
@@ -151,6 +120,28 @@ const handleDelete = async () => {
 
 const setRating = (value: number) => {
   editForm.value.rating = editForm.value.rating === value ? null : value
+}
+
+const triggerSearch = async () => {
+  if (!book.value) return
+  isSearching.value = true
+  try {
+    await searchStore.autoSearchForBook(book.value.id)
+  } finally {
+    isSearching.value = false
+  }
+}
+
+const goToInteractiveSearch = () => {
+  if (!book.value) return
+  router.push({
+    path: '/search',
+    query: {
+      bookId: book.value.id,
+      bookTitle: book.value.title,
+      bookAuthor: book.value.author?.name || ''
+    }
+  })
 }
 
 watch(
@@ -277,6 +268,66 @@ onMounted(() => {
         </div>
       </Transition>
 
+      <!-- Search Message Banner -->
+      <Transition
+        enter-active-class="transition-all duration-300 ease-out"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition-all duration-200 ease-in"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="searchStore.autoSearchMessage"
+          class="rounded-xl p-4 flex items-start gap-3"
+          :class="searchStore.autoSearchMessage.type === 'success'
+            ? 'bg-success-50 border border-success-100'
+            : 'bg-error-50 border border-error-100'"
+        >
+          <div class="shrink-0 mt-0.5">
+            <svg
+              v-if="searchStore.autoSearchMessage.type === 'success'"
+              class="w-5 h-5 text-success-500"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <svg
+              v-else
+              class="w-5 h-5 text-error-500"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p
+              class="text-sm font-medium"
+              :class="searchStore.autoSearchMessage.type === 'success' ? 'text-success-700' : 'text-error-700'"
+            >
+              {{ searchStore.autoSearchMessage.type === 'success' ? 'Search successful' : 'Search failed' }}
+            </p>
+            <p
+              class="text-sm mt-0.5"
+              :class="searchStore.autoSearchMessage.type === 'success' ? 'text-success-600' : 'text-error-600'"
+            >
+              {{ searchStore.autoSearchMessage.text }}
+            </p>
+          </div>
+          <button
+            @click="searchStore.clearAutoSearchMessage()"
+            class="shrink-0 p-1 rounded-lg transition-colors"
+            :class="searchStore.autoSearchMessage.type === 'success'
+              ? 'text-success-500 hover:text-success-700 hover:bg-success-100'
+              : 'text-error-500 hover:text-error-700 hover:bg-error-100'"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </Transition>
+
       <!-- Main Content Card -->
       <div class="card card-accent animate-fade-in">
         <div class="flex flex-col md:flex-row gap-8">
@@ -304,9 +355,9 @@ onMounted(() => {
               </div>
 
               <!-- Status Badge -->
-              <span class="badge absolute -top-2 -right-2 shadow-warm-sm" :class="statusClass">
-                {{ statusDisplay?.label }}
-              </span>
+              <div class="absolute -top-2 -right-2 shadow-warm-sm rounded-full bg-white">
+                <StatusBadge :status="book.status" />
+              </div>
             </div>
           </div>
 
@@ -370,6 +421,22 @@ onMounted(() => {
 
               <!-- Action Buttons -->
               <div class="flex flex-wrap gap-3">
+                <button @click="triggerSearch" :disabled="isSearching" class="btn btn-secondary">
+                  <svg v-if="isSearching" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                  </svg>
+                  Search
+                </button>
+                <button @click="goToInteractiveSearch" class="btn btn-secondary">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                  </svg>
+                  Interactive Search
+                </button>
                 <button @click="enterEditMode" class="btn btn-primary">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
