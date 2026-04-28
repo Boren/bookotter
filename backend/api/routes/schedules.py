@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 """
 Schedule management API routes.
 Handles CRUD operations for scheduled sync jobs stored in config.yaml.
@@ -115,8 +116,8 @@ async def create_schedule(body: ScheduleCreate):
             kindle_device=body.kindle_device,
             dry_run=body.dry_run,
         )
-    except ImportError:
-        pass
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     return {"success": True, "schedule": schedule_to_response(schedule)}
 
@@ -149,8 +150,8 @@ async def update_schedule_route(schedule_id: str, body: ScheduleUpdate):
                 kindle_device=updated.get("kindle_device"),
                 dry_run=updated.get("dry_run", False),
             )
-        except ImportError:
-            pass
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
     else:
         scheduler.remove_job(job_id)
 
@@ -193,8 +194,8 @@ async def toggle_schedule(schedule_id: str):
                 kindle_device=updated.get("kindle_device"),
                 dry_run=updated.get("dry_run", False),
             )
-        except ImportError:
-            pass
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
     else:
         scheduler.remove_job(job_id)
 

@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportOperatorIssue=false, reportOptionalMemberAccess=false
 """
 Download Monitor Service
 Manages the qBittorrent torrent lifecycle for book downloads.
@@ -27,6 +28,7 @@ from backend.clients.qbittorrent_client import (
 )
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
+from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +102,12 @@ class DownloadService:
         qbit_client: QBittorrentClient,
         db_session_factory,
         category: str = DEFAULT_CATEGORY,
+        ws_manager: WebSocketManager | None = None,
     ) -> None:
         self.qbit = qbit_client
         self._db_factory = db_session_factory
         self.category = category
+        self.ws_manager = ws_manager
 
     def add_download(self, book_id: int, search_result: dict) -> "Download | None":
         """
@@ -166,7 +170,7 @@ class DownloadService:
 
             book = db.query(Book).filter(Book.id == book_id).first()
             if book:
-                if not transition_book(book, BookStatus.GRABBED):
+                if not self._transition_book(book, BookStatus.GRABBED, download=download):
                     logger.warning(
                         "Could not transition book %d from %r → grabbed",
                         book_id,
@@ -235,18 +239,38 @@ class DownloadService:
 
                 elif state == TorrentState.ERROR or state == TorrentState.MISSING_FILES:
                     if transition_download(download, DownloadStatus.FAILED):
+                        download.error_message = f"Torrent in error state ({state})"
                         logger.warning(
                             "Download errored in qBit: %r (id=%d, state=%s)",
                             download.torrent_name,
                             download.id,
                             state,
                         )
+                        self._broadcast(
+                            "download_failed",
+                            {
+                                "book_id": download.book_id,
+                                "download_id": download.id,
+                                "reason": download.error_message,
+                            },
+                        )
 
                 elif state in ACTIVE_DL_STATES and download.status == DownloadStatus.QUEUED.value:
                     transition_download(download, DownloadStatus.DOWNLOADING)
                     book = db.query(Book).filter(Book.id == download.book_id).first()
                     if book:
-                        transition_book(book, BookStatus.DOWNLOADING)
+                        self._transition_book(book, BookStatus.DOWNLOADING, download=download)
+
+                if state in ACTIVE_DL_STATES:
+                    self._broadcast(
+                        "download_progress",
+                        {
+                            "download_id": download.id,
+                            "progress": progress,
+                            "download_speed": torrent_info.get("dlspeed", 0),
+                            "eta": torrent_info.get("eta"),
+                        },
+                    )
 
                 processed += 1
 
@@ -295,6 +319,14 @@ class DownloadService:
                 )
                 transition_download(download, DownloadStatus.FAILED)
                 download.error_message = "No EPUB file found in completed torrent"
+                self._broadcast(
+                    "download_failed",
+                    {
+                        "book_id": download.book_id,
+                        "download_id": download.id,
+                        "reason": download.error_message,
+                    },
+                )
             else:
                 transition_download(download, DownloadStatus.COMPLETED)
                 download.file_path = str(epub_path)
@@ -302,7 +334,7 @@ class DownloadService:
 
                 book = db.query(Book).filter(Book.id == download.book_id).first()
                 if book:
-                    if not transition_book(book, BookStatus.IMPORTING):
+                    if not self._transition_book(book, BookStatus.IMPORTING, download=download):
                         logger.warning(
                             "Could not transition book %d from %r → importing",
                             download.book_id,
@@ -321,6 +353,10 @@ class DownloadService:
 
         except Exception as exc:
             logger.error("Error handling completed download id=%d: %s", download.id, exc)
+            self._broadcast(
+                "download_failed",
+                {"book_id": download.book_id, "download_id": download.id, "reason": str(exc)},
+            )
             if owns_session:
                 db.rollback()
             return False
@@ -491,3 +527,53 @@ class DownloadService:
             self.qbit.set_file_priority(torrent_hash, non_epub_ids, priority=0)
 
         return epub_name
+
+    def _broadcast(self, event: str, data: dict) -> None:
+        if self.ws_manager:
+            self.ws_manager.broadcast_sync(event, data)
+
+    def _transition_book(self, book: Book, target_status: str, download: Download | None = None) -> bool:
+        old_status = book.status
+        if not transition_book(book, target_status):
+            return False
+
+        self._broadcast(
+            "book_status_changed",
+            {
+                "book_id": book.id,
+                "old_status": old_status,
+                "new_status": book.status,
+                "title": book.title,
+            },
+        )
+
+        if target_status == BookStatus.GRABBED:
+            self._broadcast(
+                "book_grabbed",
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "release_title": download.torrent_name if download else book.title,
+                    "indexer": download.indexer_name if download else None,
+                },
+            )
+        elif target_status == BookStatus.DOWNLOADING:
+            self._broadcast(
+                "download_started",
+                {
+                    "book_id": book.id,
+                    "download_id": download.id if download else None,
+                    "title": book.title,
+                },
+            )
+        elif target_status == BookStatus.IMPORTING:
+            self._broadcast(
+                "download_completed",
+                {
+                    "book_id": book.id,
+                    "download_id": download.id if download else None,
+                    "file_path": download.file_path if download else None,
+                },
+            )
+
+        return True

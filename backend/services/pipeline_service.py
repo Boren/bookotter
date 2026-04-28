@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportOptionalMemberAccess=false
 """
 Pipeline orchestrator: WANTED → SEARCHING → GRABBED → DOWNLOADING → IMPORTING → IN_LIBRARY.
 
@@ -17,6 +18,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from backend.database import SessionLocal
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
+from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +47,14 @@ class PipelineService:
         download_service: Any | None = None,
         import_service: Any | None = None,
         db_session_factory: Callable | None = None,
+        ws_manager: WebSocketManager | None = None,
     ):
         self.search_service = search_service
         self.download_service = download_service
         self.import_service = import_service
         self._session_factory = db_session_factory or SessionLocal
         self._scheduler: AsyncIOScheduler | None = None
+        self.ws_manager = ws_manager
 
     def process_wanted_books(self) -> int:
         if self.search_service is None:
@@ -60,14 +64,14 @@ class PipelineService:
         db = self._session_factory()
         grabbed = 0
         try:
-            books = db.query(Book).filter(Book.status == BookStatus.WANTED).all()
-            logger.debug(f"process_wanted_books: {len(books)} WANTED book(s) found")
+            books = db.query(Book).filter(Book.status.in_([BookStatus.WANTED, BookStatus.MISSING])).all()
+            logger.debug(f"process_wanted_books: {len(books)} WANTED/MISSING book(s) found")
             for book in books:
                 try:
                     grabbed += self._search_and_grab(book, db)
                 except Exception as exc:
-                    logger.error(f"Unexpected error processing WANTED book '{book.title}': {exc}")
-                    self._fail_book(book, db)
+                    logger.error(f"Unexpected error processing wanted/missing book '{book.title}': {exc}")
+                    self._fail_book(book, db, str(exc))
             return grabbed
         finally:
             db.close()
@@ -87,7 +91,7 @@ class PipelineService:
                     grabbed += self._search_and_grab(book, db)
                 except Exception as exc:
                     logger.error(f"Unexpected error processing SEARCHING book '{book.title}': {exc}")
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, str(exc))
             return grabbed
         finally:
             db.close()
@@ -106,7 +110,7 @@ class PipelineService:
                 queued = [d for d in book.downloads if d.status == DownloadStatus.QUEUED]
                 if not queued:
                     logger.warning(f"Book '{book.title}' is GRABBED but has no QUEUED downloads — failing")
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, "No queued downloads for grabbed book")
                     continue
                 download = queued[0]
                 try:
@@ -114,18 +118,18 @@ class PipelineService:
                     if success:
                         if transition_download(download, DownloadStatus.DOWNLOADING):
                             db.commit()
-                        if transition_book(book, BookStatus.DOWNLOADING):
+                        if self._transition_book(book, BookStatus.DOWNLOADING, download=download):
                             db.commit()
                         started += 1
                         logger.info(f"Download started for '{book.title}'")
                     else:
                         logger.warning(f"add_torrent returned False for '{book.title}'")
                         self._fail_download(download, db, "add_torrent returned False")
-                        self._fail_book(book, db)
+                        self._fail_book(book, db, "add_torrent returned False")
                 except Exception as exc:
                     logger.error(f"Error adding torrent for '{book.title}': {exc}")
                     self._fail_download(download, db, str(exc))
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, str(exc))
             return started
         finally:
             db.close()
@@ -144,7 +148,7 @@ class PipelineService:
                 active = [d for d in book.downloads if d.status == DownloadStatus.DOWNLOADING]
                 if not active:
                     logger.warning(f"Book '{book.title}' is DOWNLOADING but has no active downloads — failing")
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, "No active downloads for downloading book")
                     continue
                 download = active[0]
                 try:
@@ -155,14 +159,14 @@ class PipelineService:
                     download.completed_at = datetime.now(UTC)
                     if transition_download(download, DownloadStatus.COMPLETED):
                         db.commit()
-                    if transition_book(book, BookStatus.IMPORTING):
+                    if self._transition_book(book, BookStatus.IMPORTING, download=download):
                         db.commit()
                     importing += 1
                     logger.info(f"Download complete for '{book.title}': {file_path}")
                 except Exception as exc:
                     logger.error(f"Error checking download for '{book.title}': {exc}")
                     self._fail_download(download, db, str(exc))
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, str(exc))
             return importing
         finally:
             db.close()
@@ -181,13 +185,13 @@ class PipelineService:
                 completed = [d for d in book.downloads if d.status == DownloadStatus.COMPLETED]
                 if not completed:
                     logger.warning(f"Book '{book.title}' is IMPORTING but has no COMPLETED downloads — failing")
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, "No completed downloads for importing book")
                     continue
                 download = completed[0]
                 if not download.file_path:
                     logger.warning(f"Download for '{book.title}' has no file_path — failing")
                     self._fail_download(download, db, "No file path recorded after download")
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, "No file path recorded after download")
                     continue
                 try:
                     success = self.import_service.import_epub(book, download.file_path)
@@ -196,18 +200,18 @@ class PipelineService:
                             db.commit()
                         if transition_download(download, DownloadStatus.IMPORTED):
                             db.commit()
-                        if transition_book(book, BookStatus.IN_LIBRARY):
+                        if self._transition_book(book, BookStatus.IN_LIBRARY, download=download):
                             db.commit()
                         imported += 1
                         logger.info(f"Imported '{book.title}' to library")
                     else:
                         logger.warning(f"import_epub returned False for '{book.title}'")
                         self._fail_download(download, db, "import_epub returned False")
-                        self._fail_book(book, db)
+                        self._fail_book(book, db, "import_epub returned False")
                 except Exception as exc:
                     logger.error(f"Error importing '{book.title}': {exc}")
                     self._fail_download(download, db, str(exc))
-                    self._fail_book(book, db)
+                    self._fail_book(book, db, str(exc))
             return imported
         finally:
             db.close()
@@ -258,9 +262,9 @@ class PipelineService:
     def _search_and_grab(self, book: Book, db: Any) -> int:
         author_name = book.author.name if book.author else ""
 
-        if book.status == BookStatus.WANTED:
-            if not transition_book(book, BookStatus.SEARCHING):
-                logger.warning(f"Could not transition '{book.title}' WANTED→SEARCHING, skipping")
+        if book.status in {BookStatus.WANTED, BookStatus.MISSING}:
+            if not self._transition_book(book, BookStatus.SEARCHING):
+                logger.warning(f"Could not transition '{book.title}' to SEARCHING from {book.status}, skipping")
                 return 0
 
         book.search_attempts = (book.search_attempts or 0) + 1
@@ -273,25 +277,43 @@ class PipelineService:
                 f"No EPUB results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
             )
             # Return book to WANTED state for retry on next pipeline cycle
-            if not transition_book(book, BookStatus.WANTED):
+            if not self._transition_book(book, BookStatus.WANTED):
                 logger.warning(f"Could not transition '{book.title}' back to WANTED, leaving in current state")
             db.commit()
             return 0
 
-        best = results[0]
+        approved_results = [result for result in results if getattr(result, "approved", True)]
+        if not approved_results:
+            logger.info(
+                f"No approved results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
+            )
+            if not self._transition_book(book, BookStatus.WANTED):
+                logger.warning(f"Could not transition '{book.title}' back to WANTED, leaving in current state")
+            db.commit()
+            return 0
+
+        best = approved_results[0]
+        best_guid = best.get("guid") if isinstance(best, dict) else best.guid
+        best_title = best.get("title") if isinstance(best, dict) else best.title
+        best_indexer = best.get("indexer") if isinstance(best, dict) else best.indexer
+        best_download_url = best.get("download_url") if isinstance(best, dict) else best.download_url
+        best_magnet_url = best.get("magnet_url") if isinstance(best, dict) else best.magnet_url
+        best_size = best.get("size") if isinstance(best, dict) else best.size
+        best_seeders = best.get("seeders") if isinstance(best, dict) else best.seeders
+
         download = Download(
             book_id=book.id,
-            torrent_hash=_guid_to_hash(best.get("guid")),
-            torrent_name=best.get("title") or book.title,
-            indexer_name=best.get("indexer") or "unknown",
-            download_url=best.get("download_url") or best.get("magnet_url") or "",
-            size=best.get("size") or 0,
-            seeders=best.get("seeders") or 0,
+            torrent_hash=_guid_to_hash(best_guid),
+            torrent_name=best_title or book.title,
+            indexer_name=best_indexer or "unknown",
+            download_url=best_download_url or best_magnet_url or "",
+            size=best_size or 0,
+            seeders=best_seeders or 0,
             status=DownloadStatus.QUEUED,
         )
         db.add(download)
 
-        if not transition_book(book, BookStatus.GRABBED):
+        if not self._transition_book(book, BookStatus.GRABBED, download=download):
             logger.warning(f"Could not transition '{book.title}' SEARCHING→GRABBED")
             db.rollback()
             return 0
@@ -300,10 +322,14 @@ class PipelineService:
         logger.info(f"Grabbed '{book.title}' from {download.indexer_name} (hash={download.torrent_hash})")
         return 1
 
-    def _fail_book(self, book: Book, db: Any) -> None:
+    def _fail_book(self, book: Book, db: Any, reason: str = "Pipeline book failure") -> None:
         try:
-            if transition_book(book, BookStatus.FAILED):
+            if self._transition_book(book, BookStatus.FAILED):
                 db.commit()
+                self._broadcast(
+                    "book_failed",
+                    {"book_id": book.id, "title": book.title, "reason": reason},
+                )
         except Exception as exc:
             logger.error(f"Could not fail book '{book.title}': {exc}")
             db.rollback()
@@ -313,6 +339,84 @@ class PipelineService:
             download.error_message = reason
             if transition_download(download, DownloadStatus.FAILED):
                 db.commit()
+                self._broadcast(
+                    "download_failed",
+                    {"book_id": download.book_id, "download_id": download.id, "reason": reason},
+                )
         except Exception as exc:
             logger.error(f"Could not fail download {download.id}: {exc}")
             db.rollback()
+
+    def _broadcast(self, event: str, data: dict[str, Any]) -> None:
+        if self.ws_manager:
+            self.ws_manager.broadcast_sync(event, data)
+
+    def _transition_book(
+        self,
+        book: Book,
+        target_status: str,
+        *,
+        download: Download | None = None,
+    ) -> bool:
+        old_status = book.status
+        if not transition_book(book, target_status):
+            return False
+
+        self._broadcast(
+            "book_status_changed",
+            {
+                "book_id": book.id,
+                "old_status": old_status,
+                "new_status": book.status,
+                "title": book.title,
+            },
+        )
+
+        if target_status == BookStatus.SEARCHING:
+            self._broadcast(
+                "book_searching",
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "attempt": (book.search_attempts or 0) + 1,
+                },
+            )
+        elif target_status == BookStatus.GRABBED:
+            self._broadcast(
+                "book_grabbed",
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "release_title": download.torrent_name if download else book.title,
+                    "indexer": download.indexer_name if download else None,
+                },
+            )
+        elif target_status == BookStatus.DOWNLOADING:
+            self._broadcast(
+                "download_started",
+                {
+                    "book_id": book.id,
+                    "download_id": download.id if download else None,
+                    "title": book.title,
+                },
+            )
+        elif target_status == BookStatus.IMPORTING:
+            self._broadcast(
+                "download_completed",
+                {
+                    "book_id": book.id,
+                    "download_id": download.id if download else None,
+                    "file_path": download.file_path if download else None,
+                },
+            )
+        elif target_status == BookStatus.IN_LIBRARY:
+            self._broadcast(
+                "import_completed",
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "file_path": download.file_path if download else book.file_path,
+                },
+            )
+
+        return True

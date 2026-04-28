@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import type { Book, WebSocketMessage } from '../types';
+import type { Book } from '../types';
 import { useDownloadStore } from './download';
 
 export const useSyncStore = defineStore('sync', () => {
@@ -45,26 +45,24 @@ export const useSyncStore = defineStore('sync', () => {
 
     ws.onopen = () => {
       wsConnected.value = true;
-      console.log('WebSocket connected');
     };
 
     ws.onclose = () => {
       wsConnected.value = false;
-      console.log('WebSocket disconnected');
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = window.setTimeout(connectWebSocket, 3000);
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+    ws.onerror = () => {
+      setError('WebSocket connection error');
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
         handleWebSocketMessage(message);
-      } catch (e) {
-        console.error('Failed to parse WebSocket message:', e);
+      } catch {
+        setError('Received invalid WebSocket message');
       }
     };
   };
@@ -80,14 +78,22 @@ export const useSyncStore = defineStore('sync', () => {
     }
   };
 
-  const handleWebSocketMessage = (message: WebSocketMessage) => {
+  const handleWebSocketMessage = (message: { event: string; data: unknown }) => {
     const downloadStore = useDownloadStore();
 
     switch (message.event) {
-      case 'book_wanted':
+      case 'book_status_changed':
+      case 'book_searching':
+      case 'book_grabbed':
       case 'download_started':
       case 'download_completed':
-        downloadStore.handleWebSocketMessage(message);
+      case 'download_failed':
+      case 'import_started':
+      case 'import_failed':
+      case 'book_failed':
+        if (message.event === 'download_started' || message.event === 'download_completed') {
+          downloadStore.handleWebSocketMessage(message);
+        }
         fetchPipelineStats();
         break;
 
@@ -110,8 +116,8 @@ export const useSyncStore = defineStore('sync', () => {
     try {
       const response = await fetch('/api/library/stats');
       if (response.ok) pipelineStats.value = await response.json();
-    } catch (e) {
-      console.error('Failed to fetch pipeline stats:', e);
+    } catch {
+      setError('Failed to fetch pipeline stats');
     }
   };
 
@@ -122,8 +128,8 @@ export const useSyncStore = defineStore('sync', () => {
         const data = await response.json();
         recentBooks.value = data.books || data;
       }
-    } catch (e) {
-      console.error('Failed to fetch recent books:', e);
+    } catch {
+      setError('Failed to fetch recent books');
     }
   };
 

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend import __app_name__, __version__
 from backend.api.routes import (
+    blocklist,
     browse,
     config,
     downloads,
@@ -27,11 +28,14 @@ from backend.api.routes import (
     search,
     services,
     sync,
+    wanted,
 )
 from backend.config import DATA_DIR, load_config
 from backend.database import init_db
 from backend.services.scheduler_service import scheduler
 from backend.services.websocket_manager import manager as ws_manager
+
+logger = logging.getLogger(__name__)
 
 
 def setup_logging():
@@ -83,11 +87,8 @@ def setup_logging():
 async def lifespan(app: FastAPI):
     """Application lifespan events - startup and shutdown."""
     # Startup
-    print("Initializing BookOtter...")
-
-    # Setup logging first
     log_file = setup_logging()
-    logger = logging.getLogger(__name__)
+    logger.info("Initializing BookOtter...")
     logger.info(f"Logging initialized, writing to {log_file}")
 
     init_db()
@@ -125,13 +126,14 @@ async def lifespan(app: FastAPI):
             )
             epub_service = EpubService()
             search_service = SearchService(prowlarr)
-            download_service = DownloadService(qbt, SessionLocal)
-            import_service = ImportService(db=SessionLocal(), epub_service=epub_service)
+            download_service = DownloadService(qbt, SessionLocal, ws_manager=ws_manager)
+            import_service = ImportService(db=SessionLocal(), epub_service=epub_service, ws_manager=ws_manager)
 
             pipeline = PipelineService(
                 search_service=search_service,
                 download_service=download_service,
                 import_service=import_service,
+                ws_manager=ws_manager,
             )
             pipeline.start_monitoring()
             logger.info("Pipeline monitoring started")
@@ -221,6 +223,8 @@ app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"]
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
+app.include_router(wanted.router, prefix="/api/wanted", tags=["wanted"])
+app.include_router(blocklist.router, prefix="/api/blocklist", tags=["blocklist"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
 

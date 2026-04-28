@@ -2,9 +2,13 @@
 WebSocket connection manager for broadcasting sync events to connected clients.
 """
 
+import asyncio
+import logging
 from typing import Any
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 
 class WebSocketManager:
@@ -37,6 +41,14 @@ class WebSocketManager:
         # Clean up disconnected clients
         for conn in disconnected:
             self.disconnect(conn)
+
+    def broadcast_sync(self, event: str, data: Any) -> None:
+        """Schedule async broadcast from sync code. Safe outside event loop."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.broadcast(event, data))
+        except RuntimeError:
+            logger.debug(f"No running event loop; skipping broadcast of '{event}'")
 
     async def send_to(self, websocket: WebSocket, event: str, data: Any):
         """Send an event to a specific client."""
