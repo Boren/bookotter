@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useLibraryStore } from '../stores/library'
 import type { BookStatus } from '../types'
+import StatusBadge from '../components/StatusBadge.vue'
 
 const store = useLibraryStore()
 
@@ -42,14 +43,15 @@ const handleAddBook = async () => {
 const searchInput = ref('')
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
-const statusOptions: { value: BookStatus; label: string; badgeClass: string }[] = [
-  { value: 'wanted', label: 'Wanted', badgeClass: 'badge-warning' },
-  { value: 'searching', label: 'Searching', badgeClass: 'badge-info' },
-  { value: 'grabbed', label: 'Grabbed', badgeClass: 'badge-info' },
-  { value: 'downloading', label: 'Downloading', badgeClass: 'badge-info' },
-  { value: 'importing', label: 'Importing', badgeClass: 'badge-info' },
-  { value: 'in_library', label: 'In Library', badgeClass: 'badge-success' },
-  { value: 'failed', label: 'Failed', badgeClass: 'badge-error' },
+const statusOptions: { value: BookStatus; label: string }[] = [
+  { value: 'missing', label: 'Missing' },
+  { value: 'wanted', label: 'Wanted' },
+  { value: 'searching', label: 'Searching' },
+  { value: 'grabbed', label: 'Grabbed' },
+  { value: 'downloading', label: 'Downloading' },
+  { value: 'importing', label: 'Importing' },
+  { value: 'in_library', label: 'In Library' },
+  { value: 'failed', label: 'Failed' },
 ]
 
 const sortOptions = [
@@ -57,10 +59,6 @@ const sortOptions = [
   { value: 'created_at', label: 'Date Added' },
   { value: 'updated_at', label: 'Last Updated' },
 ]
-
-const getStatusBadge = (status: string) => {
-  return statusOptions.find(s => s.value === status) || { label: status, badgeClass: 'badge-neutral' }
-}
 
 const handleSearch = () => {
   if (searchTimeout) clearTimeout(searchTimeout)
@@ -287,12 +285,9 @@ onUnmounted(() => {
           </div>
 
           <!-- Status Badge -->
-          <span
-            class="absolute top-2 right-2 badge px-1.5 py-0.5 text-[10px] leading-tight"
-            :class="getStatusBadge(book.status).badgeClass"
-          >
-            {{ getStatusBadge(book.status).label }}
-          </span>
+          <div class="absolute top-2 right-2">
+            <StatusBadge :status="book.status" />
+          </div>
 
           <!-- File Size -->
           <span
