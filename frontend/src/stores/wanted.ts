@@ -7,7 +7,7 @@ export const useWantedStore = defineStore('wanted', () => {
   const isLoading = ref(false);
   const isSearchingAll = ref(false);
   const error = ref<string | null>(null);
-  const searchAllResult = ref<{ triggered: number } | null>(null);
+  const searchAllResult = ref<{ queued: number; message: string } | null>(null);
 
   const fetchMissing = async () => {
     isLoading.value = true;

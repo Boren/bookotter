@@ -2,7 +2,8 @@
 """
 Pipeline orchestrator: WANTED → SEARCHING → GRABBED → DOWNLOADING → IMPORTING → IN_LIBRARY.
 
-Each stage method runs every 15 seconds via APScheduler (start_monitoring).
+The recurring scheduler (start_monitoring) only advances post-grab stages.
+See run_pipeline() for the rationale.
 """
 
 import hashlib
@@ -217,11 +218,11 @@ class PipelineService:
             db.close()
 
     def run_pipeline(self) -> dict[str, int]:
-        logger.info("Pipeline run starting")
+        # Pre-grab search stages are intentionally absent - searches are user-initiated
+        # (search.py routes, /api/wanted/search-all) or future RSS sync, never on a timer.
+        logger.debug("Pipeline run starting (post-grab stages only)")
         results: dict[str, int] = {}
         for stage_name, method in [
-            ("wanted", self.process_wanted_books),
-            ("searching", self.process_searching_books),
             ("grabbed", self.process_grabbed_books),
             ("downloading", self.process_downloading_books),
             ("importing", self.process_importing_books),
@@ -231,7 +232,7 @@ class PipelineService:
             except Exception as exc:
                 logger.error(f"Pipeline stage '{stage_name}' raised: {exc}")
                 results[stage_name] = 0
-        logger.info(f"Pipeline run complete: {results}")
+        logger.debug(f"Pipeline run complete: {results}")
         return results
 
     def start_monitoring(self) -> None:

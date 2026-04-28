@@ -609,27 +609,38 @@ class TestProcessImportingBooks:
 
 
 class TestRunPipeline:
-    def test_runs_all_stages_and_returns_counts(self, db_session):
+    def test_runs_only_post_grab_stages(self, db_session):
         service = make_service(db_session)
         results = service.run_pipeline()
 
-        assert set(results.keys()) == {"wanted", "searching", "grabbed", "downloading", "importing"}
+        assert set(results.keys()) == {"grabbed", "downloading", "importing"}
+
+    def test_does_not_call_search_stages(self, db_session):
+        service = make_service(db_session)
+        service.process_wanted_books = MagicMock()
+        service.process_searching_books = MagicMock()
+        service.process_grabbed_books = MagicMock(return_value=0)
+        service.process_downloading_books = MagicMock(return_value=0)
+        service.process_importing_books = MagicMock(return_value=0)
+
+        service.run_pipeline()
+
+        service.process_wanted_books.assert_not_called()
+        service.process_searching_books.assert_not_called()
 
     def test_stage_exception_does_not_abort_pipeline(self, db_session):
         service = make_service(db_session)
-        service.process_wanted_books = MagicMock(side_effect=RuntimeError("boom"))
-        service.process_searching_books = MagicMock(return_value=0)
-        service.process_grabbed_books = MagicMock(return_value=0)
+        service.process_grabbed_books = MagicMock(side_effect=RuntimeError("boom"))
         service.process_downloading_books = MagicMock(return_value=0)
         service.process_importing_books = MagicMock(return_value=0)
 
         results = service.run_pipeline()
 
-        assert results["wanted"] == 0
-        service.process_searching_books.assert_called_once()
-        service.process_grabbed_books.assert_called_once()
+        assert results["grabbed"] == 0
+        service.process_downloading_books.assert_called_once()
+        service.process_importing_books.assert_called_once()
 
-    def test_full_pipeline_flow(self, db_session):
+    def test_full_post_grab_flow(self, db_session):
         book = create_test_book(db_session, title="Dune", author_name="Frank Herbert")
         db_session.commit()
         book_id = book.id
@@ -648,9 +659,10 @@ class TestRunPipeline:
             db_session, search_service=mock_search, download_service=mock_dl, import_service=mock_imp
         )
 
+        grabbed_count = service.process_wanted_books()
         results = service.run_pipeline()
 
-        assert results["wanted"] == 1
+        assert grabbed_count == 1
         assert results["grabbed"] == 1
         assert results["downloading"] == 1
         assert results["importing"] == 1

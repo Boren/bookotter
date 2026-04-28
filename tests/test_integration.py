@@ -42,7 +42,7 @@ def make_search_result(guid="abc-123", title="Book [EPUB]", indexer="TestIndexer
 
 class TestFullPipelineHappyPath:
     def test_wanted_to_in_library(self, db_session, tmp_library):
-        """WANTED book reaches IN_LIBRARY through all pipeline stages in one run."""
+        """WANTED book reaches IN_LIBRARY through all pipeline stages."""
         book = create_test_book(db_session, title="Foundation", author_name="Isaac Asimov")
         db_session.commit()
         book_id = book.id
@@ -64,12 +64,13 @@ class TestFullPipelineHappyPath:
         mock_import.import_epub.return_value = True
 
         pipeline = make_pipeline(db_session, mock_search, mock_download, mock_import)
+        grabbed_count = pipeline.process_wanted_books()
         results = pipeline.run_pipeline()
 
         final = refresh_book(db_session, book_id)
         assert final.status == BookStatus.IN_LIBRARY
         assert final.search_attempts == 1
-        assert results["wanted"] == 1
+        assert grabbed_count == 1
         assert results["grabbed"] == 1
         assert results["downloading"] == 1
         assert results["importing"] == 1
@@ -107,6 +108,7 @@ class TestFullPipelineHappyPath:
         mock_import.import_epub.side_effect = capture_import_epub
 
         pipeline = make_pipeline(db_session, mock_search, mock_download, mock_import)
+        pipeline.process_wanted_books()
         pipeline.run_pipeline()
 
         mock_search.search_book.assert_called_once_with("Dune", "Frank Herbert")
@@ -129,12 +131,12 @@ class TestPipelineSearchFailures:
         mock_search.search_book.return_value = []
 
         pipeline = make_pipeline(db_session, search_service=mock_search)
-        results = pipeline.run_pipeline()
+        grabbed_count = pipeline.process_wanted_books()
 
         final = refresh_book(db_session, book_id)
         assert final.status == BookStatus.WANTED
         assert final.search_attempts >= 1
-        assert results["wanted"] == 0
+        assert grabbed_count == 0
 
     def test_search_exception_marks_failed(self, db_session):
         """Book transitions to FAILED when search service throws."""
@@ -146,7 +148,7 @@ class TestPipelineSearchFailures:
         mock_search.search_book.side_effect = ConnectionError("Prowlarr unreachable")
 
         pipeline = make_pipeline(db_session, search_service=mock_search)
-        pipeline.run_pipeline()
+        pipeline.process_wanted_books()
 
         assert refresh_book(db_session, book_id).status == BookStatus.FAILED
 
@@ -347,6 +349,7 @@ class TestHardcoverSyncIntegration:
         mock_import.import_epub.return_value = True
 
         pipeline = make_pipeline(db_session, mock_search, mock_dl, mock_import)
+        pipeline.process_wanted_books()
         pipeline.run_pipeline()
 
         assert refresh_book(db_session, synced_id).status == BookStatus.IN_LIBRARY
@@ -397,6 +400,7 @@ class TestMultiBookPipeline:
         mock_import.import_epub.return_value = True
 
         pipeline = make_pipeline(db_session, mock_search, mock_download, mock_import)
+        pipeline.process_wanted_books()
         pipeline.run_pipeline()
 
         final_a = refresh_book(db_session, id_a)
@@ -421,7 +425,7 @@ class TestMultiBookPipeline:
         ]
 
         pipeline = make_pipeline(db_session, search_service=mock_search)
-        pipeline.run_pipeline()
+        pipeline.process_wanted_books()
 
         statuses = {
             refresh_book(db_session, id_good).status,

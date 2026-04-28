@@ -1,8 +1,17 @@
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi import BackgroundTasks, HTTPException
 
 from backend.api.routes.wanted import list_missing_books, search_all_missing
-from backend.models.book import Book, BookStatus
+from backend.models.book import BookStatus
 from tests.helpers import create_test_book
+
+
+def _make_request(pipeline=None):
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(pipeline=pipeline)))
 
 
 class TestListMissingBooks:
@@ -29,28 +38,40 @@ class TestListMissingBooks:
 
 
 class TestSearchAllMissing:
-    def test_triggers_search_for_all_missing(self, db_session):
-        missing_one = create_test_book(db_session, title="Missing One", status=BookStatus.MISSING)
-        missing_two = create_test_book(db_session, title="Missing Two", status=BookStatus.MISSING)
+    def test_returns_503_when_pipeline_not_configured(self, db_session):
+        request = _make_request(pipeline=None)
+        background_tasks = BackgroundTasks()
+
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(search_all_missing(request, background_tasks, db_session))
+
+        assert exc.value.status_code == 503
+
+    def test_queues_background_search_for_wanted_and_missing(self, db_session):
+        create_test_book(db_session, title="Missing One", status=BookStatus.MISSING)
+        create_test_book(db_session, title="Missing Two", status=BookStatus.MISSING)
         create_test_book(db_session, title="Wanted Book", status=BookStatus.WANTED)
+        create_test_book(db_session, title="In Library", status=BookStatus.IN_LIBRARY)
         db_session.commit()
 
-        payload = asyncio.run(search_all_missing(db_session))
+        pipeline = MagicMock()
+        request = _make_request(pipeline=pipeline)
+        background_tasks = BackgroundTasks()
 
-        assert payload["triggered"] == 2
-        assert set(payload["book_ids"]) == {missing_one.id, missing_two.id}
+        payload = asyncio.run(search_all_missing(request, background_tasks, db_session))
 
-        db_session.expire_all()
-        statuses = {book.id: db_session.get(Book, book.id).status for book in [missing_one, missing_two]}
-        assert statuses == {
-            missing_one.id: BookStatus.SEARCHING.value,
-            missing_two.id: BookStatus.SEARCHING.value,
-        }
+        assert payload["queued"] == 3
+        assert any(task.func is pipeline.process_wanted_books for task in background_tasks.tasks)
 
-    def test_returns_triggered_count(self, db_session):
-        create_test_book(db_session, title="Missing Book", status=BookStatus.MISSING)
+    def test_zero_pending_does_not_schedule_task(self, db_session):
+        create_test_book(db_session, title="In Library", status=BookStatus.IN_LIBRARY)
         db_session.commit()
 
-        payload = asyncio.run(search_all_missing(db_session))
+        pipeline = MagicMock()
+        request = _make_request(pipeline=pipeline)
+        background_tasks = BackgroundTasks()
 
-        assert payload["triggered"] == 1
+        payload = asyncio.run(search_all_missing(request, background_tasks, db_session))
+
+        assert payload["queued"] == 0
+        assert background_tasks.tasks == []

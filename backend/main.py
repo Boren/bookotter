@@ -136,6 +136,7 @@ async def lifespan(app: FastAPI):
                 ws_manager=ws_manager,
             )
             pipeline.start_monitoring()
+            app.state.pipeline = pipeline
             logger.info("Pipeline monitoring started")
 
             # Reconcile download states with qBittorrent

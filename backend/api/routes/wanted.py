@@ -1,13 +1,14 @@
 """Wanted/missing queue API routes."""
 
-from typing import cast
+import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, joinedload
 
 from backend.database import get_db
 from backend.models.book import Book, BookStatus
-from backend.services.pipeline_states import transition_book
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -26,14 +27,25 @@ async def list_missing_books(db: Session = Depends(get_db)):
 
 
 @router.post("/search-all")
-async def search_all_missing(db: Session = Depends(get_db)):
-    """Mark all missing books as searching for the next pipeline cycle."""
-    books = db.query(Book).filter(Book.status == BookStatus.MISSING.value).all()
+async def search_all_missing(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Search-and-grab every WANTED/MISSING book asynchronously; progress streams via WebSocket."""
+    pipeline = getattr(request.app.state, "pipeline", None)
+    if pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Pipeline not configured (check Prowlarr and qBittorrent settings)",
+        )
 
-    triggered: list[int] = []
-    for book in books:
-        if transition_book(book, BookStatus.SEARCHING.value):
-            triggered.append(cast(int, book.id))
+    pending = db.query(Book).filter(Book.status.in_([BookStatus.WANTED.value, BookStatus.MISSING.value])).count()
 
-    db.commit()
-    return {"triggered": len(triggered), "book_ids": triggered}
+    if pending == 0:
+        return {"queued": 0, "message": "No WANTED or MISSING books to search"}
+
+    background_tasks.add_task(pipeline.process_wanted_books)
+    logger.info(f"Queued bulk search for {pending} WANTED/MISSING book(s)")
+
+    return {"queued": pending, "message": f"Searching {pending} book(s) in background"}
