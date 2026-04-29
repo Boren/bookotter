@@ -1,9 +1,8 @@
 """
 Pipeline constants — retry/timeout/threshold values.
 
-By design, these are CODE CONSTANTS (not config.yaml fields).
+By design, these are CODE CONSTANTS only (not configuration file fields).
 All retry/timeout/threshold values live here; importing services use these.
-Wave 1+ tasks will reference these constants instead of hardcoded values.
 """
 
 from typing import Final
