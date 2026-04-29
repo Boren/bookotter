@@ -1,28 +1,38 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportGeneralTypeIssues=false
 """Import service for copying EPUBs to library and writing metadata."""
 
+import hashlib
 import logging
 import re
-import shutil
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from backend.constants import MAX_COLLISION_ATTEMPTS, MAX_FILENAME_LENGTH
+from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus, FolderOrganization, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
+from backend.utils.atomic import atomic_copy
 
 logger = logging.getLogger(__name__)
 
-# Characters unsafe for filesystem paths (Windows-safe superset for portability)
 _UNSAFE_CHARS_RE = re.compile(r'[/\\:*?"<>|]')
+_HASH_SUFFIX_LEN = 8
 
 
 def sanitize_path_component(name: str) -> str:
     sanitized = _UNSAFE_CHARS_RE.sub("_", name)
     sanitized = sanitized.strip(". ")
-    return sanitized or "_"
+    sanitized = sanitized or "_"
+
+    if len(sanitized) > MAX_FILENAME_LENGTH:
+        hash_suffix = hashlib.md5(sanitized.encode()).hexdigest()[:_HASH_SUFFIX_LEN]
+        truncate_to = MAX_FILENAME_LENGTH - _HASH_SUFFIX_LEN - 1
+        sanitized = sanitized[:truncate_to] + "_" + hash_suffix
+
+    return sanitized
 
 
 class BookImportError(Exception):
@@ -92,12 +102,22 @@ class ImportService:
 
         try:
             dest_path = self.organize_path(book, root_folder)
-
-            if dest_path.exists():
-                raise ImportDuplicateError(f"File already exists at destination: {dest_path}")
+            dest_path = self._resolve_collision(dest_path)
 
             self.copy_to_library(epub_path, dest_path)
-            self.write_metadata(book, dest_path)
+
+            is_confident, reason = self.epub_service.verify_content(dest_path, book)
+            if not is_confident:
+                logger.warning("Low confidence EPUB for book %s: %s", book.id, reason)
+                book.low_confidence = True
+                book.failure_reason = FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value
+
+            if self.epub_service.is_drm_protected(dest_path):
+                logger.warning("DRM detected for book %s; skipping metadata write", book.id)
+                book.low_confidence = True
+                book.failure_reason = FailureReason.IMPORT_DRM_PROTECTED.value
+            else:
+                self.write_metadata(book, dest_path)
 
             relative_path = dest_path.relative_to(root_folder.path)
             book.file_path = str(relative_path)
@@ -123,6 +143,26 @@ class ImportService:
                 self._transition_book(book, BookStatus.FAILED.value)
                 self.db.flush()
             raise
+
+    def _resolve_collision(self, dest: Path) -> Path:
+        """If dest exists, return a versioned path: 'name (1).epub', '(2)', etc.
+
+        Raises:
+            PipelineError(IMPORT_FILE_COLLISION): More than MAX_COLLISION_ATTEMPTS exist.
+        """
+        if not dest.exists():
+            return dest
+
+        for i in range(1, MAX_COLLISION_ATTEMPTS + 1):
+            versioned = dest.with_stem(f"{dest.stem} ({i})")
+            if not versioned.exists():
+                logger.info("Collision: using versioned name %s", versioned.name)
+                return versioned
+
+        raise PipelineError(
+            f"Too many collisions for {dest.name} (>{MAX_COLLISION_ATTEMPTS})",
+            FailureReason.IMPORT_FILE_COLLISION,
+        )
 
     def organize_path(self, book: Book, root_folder: RootFolder) -> Path:
         """Return the absolute destination path for a book's EPUB.
@@ -157,10 +197,15 @@ class ImportService:
         return root / filename
 
     def copy_to_library(self, source: Path, dest: Path) -> Path:
-        """Copy EPUB from source to dest, creating parent dirs. Never hardlinks.
+        """Atomically copy EPUB from source to dest, creating parent dirs.
+
+        Uses atomic_copy: writes to temp file, fsyncs, then renames.
+        Destination is either fully written or absent — never partial.
 
         Raises:
-            BookImportError: Source missing or OS-level copy failure.
+            BookImportError: Source missing.
+            PipelineError(IMPORT_DISK_FULL): No space left on device.
+            PipelineError(IMPORT_COPY_FAILED): Other OS-level copy failure.
         """
         source = Path(source)
         dest = Path(dest)
@@ -171,9 +216,13 @@ class ImportService:
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            shutil.copy2(source, dest)
-        except OSError as e:
-            raise BookImportError(f"Failed to copy {source} to {dest}: {e}") from e
+            atomic_copy(source, dest)
+        except PipelineError:
+            raise
+        except OSError as exc:
+            raise PipelineError(
+                f"Failed to copy {source} to {dest}: {exc}", FailureReason.IMPORT_COPY_FAILED
+            ) from exc
 
         return dest
 

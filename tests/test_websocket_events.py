@@ -298,7 +298,9 @@ class TestImportServiceEvents:
         ws_manager = MagicMock()
         epub_service = MagicMock()
         epub_service.validate_epub.return_value = True
-
+        epub_service.verify_content.return_value = (True, None)
+        epub_service.is_drm_protected.return_value = False
+        
         source_epub = tmp_path / "source.epub"
         create_test_epub(str(source_epub), "Source Book", "Source Author")
         library_root = tmp_path / "library"
@@ -350,6 +352,8 @@ class TestImportServiceEvents:
         ws_manager = MagicMock()
         epub_service = MagicMock()
         epub_service.validate_epub.return_value = True
+        epub_service.verify_content.return_value = (True, None)
+        epub_service.is_drm_protected.return_value = False
         epub_service.write_metadata.side_effect = BookImportError("metadata write failed")
 
         source_epub = tmp_path / "source.epub"

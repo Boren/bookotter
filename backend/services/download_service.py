@@ -12,7 +12,7 @@ Responsibilities:
 
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,6 +25,8 @@ from backend.clients.qbittorrent_client import (
     QBittorrentClient,
     TorrentState,
 )
+from backend.constants import DOWNLOAD_STALL_THRESHOLD_MIN, DOWNLOAD_TOTAL_TIMEOUT_HOURS
+from backend.errors import FailureReason
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.torrent_hash import extract_info_hash_from_url
@@ -253,6 +255,11 @@ class DownloadService:
                         download.torrent_hash[:16],
                         download.id,
                     )
+                    processed += 1
+                    continue
+
+                self._update_progress_tracking(download, torrent_info)
+                if self._check_stall_and_timeout(download, db):
                     processed += 1
                     continue
 
@@ -593,6 +600,106 @@ class DownloadService:
             self.qbit.set_file_priority(torrent_hash, non_epub_ids, priority=0)
 
         return epub_name
+
+    def _update_progress_tracking(self, download: "Download", torrent_info: dict) -> None:
+        if download.last_progress_at is None:
+            download.last_progress_at = download.created_at or datetime.utcnow()
+
+        downloaded = torrent_info.get("downloaded", 0) or 0
+        if downloaded > (download.bytes_at_last_check or 0):
+            download.bytes_at_last_check = downloaded
+            download.last_progress_at = datetime.utcnow()
+
+    def _check_stall_and_timeout(self, download: "Download", db: "Session") -> bool:
+        if download.status not in {DownloadStatus.DOWNLOADING.value, DownloadStatus.QUEUED.value}:
+            return False
+
+        now = datetime.utcnow()
+        created_at = download.created_at
+        if created_at is not None and created_at.tzinfo is not None:
+            created_at = created_at.replace(tzinfo=None)
+        last_progress = download.last_progress_at
+        if last_progress is not None and last_progress.tzinfo is not None:
+            last_progress = last_progress.replace(tzinfo=None)
+
+        # Hard ceiling fires regardless of recent progress and is checked first
+        # so a 24h+ download that just made progress still gets killed.
+        if created_at is not None and (now - created_at) > timedelta(hours=DOWNLOAD_TOTAL_TIMEOUT_HOURS):
+            self._fail_for_stall(
+                download,
+                db,
+                reason=FailureReason.DOWNLOAD_TIMEOUT,
+                message=f"Total download time exceeded {DOWNLOAD_TOTAL_TIMEOUT_HOURS} hours",
+            )
+            return True
+
+        if last_progress is not None and (now - last_progress) > timedelta(minutes=DOWNLOAD_STALL_THRESHOLD_MIN):
+            self._fail_for_stall(
+                download,
+                db,
+                reason=FailureReason.DOWNLOAD_STALLED,
+                message=f"Stalled: no progress for {DOWNLOAD_STALL_THRESHOLD_MIN} minutes",
+            )
+            return True
+
+        return False
+
+    def _fail_for_stall(
+        self,
+        download: "Download",
+        db: "Session",
+        *,
+        reason: FailureReason,
+        message: str,
+    ) -> None:
+        if transition_download(download, DownloadStatus.FAILED):
+            download.error_message = message
+            logger.warning(
+                "Download %s: %r (id=%d, hash=%s...)",
+                reason.value,
+                download.torrent_name,
+                download.id,
+                download.torrent_hash[:16],
+            )
+
+        book = db.query(Book).filter(Book.id == download.book_id).first()
+        if book is not None:
+            book.failure_reason = reason.value
+            old_status = book.status
+            if transition_book(book, BookStatus.FAILED):
+                self._broadcast(
+                    "book_status_changed",
+                    {
+                        "book_id": book.id,
+                        "old_status": old_status,
+                        "new_status": book.status,
+                        "title": book.title,
+                    },
+                )
+                self._broadcast(
+                    "book_failed",
+                    {"book_id": book.id, "title": book.title, "reason": message},
+                )
+            else:
+                logger.warning(
+                    "Could not transition book %d from %r → FAILED for stall",
+                    book.id,
+                    old_status,
+                )
+
+        try:
+            self.qbit.delete_torrent(download.torrent_hash)
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete stalled torrent %s... from qBit: %s",
+                download.torrent_hash[:16],
+                exc,
+            )
+
+        self._broadcast(
+            "download_failed",
+            {"book_id": download.book_id, "download_id": download.id, "reason": message},
+        )
 
     def _broadcast(self, event: str, data: dict) -> None:
         if self.ws_manager:

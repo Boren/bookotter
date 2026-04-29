@@ -4,10 +4,16 @@ import logging
 import os
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 from ebooklib import epub
+
+from backend.constants import EPUB_TITLE_SIMILARITY_THRESHOLD
+from backend.models.book import Book
+from backend.utils.similarity import author_surname_match, title_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +160,39 @@ class EpubService:
         except (zipfile.BadZipFile, OSError):
             return False
 
+    def verify_content(self, epub_path: Path, expected_book: Book) -> tuple[bool, str | None]:
+        """Soft content verification for imported EPUBs."""
+        try:
+            book = epub.read_epub(str(epub_path), options={"ignore_ncx": True})
+            metadata = self._extract_metadata(book)
+        except Exception:
+            return (False, "could not extract EPUB metadata")
+
+        if isinstance(metadata, Mapping):
+            epub_title = metadata.get("title", "") or ""
+            epub_authors = metadata.get("authors", []) or []
+            epub_isbns = metadata.get("isbns", []) or []
+        else:
+            epub_title = metadata.title or ""
+            epub_authors = metadata.authors or []
+            epub_isbns = [metadata.identifier] if metadata.identifier else []
+
+        expected_isbn = cast(str | None, expected_book.isbn)
+        expected_title = cast(str | None, expected_book.title)
+        expected_author = cast(Any, expected_book.author)
+        expected_author_names = [cast(str, expected_author.name)] if expected_author is not None else []
+
+        if expected_isbn and expected_isbn in epub_isbns:
+            return (True, None)
+
+        title_sim = title_similarity(epub_title, expected_title or "")
+        author_match = author_surname_match(epub_authors, expected_author_names)
+
+        if title_sim >= EPUB_TITLE_SIMILARITY_THRESHOLD or author_match:
+            return (True, None)
+
+        return (False, f"low_confidence: title_sim={title_sim:.2f}, author_match={author_match}")
+
     def _extract_metadata(self, book: epub.EpubBook) -> EpubMetadata:
         meta = EpubMetadata()
 
@@ -264,7 +303,7 @@ class EpubService:
                 f"Authors mismatch: expected={expected_metadata.authors!r}, got={written_meta.authors!r}"
             )
 
-    def _ensure_toc_uids(self, toc: list, _counter: list | None = None) -> None:
+    def _ensure_toc_uids(self, toc: list | tuple, _counter: list | None = None) -> None:
         if _counter is None:
             _counter = [0]
         for item in toc:

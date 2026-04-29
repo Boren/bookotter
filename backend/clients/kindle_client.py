@@ -14,7 +14,7 @@ from pathlib import PurePosixPath
 import paramiko
 
 from backend.clients import ConnectionTestResult, classify_ssh_error
-from backend.constants import KINDLE_RETRY_ATTEMPTS, KINDLE_SSH_TIMEOUT
+from backend.constants import KINDLE_RETRY_ATTEMPTS, KINDLE_SSH_TIMEOUT, TMP_FILE_MAX_AGE_HOURS
 from backend.errors import FailureReason, PipelineError
 from backend.utils.retry import retry_with_backoff
 
@@ -313,7 +313,14 @@ class KindleClient:
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict:
         """
-        Transfer a file to Kindle via SFTP.
+        Transfer a file to Kindle via SFTP using atomic write semantics.
+
+        Strategy:
+        1. Free-space check via `df` BEFORE transfer (10% margin) → KINDLE_DISK_FULL on shortage.
+        2. Upload to `<remote_path>.tmp` (so a partial file never appears at the final path).
+        3. Verify .tmp size matches local size; on mismatch → KINDLE_TRANSFER_FAILED + cleanup.
+        4. Atomic rename `.tmp` → final path via SSH `mv` (atomic on Kindle ext4 per probe).
+        5. On any exception during transfer, attempt best-effort cleanup of the .tmp file.
 
         Args:
             local_path: Path to local file
@@ -329,9 +336,14 @@ class KindleClient:
             - status: 'transferred', 'skipped', 'failed'
             - file_size: int (bytes transferred)
             - error: str (if failed)
+
+        Raises:
+            PipelineError(KINDLE_DISK_FULL): Insufficient free space on Kindle.
+            PipelineError(KINDLE_TRANSFER_FAILED): Size mismatch or atomic rename failure.
         """
         filename = os.path.basename(local_path)
         remote_path = self.generate_remote_path(filename, author, series, folder_organization)
+        remote_tmp = remote_path + ".tmp"
 
         logger.debug(f"Transfer request: {local_path} -> {remote_path}")
 
@@ -344,6 +356,10 @@ class KindleClient:
                 "error": f"Local file not found: {local_path}",
             }
 
+        local_size = os.path.getsize(local_path)
+        ssh = None
+        sftp = None
+
         try:
             ssh = self._create_ssh_client()
             sftp = ssh.open_sftp()
@@ -351,8 +367,6 @@ class KindleClient:
             # Check if file already exists
             if skip_existing and self._file_exists_sftp(ssh, remote_path):
                 logger.info(f"File already exists on Kindle, skipping: {filename}")
-                sftp.close()
-                ssh.close()
                 return {
                     "success": True,
                     "status": "skipped",
@@ -360,8 +374,8 @@ class KindleClient:
                 }
 
             # Ensure directory exists (for folder organization)
+            dir_path = os.path.dirname(remote_path)
             if folder_organization != "flat":
-                dir_path = os.path.dirname(remote_path)
                 try:
                     sftp.stat(dir_path)
                 except OSError:
@@ -369,32 +383,84 @@ class KindleClient:
                     ssh.exec_command(f'mkdir -p "{dir_path}"')
                     logger.debug(f"Created directory: {dir_path}")
 
-            # Transfer file
-            logger.info(f"Uploading: {filename}")
-            sftp.put(local_path, remote_path, callback=progress_callback)
+            # Free-space check BEFORE transfer (df reports 1K-blocks on Kindle/POSIX)
+            df_target = dir_path or self.destination_path.rstrip("/") or "/mnt/us"
+            df_cmd = f"df {shlex.quote(df_target)} | tail -1 | awk '{{print $4}}'"
+            _, df_stdout, _ = ssh.exec_command(df_cmd)
+            df_output = df_stdout.read().decode().strip()
+            try:
+                available_kb = int(df_output) if df_output else 0
+            except ValueError:
+                available_kb = 0
+            available_bytes = available_kb * 1024
 
-            # Verify transfer
-            remote_stat = sftp.stat(remote_path)
-            local_size = os.path.getsize(local_path)
+            # Require 10% margin to avoid filling the disk to the brim
+            required_bytes = int(local_size * 1.1)
+            if available_bytes < required_bytes:
+                raise PipelineError(
+                    f"Insufficient Kindle space: {available_bytes} bytes available, "
+                    f"need {required_bytes} (file={local_size}, +10% margin)",
+                    FailureReason.KINDLE_DISK_FULL,
+                )
 
-            sftp.close()
-            ssh.close()
+            logger.info(f"Uploading (atomic): {filename}")
+            try:
+                sftp.put(local_path, remote_tmp, callback=progress_callback)
+            except Exception:
+                try:
+                    sftp.remove(remote_tmp)
+                except Exception:
+                    pass
+                raise
 
-            if remote_stat.st_size == local_size:
-                logger.info(f"Successfully transferred: {filename} ({local_size} bytes)")
-                return {
-                    "success": True,
-                    "status": "transferred",
-                    "file_size": local_size,
-                }
-            else:
-                logger.error(f"File size mismatch: local={local_size}, remote={remote_stat.st_size}")
-                return {
-                    "success": False,
-                    "status": "failed",
-                    "error": "File size mismatch after transfer",
-                }
+            try:
+                remote_size = sftp.stat(remote_tmp).st_size
+            except Exception as e:
+                try:
+                    sftp.remove(remote_tmp)
+                except Exception:
+                    pass
+                raise PipelineError(
+                    f"Failed to stat remote tmp file after transfer: {e}",
+                    FailureReason.KINDLE_TRANSFER_FAILED,
+                ) from e
 
+            if remote_size != local_size:
+                logger.error(f"File size mismatch: local={local_size}, remote={remote_size}")
+                try:
+                    sftp.remove(remote_tmp)
+                except Exception:
+                    pass
+                raise PipelineError(
+                    f"Transfer size mismatch: local={local_size}, remote={remote_size}",
+                    FailureReason.KINDLE_TRANSFER_FAILED,
+                )
+
+            # mv is atomic on Kindle ext4 (verified via docs/probes/kindle-rename.md)
+            mv_cmd = f"mv {shlex.quote(remote_tmp)} {shlex.quote(remote_path)}"
+            _, mv_stdout, mv_stderr = ssh.exec_command(mv_cmd)
+            exit_status = mv_stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                err = mv_stderr.read().decode().strip()
+                try:
+                    sftp.remove(remote_tmp)
+                except Exception:
+                    pass
+                raise PipelineError(
+                    f"Atomic rename failed (exit={exit_status}): {err}",
+                    FailureReason.KINDLE_TRANSFER_FAILED,
+                )
+
+            logger.info(f"Successfully transferred: {filename} ({local_size} bytes)")
+            return {
+                "success": True,
+                "status": "transferred",
+                "file_size": local_size,
+            }
+
+        except PipelineError:
+            # Let PipelineError propagate so the pipeline can map it to a failure_reason
+            raise
         except Exception as e:
             logger.error(f"Transfer failed: {e}")
             return {
@@ -402,6 +468,17 @@ class KindleClient:
                 "status": "failed",
                 "error": str(e),
             }
+        finally:
+            if sftp is not None:
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
+            if ssh is not None:
+                try:
+                    ssh.close()
+                except Exception:
+                    pass
 
     def _file_exists_sftp(self, ssh: paramiko.SSHClient, remote_path: str) -> bool:
         """Check if file exists using existing SSH connection."""
@@ -411,6 +488,35 @@ class KindleClient:
             return output == "exists"
         except Exception:
             return False
+
+    def cleanup_kindle_tmp_files(self, max_age_hours: int = TMP_FILE_MAX_AGE_HOURS) -> int:
+        """
+        Remove orphan ``.tmp`` files older than ``max_age_hours`` from the Kindle
+        destination path. These are leftovers from interrupted atomic transfers.
+
+        Returns:
+            Number of .tmp files deleted.
+        """
+        ssh = None
+        try:
+            ssh = self._create_ssh_client()
+            dest_path = self.destination_path.rstrip("/") or "/mnt/us/books"
+            mmin = max_age_hours * 60
+            cmd = f"find {shlex.quote(dest_path)} -name '*.tmp' -mmin +{mmin} -delete -print"
+            _, stdout, _ = ssh.exec_command(cmd)
+            output = stdout.read().decode().strip()
+            deleted = [line for line in output.splitlines() if line]
+            logger.info(f"Cleaned up {len(deleted)} orphan .tmp files from {dest_path}")
+            return len(deleted)
+        except Exception as e:
+            logger.error(f"Failed to cleanup .tmp files on Kindle: {e}")
+            return 0
+        finally:
+            if ssh is not None:
+                try:
+                    ssh.close()
+                except Exception:
+                    pass
 
     def list_directory(self, remote_path: str, show_hidden: bool = False, max_entries: int = 1000) -> dict:
         if not remote_path.startswith("/"):

@@ -9,7 +9,6 @@ import pytest
 from backend.models.book import Author, Book, BookStatus, FolderOrganization, RootFolder
 from backend.services.import_service import (
     BookImportError,
-    ImportDuplicateError,
     ImportInvalidEpubError,
     ImportService,
     ImportStateError,
@@ -405,16 +404,22 @@ class TestImportBook:
         with pytest.raises(ImportInvalidEpubError):
             svc.import_book(book.id, bad_epub)
 
-    def test_raises_on_duplicate_destination(self, db_session, lib_root: Path, source_epub: Path) -> None:
+    def test_duplicate_destination_creates_versioned_copy(
+        self, db_session, lib_root: Path, source_epub: Path
+    ) -> None:
         rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
         book = _make_book(db_session, rf, title="Dup Book", status=BookStatus.DOWNLOADING.value)
         svc = ImportService(db_session)
 
         svc.import_book(book.id, source_epub)
+        assert (lib_root / "Dup Book.epub").exists()
 
         book2 = _make_book(db_session, rf, title="Dup Book", status=BookStatus.DOWNLOADING.value)
-        with pytest.raises(ImportDuplicateError):
-            svc.import_book(book2.id, source_epub)
+        result = svc.import_book(book2.id, source_epub)
+
+        assert result.file_path == "Dup Book (1).epub"
+        assert (lib_root / "Dup Book (1).epub").exists()
+        assert (lib_root / "Dup Book.epub").exists()
 
     def test_invalid_state_transition_raises(self, db_session, lib_root: Path, source_epub: Path) -> None:
         rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
@@ -430,6 +435,8 @@ class TestImportBook:
 
         mock_epub = MagicMock()
         mock_epub.validate_epub.return_value = True
+        mock_epub.verify_content.return_value = (True, None)
+        mock_epub.is_drm_protected.return_value = False
         mock_epub.write_metadata.side_effect = Exception("Metadata error")
         svc = ImportService(db_session, epub_service=mock_epub)
 
