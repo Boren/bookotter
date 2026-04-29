@@ -107,13 +107,58 @@ class DownloadService:
 
         url_to_add = magnet_url or download_url
 
-        self.qbit.ensure_category_exists(self.category)
-        success = self.qbit.add_torrent(url_to_add, category=self.category)
-        if not success:
-            logger.error("qBittorrent rejected torrent for book %d", book_id)
-            return None
+        # Pre-flight DB dedup: skip if an active download for this book already exists
+        # or if any download with this torrent_hash is already tracked.
+        db = self._db_factory()
+        try:
+            existing_for_book = (
+                db.query(Download)
+                .filter(
+                    Download.book_id == book_id,
+                    Download.status.in_([DownloadStatus.QUEUED.value, DownloadStatus.DOWNLOADING.value]),
+                )
+                .first()
+            )
+            if existing_for_book is not None:
+                logger.info(
+                    "Active download already exists for book %d (id=%d, hash=%s...) — skipping",
+                    book_id,
+                    existing_for_book.id,
+                    (existing_for_book.torrent_hash or "?")[:16],
+                )
+                db.expunge(existing_for_book)
+                return existing_for_book
 
-        time.sleep(POST_ADD_DELAY_SECONDS)
+            existing_by_hash = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
+            if existing_by_hash is not None:
+                logger.info(
+                    "Torrent hash %s... already tracked (Download id=%d, book %d) — skipping",
+                    torrent_hash[:16],
+                    existing_by_hash.id,
+                    existing_by_hash.book_id,
+                )
+                db.expunge(existing_by_hash)
+                return existing_by_hash
+        finally:
+            db.close()
+
+        # Orphan adoption: if the torrent already lives in qBit (e.g. survivor of a
+        # previous run), reuse it instead of re-adding (which qBit would silently no-op).
+        is_orphan = self.qbit.get_torrent_properties(torrent_hash) is not None
+        if is_orphan:
+            logger.info(
+                "Adopting orphan torrent %s... already present in qBit for book %d",
+                torrent_hash[:16],
+                book_id,
+            )
+        else:
+            self.qbit.ensure_category_exists(self.category)
+            success = self.qbit.add_torrent(url_to_add, category=self.category)
+            if not success:
+                logger.error("qBittorrent rejected torrent for book %d", book_id)
+                return None
+
+            time.sleep(POST_ADD_DELAY_SECONDS)
 
         epub_file_name = self._configure_file_priorities(torrent_hash)
 
@@ -132,6 +177,24 @@ class DownloadService:
             )
             db.add(download)
 
+            # Force UNIQUE(torrent_hash) check before transitioning the book so a
+            # concurrent insert can be detected and adopted gracefully.
+            try:
+                db.flush()
+            except IntegrityError:
+                db.rollback()
+                existing = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
+                if existing is not None:
+                    logger.info(
+                        "Race: torrent_hash %s... already inserted — adopting Download id=%d",
+                        torrent_hash[:16],
+                        existing.id,
+                    )
+                    db.expunge(existing)
+                    return existing
+                logger.warning("IntegrityError but no existing Download row found for hash %s", torrent_hash)
+                return None
+
             book = db.query(Book).filter(Book.id == book_id).first()
             if book:
                 if not self._transition_book(book, BookStatus.GRABBED, download=download):
@@ -146,9 +209,10 @@ class DownloadService:
             db.commit()
             db.refresh(download)
             logger.info(
-                "Created Download record for book %d: torrent=%s...",
+                "Created Download record for book %d: torrent=%s... (orphan=%s)",
                 book_id,
                 torrent_hash[:16],
+                is_orphan,
             )
             return download
 

@@ -38,6 +38,54 @@ from backend.services.websocket_manager import manager as ws_manager
 logger = logging.getLogger(__name__)
 
 
+def validate_config(cfg: dict) -> list[str]:
+    """
+    Validate required configuration fields.
+
+    Returns a list of fatal error messages. If the list is non-empty, startup should abort.
+    Warnings (e.g., missing kindle hostname) are logged but not returned.
+    """
+    errors = []
+
+    # Hardcover API token (required)
+    hc_token = cfg.get("hardcover", {}).get("api_token", "").strip()
+    if not hc_token:
+        errors.append("hardcover.api_token is required and must be non-empty")
+
+    # Prowlarr API key (required)
+    prowlarr_key = cfg.get("prowlarr", {}).get("api_key", "").strip()
+    if not prowlarr_key:
+        errors.append("prowlarr.api_key is required and must be non-empty")
+
+    # Prowlarr base_url (required, must be valid URL)
+    prowlarr_url = cfg.get("prowlarr", {}).get("base_url", "").strip()
+    if not prowlarr_url:
+        errors.append("prowlarr.base_url is required and must be non-empty")
+    elif not (prowlarr_url.startswith("http://") or prowlarr_url.startswith("https://")):
+        errors.append(f"prowlarr.base_url must start with http:// or https://, got: {prowlarr_url}")
+
+    # qBittorrent password (required)
+    qbt_password = cfg.get("qbittorrent", {}).get("password", "").strip()
+    if not qbt_password:
+        errors.append("qbittorrent.password is required and must be non-empty")
+
+    # qBittorrent base_url (required, must be valid URL)
+    qbt_url = cfg.get("qbittorrent", {}).get("base_url", "").strip()
+    if not qbt_url:
+        errors.append("qbittorrent.base_url is required and must be non-empty")
+    elif not (qbt_url.startswith("http://") or qbt_url.startswith("https://")):
+        errors.append(f"qbittorrent.base_url must start with http:// or https://, got: {qbt_url}")
+
+    # Kindles: warn if any has empty hostname (non-fatal)
+    kindles = cfg.get("kindles", [])
+    for i, kindle in enumerate(kindles):
+        hostname = kindle.get("hostname", "").strip()
+        if not hostname:
+            logger.warning(f"kindles[{i}] has empty hostname — Kindle sync will fail for this device")
+
+    return errors
+
+
 def setup_logging():
     """Configure application logging with file and console handlers."""
     app_config = load_config()
@@ -100,6 +148,13 @@ async def lifespan(app: FastAPI):
 
     pipeline = None
     app_config = load_config()
+
+    # Validate configuration
+    config_errors = validate_config(app_config)
+    if config_errors:
+        for err in config_errors:
+            logger.error("Config validation error: %s", err)
+        raise RuntimeError("Configuration invalid; see log for details")
 
     try:
         prowlarr_config = app_config.get("prowlarr", {})

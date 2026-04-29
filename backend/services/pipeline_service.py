@@ -14,6 +14,7 @@ from typing import Any
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy.exc import IntegrityError
 
 from backend.database import SessionLocal
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
@@ -309,6 +310,33 @@ class PipelineService:
             db.commit()
             return 0
 
+        # Duplicate-Download guard: if an active download already exists for this book,
+        # skip creating a new one. Advance the book to GRABBED if it is still SEARCHING.
+        existing_active = (
+            db.query(Download)
+            .filter(
+                Download.book_id == book.id,
+                Download.status.in_([DownloadStatus.QUEUED.value, DownloadStatus.DOWNLOADING.value]),
+            )
+            .first()
+        )
+        if existing_active is not None:
+            logger.info(
+                "Download already exists for '%s' (id=%d, hash=%s, status=%s) — skipping new grab",
+                book.title,
+                existing_active.id,
+                existing_active.torrent_hash,
+                existing_active.status,
+            )
+            if book.status == BookStatus.SEARCHING:
+                if self._transition_book(book, BookStatus.GRABBED, download=existing_active):
+                    db.commit()
+                else:
+                    db.commit()
+            else:
+                db.commit()
+            return 0
+
         download = Download(
             book_id=book.id,
             torrent_hash=torrent_hash,
@@ -320,6 +348,31 @@ class PipelineService:
             status=DownloadStatus.QUEUED,
         )
         db.add(download)
+
+        # Force UNIQUE(torrent_hash) check before book transition. Concurrent grabs
+        # of the same torrent will land here — one wins, the other adopts the existing row.
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            existing = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
+            if existing is not None:
+                logger.info(
+                    "Race detected: torrent_hash %s already grabbed (Download id=%d, book_id=%d) — adopting",
+                    torrent_hash,
+                    existing.id,
+                    existing.book_id,
+                )
+                if existing.book_id == book.id and book.status == BookStatus.SEARCHING:
+                    if self._transition_book(book, BookStatus.GRABBED, download=existing):
+                        db.commit()
+                    else:
+                        db.commit()
+            else:
+                logger.warning(
+                    "IntegrityError adding Download for '%s' but no existing row found", book.title
+                )
+            return 0
 
         if not self._transition_book(book, BookStatus.GRABBED, download=download):
             logger.warning(f"Could not transition '{book.title}' SEARCHING→GRABBED")

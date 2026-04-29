@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from backend.clients.prowlarr_client import ProwlarrClient
+from backend.constants import EPUB_TITLE_SIMILARITY_THRESHOLD
 from backend.services.blocklist_service import BlocklistService
+from backend.utils.similarity import author_surname_match, title_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +16,16 @@ PREFERRED_SIZE_MIN = 1 * 1024 * 1024
 PREFERRED_SIZE_MAX = 10 * 1024 * 1024
 
 EPUB_RE = re.compile(r"\bEPUB\b", re.IGNORECASE)
+EPUB_FILE_RE = re.compile(r"\.epub\b", re.IGNORECASE)
 NON_EPUB_FORMAT_RE = re.compile(r"\b(AZW3?|MOBI|PDF)\b", re.IGNORECASE)
+# Audiobook detection.
+# Strong format/type tags use simple word boundaries (M4B, FLAC, audiobook, etc.).
+# "narrated by" / "read by" require non-start-of-string context (preceding non-word char)
+# to avoid false positives on book titles like "Read by Moonlight" where the phrase is
+# part of the actual title rather than a narrator credit.
 AUDIOBOOK_RE = re.compile(
-    r"\b(M4B|FLAC|audiobook|unabridged|abridged|narrated\s+by|read\s+by|full[- ]cast)\b",
+    r"\b(?:M4B|FLAC|audiobook|unabridged|abridged|full[- ]cast)\b"
+    r"|(?<=\W)(?:narrated|read)\s+by\b",
     re.IGNORECASE,
 )
 AUDIO_CATEGORY_RANGE = range(3000, 4000)
@@ -38,6 +47,8 @@ class ScoredResult:
     protocol: str | None
     categories: list[dict] = field(default_factory=list)
     age_days: float = 0.0
+    title_similarity: float = 1.0
+    author_match: bool = False
     rejections: list[str] = field(default_factory=list)
     approved: bool = True
 
@@ -59,7 +70,9 @@ class SearchService:
             return []
 
         blocklisted_set = self._blocklist_set()
-        scored = [self._evaluate(result, blocklisted_set) for result in raw_results]
+        scored = [
+            self._evaluate(result, blocklisted_set, query_title=title, query_author=author) for result in raw_results
+        ]
         ranked = self._rank(scored)
         approved_count = sum(1 for result in ranked if result.approved)
         logger.info(f"Search for '{title}' returned {approved_count}/{len(raw_results)} approved results")
@@ -80,7 +93,13 @@ class SearchService:
         ranked = self._rank(normalized)
         return [result.to_dict() for result in ranked]
 
-    def _evaluate(self, raw: dict, blocklisted_set: set[tuple[str, str]]) -> ScoredResult:
+    def _evaluate(
+        self,
+        raw: dict,
+        blocklisted_set: set[tuple[str, str]],
+        query_title: str = "",
+        query_author: str = "",
+    ) -> ScoredResult:
         verdict, reason = self._classify(raw)
         title = raw.get("title") or ""
         size = raw.get("size") or 0
@@ -111,6 +130,30 @@ class SearchService:
         if verdict == "no-match":
             rejections.append("No book signals detected")
 
+        # Reject "unknown" verdict (book category but no format tag) unless title contains
+        # an explicit .epub filename — defends against Prowlarr returning ambiguous results.
+        if verdict == "unknown" and not EPUB_FILE_RE.search(title):
+            rejections.append("No candidate matches title")
+
+        # Compute similarity scores against the search query (only meaningful when querying).
+        result_title = raw.get("title") or ""
+        result_author = raw.get("author") or ""
+        title_sim = 1.0
+        author_match = False
+        if query_title:
+            title_sim = title_similarity(query_title, result_title)
+            authors_a = [query_author] if query_author else []
+            authors_b = [result_author] if result_author else []
+            author_match = author_surname_match(authors_a, authors_b)
+            # Reject if title similarity below threshold AND no author match — protects
+            # against Prowlarr returning unrelated books that happen to share keywords.
+            if (
+                title_sim < EPUB_TITLE_SIMILARITY_THRESHOLD
+                and not author_match
+                and "No candidate matches title" not in rejections
+            ):
+                rejections.append("No candidate matches title")
+
         publish_date = raw.get("publish_date")
         age_days = self._calculate_age_days(publish_date)
 
@@ -128,6 +171,8 @@ class SearchService:
             protocol=raw.get("protocol"),
             categories=raw.get("categories") or [],
             age_days=age_days,
+            title_similarity=title_sim,
+            author_match=author_match,
             rejections=rejections,
             approved=len(rejections) == 0,
         )
@@ -142,6 +187,8 @@ class SearchService:
             results,
             key=lambda result: (
                 1 if result.approved else 0,
+                1 if result.author_match else 0,
+                result.title_similarity or 0.0,
                 result.seeders or 0,
                 -(result.age_days or 0.0),
             ),
@@ -169,6 +216,8 @@ class SearchService:
             protocol=result.get("protocol"),
             categories=result.get("categories") or [],
             age_days=result.get("age_days", self._calculate_age_days(publish_date)),
+            title_similarity=result.get("title_similarity", 1.0),
+            author_match=result.get("author_match", False),
             rejections=rejections,
             approved=approved,
         )

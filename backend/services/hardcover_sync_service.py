@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.clients.hardcover_client import HardcoverClient
@@ -26,6 +27,26 @@ HARDCOVER_STATUS_MAP = {
     "currently_reading": 2,
     "read": 3,
 }
+
+
+def _get_or_create_author(db: Session, name: str) -> Author:
+    """Race-safe author get-or-create.
+
+    SELECTs first; if missing, INSERTs and catches IntegrityError raised by
+    Author.name UNIQUE constraint when a concurrent transaction inserted the
+    same name. On conflict, rolls back and re-SELECTs the winning row.
+    """
+    existing = db.query(Author).filter(Author.name == name).first()
+    if existing:
+        return existing
+    try:
+        author = Author(name=name)
+        db.add(author)
+        db.flush()
+        return author
+    except IntegrityError:
+        db.rollback()
+        return db.query(Author).filter(Author.name == name).one()
 
 
 class HardcoverSyncService:
@@ -74,16 +95,26 @@ class HardcoverSyncService:
 
         for hc_book in hc_books:
             try:
-                hardcover_id = str(hc_book.get("hardcover_id", ""))
-                if not hardcover_id:
-                    logger.warning(f"Skipping Hardcover book with no ID: {hc_book.get('title')}")
+                hardcover_id = str(hc_book.get("hardcover_id", "")) or None
+                isbns = hc_book.get("isbns", [])
+                isbn = isbns[0] if isbns else None
+
+                if not hardcover_id and not isbn:
+                    logger.warning(f"Skipping book with no identifier (title={hc_book.get('title')!r})")
                     errors += 1
                     continue
 
-                existing = db.query(Book).filter(Book.hardcover_id == hardcover_id).first()
-                if existing:
-                    existing_skipped += 1
-                    continue
+                if hardcover_id:
+                    existing = db.query(Book).filter(Book.hardcover_id == hardcover_id).first()
+                    if existing:
+                        existing_skipped += 1
+                        continue
+
+                if isbn:
+                    existing = db.query(Book).filter(Book.isbn == isbn).first()
+                    if existing:
+                        existing_skipped += 1
+                        continue
 
                 author_name = ""
                 authors_list = hc_book.get("authors", [])
@@ -92,16 +123,7 @@ class HardcoverSyncService:
                 elif hc_book.get("author_string"):
                     author_name = hc_book["author_string"]
 
-                author = None
-                if author_name:
-                    author = db.query(Author).filter(Author.name == author_name).first()
-                    if not author:
-                        author = Author(name=author_name)
-                        db.add(author)
-                        db.flush()
-
-                isbns = hc_book.get("isbns", [])
-                isbn = isbns[0] if isbns else None
+                author = _get_or_create_author(db, author_name) if author_name else None
 
                 book = Book(
                     title=hc_book.get("title", ""),

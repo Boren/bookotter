@@ -39,7 +39,7 @@ class TestRejections:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(title="Great Book audiobook EPUB")]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Great Book audiobook EPUB")
 
         assert results[0].rejections == ["Audiobook"]
         assert results[0].approved is False
@@ -48,16 +48,16 @@ class TestRejections:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(title="Great Book audiobook EPUB", seeders=0, size=5_000)]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Great Book audiobook EPUB")
 
         assert results[0].rejections == ["Audiobook", "No seeders", "Size too small"]
 
     def test_blocklisted_rejection(self, db_session):
-        BlocklistService(db_session).add("TestIndexer", "guid-1", "Great Book EPUB")
+        BlocklistService(db_session).add("TestIndexer", "guid-1", "Book EPUB")
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(guid="guid-1")]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Book EPUB")
 
         assert "Blocklisted" in results[0].rejections
 
@@ -65,7 +65,7 @@ class TestRejections:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(seeders=0)]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Book EPUB")
 
         assert results[0].rejections == ["No seeders"]
 
@@ -73,7 +73,7 @@ class TestRejections:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(size=9_999)]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Book EPUB")
 
         assert results[0].rejections == ["Size too small"]
 
@@ -81,7 +81,7 @@ class TestRejections:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(size=600 * 1024 * 1024)]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Book EPUB")
 
         assert results[0].rejections == ["Size too large"]
 
@@ -144,7 +144,7 @@ class TestAutoSearch:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [make_result(guid="approved")]
 
-        results = SearchService(prowlarr, db_session).search_book("Great Book")
+        results = SearchService(prowlarr, db_session).search_book("Book EPUB")
 
         assert results[0].approved is True
         assert results[0].rejections == []

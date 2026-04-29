@@ -54,6 +54,7 @@ def qbit():
     mock.get_torrent_files.return_value = []
     mock.get_torrents.return_value = []
     mock.set_file_priority.return_value = True
+    mock.get_torrent_properties.return_value = None
     return mock
 
 

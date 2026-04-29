@@ -1,0 +1,182 @@
+# pyright: reportGeneralTypeIssues=false, reportOptionalMemberAccess=false, reportArgumentType=false
+
+"""Tests for HardcoverSyncService dedup and race-safe author creation."""
+
+import tempfile
+import threading
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from backend.database import Base
+from backend.models.book import Author, Book
+from backend.services.hardcover_sync_service import (
+    HardcoverSyncService,
+    _get_or_create_author,
+)
+
+
+@pytest.fixture
+def shared_db_factory():
+    """File-based SQLite session factory shared across threads (for race tests)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+        engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
+        Base.metadata.create_all(bind=engine)
+        SessionFactory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        yield SessionFactory
+        engine.dispose()
+
+
+def _make_hc_book(
+    hardcover_id: str | int | None = "hc-1",
+    title: str = "Dune",
+    isbn: str | None = "978-0-441-17271-9",
+    authors: list[str] | None = None,
+) -> dict:
+    return {
+        "hardcover_id": hardcover_id if hardcover_id is not None else "",
+        "title": title,
+        "isbns": [isbn] if isbn else [],
+        "authors": authors if authors is not None else ["Frank Herbert"],
+        "cover_url": None,
+        "series_name": None,
+        "series_position": None,
+    }
+
+
+def _make_service(hc_books: list[dict], config: dict | None = None) -> HardcoverSyncService:
+    mock_client = MagicMock()
+    mock_client.get_books_by_status.return_value = hc_books
+    cfg = config or {"sync": {"include_statuses": {"want_to_read": True}}}
+    return HardcoverSyncService(hardcover_client=mock_client, config=cfg)
+
+
+class TestDedup:
+    def test_same_hardcover_id_is_deduplicated(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-42", title="Dune")])
+        result1 = svc.sync_hardcover_lists(db_session)
+        assert result1["new_books"] == 1
+        assert result1["existing_skipped"] == 0
+
+        svc2 = _make_service([_make_hc_book(hardcover_id="hc-42", title="Dune")])
+        result2 = svc2.sync_hardcover_lists(db_session)
+        assert result2["new_books"] == 0
+        assert result2["existing_skipped"] == 1
+
+        assert db_session.query(Book).count() == 1
+
+    def test_same_isbn_dedup_when_no_hardcover_id_match(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-1", isbn="978-1-111-11111-1")])
+        result1 = svc.sync_hardcover_lists(db_session)
+        assert result1["new_books"] == 1
+
+        svc2 = _make_service([_make_hc_book(hardcover_id="hc-2", isbn="978-1-111-11111-1")])
+        result2 = svc2.sync_hardcover_lists(db_session)
+        assert result2["new_books"] == 0
+        assert result2["existing_skipped"] == 1
+
+        assert db_session.query(Book).count() == 1
+
+    def test_isbn_dedup_when_new_book_has_no_hardcover_id(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-1", isbn="978-2-222-22222-2")])
+        svc.sync_hardcover_lists(db_session)
+
+        svc2 = _make_service([_make_hc_book(hardcover_id=None, isbn="978-2-222-22222-2")])
+        result2 = svc2.sync_hardcover_lists(db_session)
+        assert result2["new_books"] == 0
+        assert result2["existing_skipped"] == 1
+
+    def test_book_with_no_identifier_is_skipped_and_logged(self, db_session, caplog):
+        svc = _make_service([_make_hc_book(hardcover_id=None, isbn=None, title="Mystery Book")])
+        with caplog.at_level("WARNING"):
+            result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 0
+        assert result["errors"] == 1
+        assert any("no identifier" in rec.message.lower() for rec in caplog.records)
+        assert db_session.query(Book).count() == 0
+
+    def test_different_hardcover_id_and_isbn_creates_new_book(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-1", isbn="978-3-333-33333-3")])
+        svc.sync_hardcover_lists(db_session)
+
+        svc2 = _make_service([_make_hc_book(hardcover_id="hc-2", isbn="978-4-444-44444-4")])
+        result2 = svc2.sync_hardcover_lists(db_session)
+
+        assert result2["new_books"] == 1
+        assert db_session.query(Book).count() == 2
+
+    def test_one_bad_book_does_not_kill_sync(self, db_session):
+        books = [
+            _make_hc_book(hardcover_id="hc-100", title="Good Book 1", isbn="978-5-555-55555-5"),
+            _make_hc_book(hardcover_id=None, isbn=None, title="Bad Book"),
+            _make_hc_book(hardcover_id="hc-101", title="Good Book 2", isbn="978-6-666-66666-6"),
+        ]
+        svc = _make_service(books)
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 2
+        assert result["errors"] == 1
+        assert db_session.query(Book).count() == 2
+
+
+class TestGetOrCreateAuthor:
+    def test_creates_author_when_missing(self, db_session):
+        author = _get_or_create_author(db_session, "Frank Herbert")
+        db_session.commit()
+
+        assert author.id is not None
+        assert author.name == "Frank Herbert"
+        assert db_session.query(Author).count() == 1
+
+    def test_returns_existing_author(self, db_session):
+        first = _get_or_create_author(db_session, "Isaac Asimov")
+        db_session.commit()
+
+        second = _get_or_create_author(db_session, "Isaac Asimov")
+        assert second.id == first.id
+        assert db_session.query(Author).count() == 1
+
+    def test_concurrent_create_no_dupes(self, shared_db_factory):
+        """5 threads racing _get_or_create_author for same name → exactly 1 row."""
+        results: list[int] = []
+        errors: list[Exception] = []
+        result_lock = threading.Lock()
+        barrier = threading.Barrier(5)
+
+        def create_author():
+            db = shared_db_factory()
+            try:
+                barrier.wait()
+                author = _get_or_create_author(db, "Frank Herbert")
+                db.commit()
+                with result_lock:
+                    results.append(author.id)
+            except Exception as e:
+                with result_lock:
+                    errors.append(e)
+            finally:
+                db.close()
+
+        threads = [threading.Thread(target=create_author) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"Errors: {errors}"
+        assert len(results) == 5
+        assert len(set(results)) == 1, f"Expected 1 unique author id, got {set(results)}"
+
+        verify_db = shared_db_factory()
+        try:
+            assert verify_db.query(Author).filter(Author.name == "Frank Herbert").count() == 1
+        finally:
+            verify_db.close()
