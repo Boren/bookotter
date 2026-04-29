@@ -18,6 +18,7 @@ from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
 from backend.config import get_kindle_by_id
 from backend.models.book import Author, Book, BookStatus
+from backend.utils.events import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,7 @@ class HardcoverSyncService:
                 if self.emit_callback:
                     progress_cb = self._make_progress_callback(book.title, abs_path)
 
+                transfer_start = time.monotonic()
                 result = kindle_client.transfer_file(
                     local_path=abs_path,
                     skip_existing=True,
@@ -206,6 +208,7 @@ class HardcoverSyncService:
                     folder_organization=folder_org,
                     progress_callback=progress_cb,
                 )
+                transfer_duration_ms = int((time.monotonic() - transfer_start) * 1000)
 
                 if result["success"]:
                     if result["status"] == "skipped":
@@ -213,6 +216,13 @@ class HardcoverSyncService:
                     else:
                         transferred += 1
                         logger.info(f"Transferred '{book.title}' to Kindle ({result.get('file_size', 0)} bytes)")
+                        log_event(
+                            "kindle_delivered",
+                            book_id=book.id,
+                            kindle_id=kindle_device_id,
+                            duration_ms=transfer_duration_ms,
+                            size_bytes=result.get("file_size", 0),
+                        )
                 else:
                     failed += 1
                     logger.error(f"Failed to transfer '{book.title}': {result.get('error')}")

@@ -15,6 +15,7 @@ from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.atomic import atomic_copy
+from backend.utils.events import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,13 @@ class ImportService:
                 {"book_id": book.id, "title": book.title, "file_path": str(dest_path)},
             )
             logger.info("Successfully imported book %d to %s", book_id, dest_path)
+            log_event(
+                "book_imported",
+                book_id=book.id,
+                file_path=str(dest_path),
+                size_bytes=book.file_size or 0,
+                low_confidence=bool(book.low_confidence),
+            )
             return book
 
         except Exception as exc:

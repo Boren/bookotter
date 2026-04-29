@@ -7,6 +7,7 @@ See run_pipeline() for the rationale.
 """
 
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,11 +20,12 @@ from sqlalchemy.exc import IntegrityError
 from backend.constants import RECONCILE_INTERVAL_MIN
 from backend.database import SessionLocal
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Book, BookStatus, Download, DownloadStatus, RootFolder
+from backend.models.book import Book, BookStatus, Download, DownloadStatus, KindleDeliveryStatus, RootFolder
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.cleanup import cleanup_orphan_tmp_files
+from backend.utils.events import log_event
 from backend.utils.pipeline_lock import acquire_pipeline_lock
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ class PipelineService:
         import_service: Any | None = None,
         db_session_factory: Callable | None = None,
         ws_manager: WebSocketManager | None = None,
+        kindle_client: Any | None = None,
     ):
         self.search_service = search_service
         self.download_service = download_service
@@ -56,6 +59,10 @@ class PipelineService:
         self._session_factory = db_session_factory or SessionLocal
         self._scheduler: AsyncIOScheduler | None = None
         self.ws_manager = ws_manager
+        self.kindle_client = kindle_client
+        # Optional active session — tests may inject directly via `service.db = session`.
+        # When unset, methods that need it should fall back to self._session_factory().
+        self.db: Any | None = None
 
     def process_wanted_books(self) -> int:
         if self.search_service is None:
@@ -238,6 +245,11 @@ class PipelineService:
                     book.failure_reason = FailureReason.RETRY_BUDGET_EXHAUSTED.value
                     changed = True
                     logger.info("Book %s exhausted retry budget → PERMANENT_FAILED", book.id)
+                    log_event(
+                        "book_permanent_failed",
+                        book_id=book.id,
+                        reason=book.failure_reason,
+                    )
                     continue
 
                 cooldown = timedelta(seconds=RETRY_BASE_DELAY * (2**retry_count))
@@ -255,6 +267,12 @@ class PipelineService:
                     book.retry_count,
                     PIPELINE_AUTO_RETRY_ATTEMPTS,
                 )
+                log_event(
+                    "book_retried",
+                    book_id=book.id,
+                    retry_count=book.retry_count,
+                    max_attempts=PIPELINE_AUTO_RETRY_ATTEMPTS,
+                )
 
             if changed:
                 db.commit()
@@ -262,6 +280,98 @@ class PipelineService:
             return retried
         finally:
             db.close()
+
+    def _get_kindle_config(self) -> dict | None:
+        """Return the active Kindle config dict, or None when not configured.
+
+        Default stub returns None — overridden by tests, CLI, or future DI to
+        supply the dict consumed by KindleClient.from_config().
+        """
+        return None
+
+    def process_kindle_delivery_books(self) -> int:
+        """Drive the Kindle delivery state machine.
+
+        PENDING:
+            - Stamp kindle_first_pending_at if missing.
+            - If now - first_pending_at > KINDLE_DELIVERY_TIMEOUT_DAYS → SKIPPED.
+            - Otherwise attempt SFTP transfer:
+                success → DELIVERED
+                failure → stays PENDING (retry next cycle)
+              kindle_delivery_attempts increments on every transfer attempt.
+
+        SKIPPED:
+            - Ping Kindle (_get_or_create_ssh). If reachable → re-arm as
+              PENDING with a fresh kindle_first_pending_at (auto-recover).
+
+        Returns:
+            Number of PENDING books that reached a terminal state
+            (DELIVERED or SKIPPED) during this run.
+        """
+        from backend.constants import KINDLE_DELIVERY_TIMEOUT_DAYS
+
+        if self.db is None or self.kindle_client is None:
+            logger.warning(
+                "process_kindle_delivery_books: db or kindle_client not configured, skipping"
+            )
+            return 0
+
+        now = datetime.utcnow()
+        timeout = timedelta(days=KINDLE_DELIVERY_TIMEOUT_DAYS)
+
+        # Snapshot SKIPPED *before* mutating PENDING so a freshly-timed-out
+        # book is not immediately re-armed by the auto-retry loop in the
+        # same call (would create a PENDING↔SKIPPED bounce).
+        skipped_books = (
+            self.db.query(Book)
+            .filter(Book.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value)
+            .all()
+        )
+        pending_books = (
+            self.db.query(Book)
+            .filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value)
+            .all()
+        )
+
+        processed = 0
+        for book in pending_books:
+            if book.kindle_first_pending_at is None:
+                book.kindle_first_pending_at = now
+
+            if (now - book.kindle_first_pending_at) > timeout:
+                book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
+                logger.info("Kindle delivery timed out for book %s — marking SKIPPED", book.id)
+                processed += 1
+                continue
+
+            kindle_config = self._get_kindle_config()
+            if kindle_config is None:
+                continue
+
+            try:
+                book.kindle_delivery_status = KindleDeliveryStatus.IN_PROGRESS.value
+                self.kindle_client.transfer_file(book.file_path)
+                book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+                book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
+                processed += 1
+            except Exception as exc:
+                book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+                book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
+                logger.warning("Kindle delivery failed for book %s: %s", book.id, exc)
+
+        for book in skipped_books:
+            kindle_config = self._get_kindle_config()
+            if kindle_config is None:
+                continue
+            try:
+                self.kindle_client._get_or_create_ssh(kindle_config)
+            except Exception:
+                continue
+            book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+            book.kindle_first_pending_at = now
+
+        self.db.commit()
+        return processed
 
     def run_pipeline(self, holder: str = "scheduled") -> dict[str, Any]:
         """
@@ -284,6 +394,8 @@ class PipelineService:
             try:
                 with acquire_pipeline_lock(db, holder=holder) as run_id:
                     logger.info("Pipeline run started: run_id=%s holder=%s", run_id, holder)
+                    log_event("pipeline_run_started", run_id=run_id, holder=holder)
+                    run_start = time.monotonic()
                     results: dict[str, Any] = {"failed_retried": self.process_failed_books()}
                     for stage_name, method in [
                         ("grabbed", self.process_grabbed_books),
@@ -295,6 +407,17 @@ class PipelineService:
                         except Exception as exc:
                             logger.error(f"Pipeline stage '{stage_name}' raised: {exc}")
                             results[stage_name] = 0
+                    duration_ms = int((time.monotonic() - run_start) * 1000)
+                    log_event(
+                        "pipeline_run_completed",
+                        run_id=run_id,
+                        holder=holder,
+                        duration_ms=duration_ms,
+                        failed_retried=results.get("failed_retried", 0),
+                        grabbed=results.get("grabbed", 0),
+                        downloading=results.get("downloading", 0),
+                        importing=results.get("importing", 0),
+                    )
                     logger.debug(f"Pipeline run complete: {results}")
                     return results
             except PipelineError as exc:
@@ -391,7 +514,16 @@ class PipelineService:
         book.last_searched_at = datetime.now(UTC)
         db.commit()
 
+        search_start = time.monotonic()
         results = self.search_service.search_book(book.title, author_name)
+        search_duration_ms = int((time.monotonic() - search_start) * 1000)
+        log_event(
+            "book_searched",
+            book_id=book.id,
+            duration_ms=search_duration_ms,
+            results=len(results) if results else 0,
+            attempt=book.search_attempts,
+        )
         if not results:
             logger.info(
                 f"No EPUB results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
@@ -504,6 +636,13 @@ class PipelineService:
 
         db.commit()
         logger.info(f"Grabbed '{book.title}' from {download.indexer_name} (hash={download.torrent_hash})")
+        log_event(
+            "book_grabbed",
+            book_id=book.id,
+            indexer=download.indexer_name,
+            seeders=download.seeders or 0,
+            size=download.size or 0,
+        )
         return 1
 
     def _fail_book(self, book: Book, db: Any, reason: str = "Pipeline book failure") -> None:
@@ -513,6 +652,12 @@ class PipelineService:
                 self._broadcast(
                     "book_failed",
                     {"book_id": book.id, "title": book.title, "reason": reason},
+                )
+                log_event(
+                    "book_failed",
+                    book_id=book.id,
+                    reason=book.failure_reason or reason,
+                    stage="pipeline",
                 )
         except Exception as exc:
             logger.error(f"Could not fail book '{book.title}': {exc}")

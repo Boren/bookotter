@@ -16,10 +16,13 @@ from typing import Any
 
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy.orm import Session
 
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
 from backend.config import load_config
+from backend.database import SessionLocal
+from backend.models.book import Book, BookStatus
 
 
 class CLIRunner:
@@ -335,9 +338,50 @@ class CLIRunner:
             sys.exit(1)
 
 
+def force_retry_book(book_id: int, db: Session) -> int:
+    """
+    Force retry a failed or permanently failed book.
+
+    Args:
+        book_id: ID of the book to retry
+        db: Database session
+
+    Returns:
+        Exit code: 0 on success, 1 on book-not-found, 2 on not-retryable-state
+    """
+    console = Console()
+
+    book = db.get(Book, book_id)
+    if book is None:
+        console.print(f"[red]Book {book_id} not found[/red]")
+        return 1
+
+    retryable = {BookStatus.FAILED.value, BookStatus.PERMANENT_FAILED.value}
+    if book.status not in retryable:
+        console.print(f"[red]Book {book_id} is not retryable (status: {book.status})[/red]")
+        return 2
+
+    previous = book.status
+    book.status = BookStatus.WANTED.value
+    book.retry_count = 0
+    book.failure_reason = None
+    book.low_confidence = False
+    db.commit()
+
+    console.print(f"[green]Book {book_id} reset from {previous} → WANTED[/green]")
+    return 0
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Sync Hardcover 'want to read' books to Kindle")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # force-retry subcommand
+    force_retry_parser = subparsers.add_parser("force-retry", help="Force retry a failed book")
+    force_retry_parser.add_argument("book_id", type=int, help="Book ID to retry")
+
+    # Legacy sync command (default)
     parser.add_argument("--config", default="config.yaml", help="Path to configuration file (default: config.yaml)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate transfers without actually copying files")
     parser.add_argument("--skip-kindle-test", action="store_true", help="Skip Kindle SSH connection test")
@@ -348,7 +392,16 @@ def main():
 
     args = parser.parse_args()
 
-    # Create CLI runner
+    # Handle force-retry subcommand
+    if args.command == "force-retry":
+        db = SessionLocal()
+        try:
+            exit_code = force_retry_book(args.book_id, db)
+            sys.exit(exit_code)
+        finally:
+            db.close()
+
+    # Default: run sync
     runner = CLIRunner(
         config_path=args.config,
         include_currently_reading=args.include_currently_reading,

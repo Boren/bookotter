@@ -31,6 +31,7 @@ from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
+from backend.utils.events import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -426,6 +427,13 @@ class DownloadService:
                             "eta": torrent_info.get("eta"),
                         },
                     )
+                    log_event(
+                        "download_progress",
+                        book_id=download.book_id,
+                        download_id=download.id,
+                        progress=round(float(progress), 4),
+                        bytes=torrent_info.get("downloaded", 0) or 0,
+                    )
 
                 processed += 1
 
@@ -500,6 +508,21 @@ class DownloadService:
                     "Download handled: %r → %s",
                     download.torrent_name,
                     epub_path,
+                )
+                total_seconds: int | None = None
+                if download.created_at is not None:
+                    completed_naive = download.completed_at.replace(tzinfo=None)
+                    created_naive = (
+                        download.created_at.replace(tzinfo=None)
+                        if download.created_at.tzinfo is not None
+                        else download.created_at
+                    )
+                    total_seconds = int((completed_naive - created_naive).total_seconds())
+                log_event(
+                    "download_completed",
+                    book_id=download.book_id,
+                    download_id=download.id,
+                    total_seconds=total_seconds if total_seconds is not None else 0,
                 )
 
             if owns_session:
