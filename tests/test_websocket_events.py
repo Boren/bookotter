@@ -119,6 +119,7 @@ class TestPipelineEvents:
                 "seeders": 42,
                 "size": 5_000_000,
                 "download_url": "https://example.com/download/1",
+                "magnet_url": "magnet:?xt=urn:btih:cccccccccc3333333333cccccccccc3333333333&dn=Dune",
             }
         ]
         download_service = MagicMock()

@@ -3,6 +3,9 @@
 import asyncio
 from unittest.mock import MagicMock, patch
 
+import pytest
+from fastapi import HTTPException
+
 from backend.api.routes import search as search_routes
 from backend.services.blocklist_service import BlocklistService
 from backend.services.search_service import SearchService
@@ -10,6 +13,9 @@ from tests.helpers import create_test_book
 
 
 def make_result(title="Book EPUB", seeders=10, size=2 * 1024 * 1024, guid="guid-1", **overrides):
+    import hashlib
+
+    hash_hex = hashlib.sha1(guid.encode()).hexdigest()
     result = {
         "guid": guid,
         "indexer_id": 1,
@@ -19,7 +25,7 @@ def make_result(title="Book EPUB", seeders=10, size=2 * 1024 * 1024, guid="guid-
         "seeders": seeders,
         "leechers": 2,
         "download_url": f"https://example.com/download/{guid}",
-        "magnet_url": None,
+        "magnet_url": f"magnet:?xt=urn:btih:{hash_hex}&dn={title}",
         "categories": [{"id": 7020, "name": "Books/Ebooks"}],
         "protocol": "torrent",
         "publish_date": "2024-01-15T00:00:00Z",
@@ -104,7 +110,8 @@ class TestAutoSearch:
 
         assert result["success"] is True
         assert result["result_title"] == "Great Book EPUB"
-        assert qbt.add_torrent.call_args.kwargs["torrent_url"] == "https://example.com/download/approved"
+        torrent_url = qbt.add_torrent.call_args.kwargs["torrent_url"]
+        assert torrent_url.startswith("magnet:?xt=urn:btih:")
 
     def test_auto_search_all_rejected(self, db_session):
         book = create_test_book(db_session, title="Great Book", author_name="Author")
@@ -141,3 +148,62 @@ class TestAutoSearch:
 
         assert results[0].approved is True
         assert results[0].rejections == []
+
+
+class TestGrabRouteHashValidation:
+    def test_auto_grab_no_hash_returns_failure(self, db_session):
+        book = create_test_book(db_session, title="No Hash Book", author_name="Author")
+        db_session.commit()
+
+        prowlarr = MagicMock()
+        prowlarr.search_book.return_value = [
+            {
+                "guid": "no-hash-guid",
+                "indexer_id": 1,
+                "indexer": "TestIndexer",
+                "title": "No Hash Book EPUB",
+                "size": 2 * 1024 * 1024,
+                "seeders": 10,
+                "leechers": 2,
+                "download_url": "https://example.com/download/no-hash",
+                "magnet_url": None,
+                "categories": [{"id": 7020, "name": "Books/Ebooks"}],
+                "protocol": "torrent",
+                "publish_date": "2024-01-15T00:00:00Z",
+            }
+        ]
+
+        with patch("backend.api.routes.search._get_prowlarr_client", return_value=prowlarr):
+            result = asyncio.run(search_routes.auto_search_and_grab(book.id, db_session))
+
+        assert result["success"] is False
+        message = result["message"].lower()
+        assert "no usable magnet" in message or "hash" in message
+
+    def test_grab_route_no_hash_raises_422(self, db_session):
+        book = create_test_book(db_session, title="No Hash Book", author_name="Author")
+        db_session.commit()
+
+        body = search_routes.GrabRequest(
+            book_id=book.id,
+            result=search_routes.SearchResultItem(
+                guid="no-hash-guid",
+                indexer_id=1,
+                indexer="TestIndexer",
+                title="No Hash Book EPUB",
+                size=2 * 1024 * 1024,
+                seeders=10,
+                leechers=2,
+                download_url="https://example.com/download/no-hash",
+                magnet_url=None,
+                categories=[{"id": 7020, "name": "Books/Ebooks"}],
+                protocol="torrent",
+                publish_date="2024-01-15T00:00:00Z",
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(search_routes.grab_result(body, db_session))
+
+        assert exc_info.value.status_code == 422
+        assert "magnet" in exc_info.value.detail.lower() or "hash" in exc_info.value.detail.lower()

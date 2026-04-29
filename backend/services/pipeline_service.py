@@ -6,7 +6,6 @@ The recurring scheduler (start_monitoring) only advances post-grab stages.
 See run_pipeline() for the rationale.
 """
 
-import hashlib
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -19,16 +18,12 @@ from apscheduler.triggers.interval import IntervalTrigger
 from backend.database import SessionLocal
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
+from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
 PIPELINE_INTERVAL_SECONDS = 15
-
-
-def _guid_to_hash(guid: str | None) -> str:
-    raw = guid or str(datetime.now(UTC).timestamp())
-    return hashlib.md5(raw.encode()).hexdigest()
 
 
 class PipelineService:
@@ -294,7 +289,6 @@ class PipelineService:
             return 0
 
         best = approved_results[0]
-        best_guid = best.get("guid") if isinstance(best, dict) else best.guid
         best_title = best.get("title") if isinstance(best, dict) else best.title
         best_indexer = best.get("indexer") if isinstance(best, dict) else best.indexer
         best_download_url = best.get("download_url") if isinstance(best, dict) else best.download_url
@@ -302,9 +296,22 @@ class PipelineService:
         best_size = best.get("size") if isinstance(best, dict) else best.size
         best_seeders = best.get("seeders") if isinstance(best, dict) else best.seeders
 
+        torrent_hash = extract_info_hash_from_url(best_magnet_url) or extract_info_hash_from_url(best_download_url)
+        if not torrent_hash:
+            logger.error(
+                "Could not derive info hash for '%s' from magnet=%r or url=%r — leaving WANTED",
+                book.title,
+                best_magnet_url,
+                best_download_url,
+            )
+            if not self._transition_book(book, BookStatus.WANTED):
+                logger.warning("Could not transition '%s' back to WANTED", book.title)
+            db.commit()
+            return 0
+
         download = Download(
             book_id=book.id,
-            torrent_hash=_guid_to_hash(best_guid),
+            torrent_hash=torrent_hash,
             torrent_name=best_title or book.title,
             indexer_name=best_indexer or "unknown",
             download_url=best_download_url or best_magnet_url or "",

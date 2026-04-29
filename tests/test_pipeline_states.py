@@ -49,7 +49,7 @@ class TestPipelinePicksUpMissing:
                     "seeders": 10,
                     "size": 1024,
                     "download_url": "https://example.com/wanted",
-                    "magnet_url": None,
+                    "magnet_url": "magnet:?xt=urn:btih:aaaaaaaaaa1111111111aaaaaaaaaa1111111111&dn=Wanted",
                 }
             ],
             [
@@ -60,7 +60,7 @@ class TestPipelinePicksUpMissing:
                     "seeders": 12,
                     "size": 2048,
                     "download_url": "https://example.com/missing",
-                    "magnet_url": None,
+                    "magnet_url": "magnet:?xt=urn:btih:bbbbbbbbbb2222222222bbbbbbbbbb2222222222&dn=Missing",
                 }
             ],
         ]

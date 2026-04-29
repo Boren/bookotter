@@ -4,7 +4,6 @@ Search and grab API routes.
 Handles manual book search via Prowlarr and grabbing results for download.
 """
 
-import hashlib
 import logging
 from datetime import datetime
 
@@ -14,11 +13,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.clients.prowlarr_client import ProwlarrClient
 from backend.clients.qbittorrent_client import QBittorrentClient
-from backend.config import load_config
+from backend.config import get_qbit_category, load_config
 from backend.database import get_db
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book
 from backend.services.search_service import SearchService
+from backend.services.torrent_hash import extract_info_hash_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,12 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
     if not download_url:
         raise HTTPException(status_code=422, detail="Result has no download_url or magnet_url")
 
-    torrent_hash = result.guid or hashlib.sha1(download_url.encode()).hexdigest()
+    torrent_hash = extract_info_hash_from_url(result.magnet_url) or extract_info_hash_from_url(download_url)
+    if not torrent_hash:
+        raise HTTPException(
+            status_code=422,
+            detail="Selected result has no usable magnet/info-hash — cannot grab",
+        )
 
     existing = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
     if existing:
@@ -129,7 +134,7 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
     try:
         qbt = _get_qbittorrent_client()
         config = load_config()
-        category = config.get("qbittorrent", {}).get("category", "books")
+        category = get_qbit_category(config)
 
         qbt.ensure_category_exists(category)
         success = qbt.add_torrent(torrent_url=download_url, category=category)
@@ -223,7 +228,15 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"success": False, "message": "Best result has no download URL", "book_id": book_id}
 
-    torrent_hash = best.guid or hashlib.sha1(download_url.encode()).hexdigest()
+    torrent_hash = extract_info_hash_from_url(best.magnet_url) or extract_info_hash_from_url(download_url)
+    if not torrent_hash:
+        transition_book(book, BookStatus.WANTED.value)
+        db.commit()
+        return {
+            "success": False,
+            "message": "No usable magnet/info-hash in best result — cannot grab",
+            "book_id": book_id,
+        }
 
     existing = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
     if existing:
@@ -237,7 +250,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
     try:
         qbt = _get_qbittorrent_client()
         config = load_config()
-        category = config.get("qbittorrent", {}).get("category", "books")
+        category = get_qbit_category(config)
         qbt.ensure_category_exists(category)
 
         success = qbt.add_torrent(torrent_url=download_url, category=category)

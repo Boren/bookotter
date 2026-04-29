@@ -249,6 +249,13 @@ def get_all_kindles() -> list[dict]:
     return config.get("kindles", [])
 
 
+def get_qbit_category(config: dict | None = None) -> str:
+    """Return the configured qBittorrent category label, defaulting to 'books'."""
+    if config is None:
+        config = load_config()
+    return config.get("qbittorrent", {}).get("category", "books")
+
+
 def add_kindle(kindle: dict) -> dict:
     """Add a new Kindle configuration."""
     config = load_config()

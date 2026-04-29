@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +9,8 @@ from sqlalchemy.orm import sessionmaker
 from backend.clients.qbittorrent_client import QBittorrentClient, TorrentState
 from backend.database import Base
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
-from backend.services.download_service import DownloadService, _extract_hash_from_magnet
+from backend.services.download_service import DownloadService
+from backend.services.torrent_hash import extract_info_hash_from_url
 
 MAGNET_HEX = "magnet:?xt=urn:btih:aabbccdd11223344aabbccdd11223344aabbccdd&dn=TestBook"
 HASH_HEX = "aabbccdd11223344aabbccdd11223344aabbccdd"
@@ -111,27 +113,27 @@ def downloading_download(db, book_record):
 
 class TestExtractHashFromMagnet:
     def test_hex_hash_returned_lowercase(self):
-        result = _extract_hash_from_magnet(MAGNET_HEX)
+        result = extract_info_hash_from_url(MAGNET_HEX)
         assert result == HASH_HEX
 
     def test_hex_hash_uppercase_normalised(self):
         magnet = "magnet:?xt=urn:btih:AABBCCDD11223344AABBCCDD11223344AABBCCDD"
-        assert _extract_hash_from_magnet(magnet) == HASH_HEX
+        assert extract_info_hash_from_url(magnet) == HASH_HEX
 
     def test_base32_hash_converted_to_hex(self):
-        result = _extract_hash_from_magnet(MAGNET_B32)
+        result = extract_info_hash_from_url(MAGNET_B32)
         assert result is not None
         assert len(result) == 40
         assert result.isalnum()
 
     def test_no_btih_returns_none(self):
-        assert _extract_hash_from_magnet("magnet:?dn=nobthihhere") is None
+        assert extract_info_hash_from_url("magnet:?dn=nobthihhere") is None
 
     def test_empty_string_returns_none(self):
-        assert _extract_hash_from_magnet("") is None
+        assert extract_info_hash_from_url("") is None
 
     def test_none_returns_none(self):
-        assert _extract_hash_from_magnet(None) is None  # type: ignore[arg-type]
+        assert extract_info_hash_from_url(None) is None  # type: ignore[arg-type]
 
 
 class TestAddDownload:
@@ -382,6 +384,8 @@ class TestReconcileOnStartup:
         assert counts == {"reconciled": 0, "failed": 0, "completed": 0}
 
     def test_missing_torrent_marks_queued_as_failed(self, service, qbit, db, book_record, queued_download):
+        queued_download.created_at = datetime.utcnow() - timedelta(minutes=5)
+        db.commit()
         qbit.get_torrents.return_value = []
 
         counts = service.reconcile_on_startup()
@@ -391,6 +395,8 @@ class TestReconcileOnStartup:
         assert counts["failed"] == 1
 
     def test_missing_torrent_sets_error_message(self, service, qbit, db, book_record, queued_download):
+        queued_download.created_at = datetime.utcnow() - timedelta(minutes=5)
+        db.commit()
         qbit.get_torrents.return_value = []
         service.reconcile_on_startup()
 

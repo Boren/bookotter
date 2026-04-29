@@ -1,5 +1,6 @@
 """End-to-end integration tests for the BookOtter book management pipeline."""
 
+import hashlib
 import os
 from unittest.mock import MagicMock
 
@@ -29,6 +30,7 @@ def refresh_download(db, download_id):
 
 
 def make_search_result(guid="abc-123", title="Book [EPUB]", indexer="TestIndexer", seeders=50, size=1_048_576):
+    hash_hex = hashlib.sha1(guid.encode()).hexdigest()
     return {
         "guid": guid,
         "title": title,
@@ -36,7 +38,7 @@ def make_search_result(guid="abc-123", title="Book [EPUB]", indexer="TestIndexer
         "seeders": seeders,
         "size": size,
         "download_url": f"https://example.com/torrent/{guid}",
-        "magnet_url": None,
+        "magnet_url": f"magnet:?xt=urn:btih:{hash_hex}&dn={title}",
     }
 
 

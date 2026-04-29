@@ -10,16 +10,15 @@ Responsibilities:
 - Reconcile DB state with qBit state on app startup
 """
 
-import base64
-import binascii
 import logging
-import re
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+from sqlalchemy.exc import IntegrityError
 
 from backend.clients.qbittorrent_client import (
     DOWNLOAD_COMPLETE_STATES,
@@ -28,6 +27,7 @@ from backend.clients.qbittorrent_client import (
 )
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
+from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # qBit needs a moment to parse the torrent metadata
 POST_ADD_DELAY_SECONDS = 1.0
 
-DEFAULT_CATEGORY = "bookotter"
+DEFAULT_CATEGORY = "books"
 
 ACTIVE_DL_STATES = {
     TorrentState.DOWNLOADING,
@@ -49,42 +49,6 @@ QUEUED_DL_STATES = {
     TorrentState.QUEUED_DL,
     TorrentState.PAUSED_DL,
 }
-
-
-def _extract_hash_from_magnet(magnet_url: str) -> str | None:
-    """
-    Extract and normalise the info hash from a magnet URI.
-
-    Handles both 40-char hex hashes and 32-char Base32-encoded hashes.
-
-    Args:
-        magnet_url: Magnet URI string
-
-    Returns:
-        Lowercase hex info hash, or None if not found / conversion failed
-    """
-    if not magnet_url:
-        return None
-
-    match = re.search(r"urn:btih:([a-fA-F0-9]{40}|[A-Z2-7]{32})", magnet_url, re.IGNORECASE)
-    if not match:
-        return None
-
-    raw_hash = match.group(1)
-
-    # 40 hex chars → already the canonical form
-    if len(raw_hash) == 40:
-        return raw_hash.lower()
-
-    # 32 Base32 chars → decode to bytes, then hex-encode
-    try:
-        # Pad to a multiple of 8 (Base32 alphabet requires it)
-        pad_len = (8 - len(raw_hash) % 8) % 8
-        padded = raw_hash.upper() + "=" * pad_len
-        return binascii.hexlify(base64.b32decode(padded)).decode("ascii")
-    except Exception as exc:
-        logger.warning("Failed to convert Base32 hash %r to hex: %s", raw_hash, exc)
-        return None
 
 
 class DownloadService:
@@ -133,7 +97,7 @@ class DownloadService:
             logger.error("No URL available in search result for book %d", book_id)
             return None
 
-        torrent_hash = _extract_hash_from_magnet(magnet_url) if magnet_url else None
+        torrent_hash = extract_info_hash_from_url(magnet_url) if magnet_url else None
         if not torrent_hash:
             logger.error(
                 "Could not determine torrent hash for book %d — a magnet URL is required",
@@ -213,8 +177,7 @@ class DownloadService:
             if not downloads:
                 return 0
 
-            hashes = [d.torrent_hash for d in downloads]
-            torrents = self.qbit.get_torrents(hashes=hashes)
+            torrents = self.qbit.get_torrents(category=self.category)
             torrent_map: dict[str, dict] = {t["hash"]: t for t in torrents}
 
             processed = 0
@@ -387,14 +350,35 @@ class DownloadService:
 
             logger.info("Reconciling %d active download(s) with qBittorrent state", len(downloads))
 
-            hashes = [d.torrent_hash for d in downloads]
-            torrents = self.qbit.get_torrents(hashes=hashes)
+            torrents = self.qbit.get_torrents(category=self.category)
             torrent_map: dict[str, dict] = {t["hash"]: t for t in torrents}
 
             counts: dict[str, int] = {"reconciled": 0, "failed": 0, "completed": 0}
 
             for download in downloads:
                 torrent_info = torrent_map.get(download.torrent_hash)
+
+                if not torrent_info:
+                    repaired_hash = extract_info_hash_from_url(download.download_url)
+                    if repaired_hash and repaired_hash != download.torrent_hash and repaired_hash in torrent_map:
+                        try:
+                            logger.info(
+                                "Repairing legacy torrent_hash for Download id=%d: %s... → %s...",
+                                download.id,
+                                download.torrent_hash[:16],
+                                repaired_hash[:16],
+                            )
+                            download.torrent_hash = repaired_hash
+                            if download.error_message == "Torrent not found in qBittorrent after restart":
+                                download.error_message = None
+                            db.flush()
+                            torrent_info = torrent_map[repaired_hash]
+                        except IntegrityError:
+                            db.rollback()
+                            logger.warning(
+                                "UNIQUE conflict repairing torrent_hash for Download id=%d — leaving unrepaired",
+                                download.id,
+                            )
 
                 if not torrent_info:
                     if download.status in (
@@ -404,11 +388,29 @@ class DownloadService:
                         counts["reconciled"] += 1
                         continue
 
+                    if download.created_at:
+                        now = datetime.now(UTC)
+                        if download.created_at.tzinfo is None:
+                            now = now.replace(tzinfo=None)
+                        age = (now - download.created_at).total_seconds()
+                    else:
+                        age = 999_999
+
+                    if age < 60:
+                        logger.debug(
+                            "Skipping reconcile for Download id=%d (created %.1fs ago — within grace window)",
+                            download.id,
+                            age,
+                        )
+                        counts["reconciled"] += 1
+                        continue
+
                     logger.warning(
-                        "Torrent %s... missing from qBit on startup (Download id=%d, book_id=%d)",
+                        "Torrent %s... missing from qBit on startup (Download id=%d, book_id=%d, url=%r)",
                         download.torrent_hash[:16],
                         download.id,
                         download.book_id,
+                        download.download_url,
                     )
                     download.status = DownloadStatus.FAILED.value
                     download.error_message = "Torrent not found in qBittorrent after restart"

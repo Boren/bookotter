@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
-from backend.services.pipeline_service import PIPELINE_INTERVAL_SECONDS, PipelineService, _guid_to_hash
+from backend.services.pipeline_service import PIPELINE_INTERVAL_SECONDS, PipelineService
 from tests.helpers import create_test_book
 
 
@@ -43,7 +43,14 @@ def get_download(db, download_id):
     return db.get(Download, download_id)
 
 
-def make_search_result(guid="guid-1", title="Book.epub", indexer="TestIndexer", seeders=10, size=5_000_000):
+def make_search_result(
+    guid="guid-1",
+    title="Book.epub",
+    indexer="TestIndexer",
+    seeders=10,
+    size=5_000_000,
+    magnet_url="urn:btih:0000000000000000000000000000000000000001",
+):
     return {
         "guid": guid,
         "title": title,
@@ -51,25 +58,8 @@ def make_search_result(guid="guid-1", title="Book.epub", indexer="TestIndexer", 
         "seeders": seeders,
         "size": size,
         "download_url": "https://example.com/torrent/1",
-        "magnet_url": None,
+        "magnet_url": magnet_url,
     }
-
-
-class TestGuidToHash:
-    def test_returns_32_char_hex(self):
-        result = _guid_to_hash("some-guid")
-        assert len(result) == 32
-        assert all(c in "0123456789abcdef" for c in result)
-
-    def test_deterministic(self):
-        assert _guid_to_hash("same") == _guid_to_hash("same")
-
-    def test_different_guids_produce_different_hashes(self):
-        assert _guid_to_hash("a") != _guid_to_hash("b")
-
-    def test_none_returns_non_empty_string(self):
-        result = _guid_to_hash(None)
-        assert len(result) == 32
 
 
 class TestProcessWantedBooks:
@@ -117,7 +107,13 @@ class TestProcessWantedBooks:
         book_id = book.id
 
         mock_search = MagicMock()
-        mock_search.search_book.return_value = [make_search_result(guid="test-guid", seeders=5)]
+        mock_search.search_book.return_value = [
+            make_search_result(
+                guid="test-guid",
+                seeders=5,
+                magnet_url="urn:btih:0000000000000000000000000000000000000002",
+            )
+        ]
         service = make_service(db_session, search_service=mock_search)
 
         service.process_wanted_books()
@@ -126,7 +122,7 @@ class TestProcessWantedBooks:
         assert len(fresh.downloads) == 1
         dl = fresh.downloads[0]
         assert dl.status == DownloadStatus.QUEUED
-        assert dl.torrent_hash == _guid_to_hash("test-guid")
+        assert dl.torrent_hash == "0000000000000000000000000000000000000002"
         assert dl.seeders == 5
 
     def test_transitions_via_searching(self, db_session):
@@ -199,8 +195,8 @@ class TestProcessWantedBooks:
 
         mock_search = MagicMock()
         mock_search.search_book.side_effect = [
-            [make_search_result(guid="guid-1")],
-            [make_search_result(guid="guid-2")],
+            [make_search_result(guid="guid-1", magnet_url="urn:btih:0000000000000000000000000000000000000003")],
+            [make_search_result(guid="guid-2", magnet_url="urn:btih:0000000000000000000000000000000000000004")],
         ]
         service = make_service(db_session, search_service=mock_search)
 
@@ -219,8 +215,8 @@ class TestProcessWantedBooks:
 
         mock_search = MagicMock()
         mock_search.search_book.side_effect = [
-            [make_search_result(guid="wanted-guid")],
-            [make_search_result(guid="missing-guid")],
+            [make_search_result(guid="wanted-guid", magnet_url="urn:btih:0000000000000000000000000000000000000005")],
+            [make_search_result(guid="missing-guid", magnet_url="urn:btih:0000000000000000000000000000000000000006")],
         ]
         service = make_service(db_session, search_service=mock_search)
 
@@ -748,7 +744,15 @@ class TestConcurrentProcessing:
         book_ids = [b.id for b in books]
 
         mock_search = MagicMock()
-        mock_search.search_book.side_effect = [[make_search_result(guid=f"guid-{i}")] for i in range(5)]
+        mock_search.search_book.side_effect = [
+            [
+                make_search_result(
+                    guid=f"guid-{i}",
+                    magnet_url=f"urn:btih:000000000000000000000000000000000000000{i}",
+                )
+            ]
+            for i in range(5)
+        ]
         service = make_service(db_session, search_service=mock_search)
 
         grabbed = service.process_wanted_books()

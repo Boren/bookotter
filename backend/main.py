@@ -126,7 +126,12 @@ async def lifespan(app: FastAPI):
             )
             epub_service = EpubService()
             search_service = SearchService(prowlarr)
-            download_service = DownloadService(qbt, SessionLocal, ws_manager=ws_manager)
+            download_service = DownloadService(
+                qbt,
+                SessionLocal,
+                category=qbt_config.get("category", "books"),
+                ws_manager=ws_manager,
+            )
             import_service = ImportService(db=SessionLocal(), epub_service=epub_service, ws_manager=ws_manager)
 
             pipeline = PipelineService(
