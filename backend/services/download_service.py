@@ -40,6 +40,11 @@ POST_ADD_DELAY_SECONDS = 1.0
 
 DEFAULT_CATEGORY = "books"
 
+# Grace window for fresh torrents during book-level orphan detection.
+# A DOWNLOADING book whose Download row is younger than this is skipped to
+# avoid racing with qBit metadata-parsing immediately after add_torrent().
+RECONCILE_GRACE_SECONDS = 60
+
 ACTIVE_DL_STATES = {
     TorrentState.DOWNLOADING,
     TorrentState.STALLED_DL,
@@ -51,6 +56,122 @@ QUEUED_DL_STATES = {
     TorrentState.QUEUED_DL,
     TorrentState.PAUSED_DL,
 }
+
+
+def reconcile_state(
+    db: "Session",
+    qbit_client: QBittorrentClient,
+    *,
+    category: str = DEFAULT_CATEGORY,
+    grace_seconds: int = RECONCILE_GRACE_SECONDS,
+) -> dict[str, int]:
+    """
+    Detect and fail orphaned books stuck in transient pipeline states.
+
+    Two orphan classes are reconciled:
+
+    1. Books in ``IMPORTING`` with **no** ``COMPLETED`` Download row.
+       The completed download was lost (e.g. crash mid-import). Mark the book
+       ``FAILED`` with ``IMPORT_COPY_FAILED``.
+
+    2. Books in ``DOWNLOADING`` whose active Download's ``torrent_hash`` is no
+       longer present in qBittorrent (after a grace window for fresh adds).
+       Mark the book ``FAILED`` with ``DOWNLOAD_TORRENT_ERROR``.
+
+    This function is callable independently — it makes no assumption about
+    being invoked at startup, and is scheduled periodically via
+    ``RECONCILE_INTERVAL_MIN`` in :mod:`backend.services.pipeline_service`.
+
+    Session lifecycle is managed by the caller. The function commits at the
+    end iff orphans were detected; otherwise it leaves the session untouched.
+
+    Args:
+        db: Active SQLAlchemy session.
+        qbit_client: QBittorrent client used to enumerate live torrents.
+        category: qBittorrent category to query (defaults to ``"books"``).
+        grace_seconds: Skip detection for downloads younger than this window.
+
+    Returns:
+        Dict with counts: ``{"importing_orphans": N, "downloading_orphans": N}``.
+    """
+    counts: dict[str, int] = {"importing_orphans": 0, "downloading_orphans": 0}
+    now = datetime.now(UTC)
+
+    importing_books = db.query(Book).filter(Book.status == BookStatus.IMPORTING.value).all()
+    for book in importing_books:
+        completed = [d for d in book.downloads if d.status == DownloadStatus.COMPLETED.value]
+        if completed:
+            continue
+        logger.warning(
+            "Orphan book id=%d (%r) IMPORTING with no COMPLETED download — failing (IMPORT_COPY_FAILED)",
+            book.id,
+            book.title,
+        )
+        book.status = BookStatus.FAILED.value
+        book.failure_reason = FailureReason.IMPORT_COPY_FAILED.value
+        book.updated_at = now.replace(tzinfo=None)
+        counts["importing_orphans"] += 1
+
+    try:
+        torrents = qbit_client.get_torrents(category=category)
+    except Exception as exc:
+        logger.error("reconcile_state: qBit query failed (%s) — skipping downloading-orphan pass", exc)
+        torrents = None
+
+    if torrents is not None:
+        torrent_hashes = {t["hash"] for t in torrents}
+        downloading_books = db.query(Book).filter(Book.status == BookStatus.DOWNLOADING.value).all()
+        for book in downloading_books:
+            active = [d for d in book.downloads if d.status == DownloadStatus.DOWNLOADING.value]
+            if not active:
+                continue
+            download = active[0]
+            if download.torrent_hash in torrent_hashes:
+                continue
+
+            if download.created_at:
+                created = download.created_at
+                if created.tzinfo is None:
+                    age = (now.replace(tzinfo=None) - created).total_seconds()
+                else:
+                    age = (now - created).total_seconds()
+            else:
+                age = 999_999
+
+            if age < grace_seconds:
+                logger.debug(
+                    "Skipping downloading-orphan check for book id=%d (download age %.1fs < %ds grace)",
+                    book.id,
+                    age,
+                    grace_seconds,
+                )
+                continue
+
+            logger.warning(
+                "Orphan book id=%d (%r) DOWNLOADING but torrent %s... missing from qBit — failing (DOWNLOAD_TORRENT_ERROR)",
+                book.id,
+                book.title,
+                download.torrent_hash[:16],
+            )
+            book.status = BookStatus.FAILED.value
+            book.failure_reason = FailureReason.DOWNLOAD_TORRENT_ERROR.value
+            book.updated_at = now.replace(tzinfo=None)
+            counts["downloading_orphans"] += 1
+
+    if counts["importing_orphans"] or counts["downloading_orphans"]:
+        try:
+            db.commit()
+            logger.info(
+                "reconcile_state: %d importing orphan(s), %d downloading orphan(s) reconciled",
+                counts["importing_orphans"],
+                counts["downloading_orphans"],
+            )
+        except Exception as exc:
+            logger.error("reconcile_state: commit failed: %s", exc)
+            db.rollback()
+            return {"importing_orphans": 0, "downloading_orphans": 0}
+
+    return counts
 
 
 class DownloadService:
@@ -520,6 +641,18 @@ class DownloadService:
                 counts["failed"],
                 counts["completed"],
             )
+
+            try:
+                book_counts = reconcile_state(db, self.qbit, category=self.category)
+                if book_counts["importing_orphans"] or book_counts["downloading_orphans"]:
+                    logger.info(
+                        "Startup book-level orphan recovery: %d importing, %d downloading",
+                        book_counts["importing_orphans"],
+                        book_counts["downloading_orphans"],
+                    )
+            except Exception as exc:
+                logger.error("Book-level reconciliation on startup failed: %s", exc)
+
             return counts
 
         except Exception as exc:

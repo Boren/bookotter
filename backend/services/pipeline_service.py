@@ -8,7 +8,7 @@ See run_pipeline() for the rationale.
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from apscheduler.jobstores.memory import MemoryJobStore
@@ -16,9 +16,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.exc import IntegrityError
 
+from backend.constants import RECONCILE_INTERVAL_MIN
 from backend.database import SessionLocal
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Book, BookStatus, Download, DownloadStatus
+from backend.models.book import Book, BookStatus, Download, DownloadStatus, RootFolder
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
@@ -216,9 +217,55 @@ class PipelineService:
         finally:
             db.close()
 
+    def process_failed_books(self) -> int:
+        """Auto-retry FAILED books with exponential cool-down and retry budget."""
+        from backend.constants import PIPELINE_AUTO_RETRY_ATTEMPTS, RETRY_BASE_DELAY
+
+        db = self._session_factory()
+        retried = 0
+        changed = False
+        now = datetime.utcnow()
+
+        try:
+            failed_books = db.query(Book).filter(Book.status == BookStatus.FAILED.value).all()
+            logger.debug("process_failed_books: %d FAILED book(s) found", len(failed_books))
+
+            for book in failed_books:
+                retry_count = book.retry_count if isinstance(book.retry_count, int) else 0
+
+                if retry_count >= PIPELINE_AUTO_RETRY_ATTEMPTS:
+                    book.status = BookStatus.PERMANENT_FAILED.value
+                    book.failure_reason = FailureReason.RETRY_BUDGET_EXHAUSTED.value
+                    changed = True
+                    logger.info("Book %s exhausted retry budget → PERMANENT_FAILED", book.id)
+                    continue
+
+                cooldown = timedelta(seconds=RETRY_BASE_DELAY * (2**retry_count))
+                if book.updated_at and (now - book.updated_at) < cooldown:
+                    continue
+
+                book.retry_count = retry_count + 1
+                book.status = BookStatus.WANTED.value
+                book.failure_reason = None
+                retried += 1
+                changed = True
+                logger.info(
+                    "Auto-retrying book %s (attempt %d/%d)",
+                    book.id,
+                    book.retry_count,
+                    PIPELINE_AUTO_RETRY_ATTEMPTS,
+                )
+
+            if changed:
+                db.commit()
+
+            return retried
+        finally:
+            db.close()
+
     def run_pipeline(self, holder: str = "scheduled") -> dict[str, Any]:
         """
-        Run all post-grab pipeline stages under an advisory DB lock.
+        Run failed-book recovery and post-grab pipeline stages under an advisory DB lock.
 
         Pre-grab search stages are intentionally absent — searches are user-initiated
         (search.py routes, /api/wanted/search-all) or future RSS sync, never on a timer.
@@ -237,7 +284,7 @@ class PipelineService:
             try:
                 with acquire_pipeline_lock(db, holder=holder) as run_id:
                     logger.info("Pipeline run started: run_id=%s holder=%s", run_id, holder)
-                    results: dict[str, Any] = {}
+                    results: dict[str, Any] = {"failed_retried": self.process_failed_books()}
                     for stage_name, method in [
                         ("grabbed", self.process_grabbed_books),
                         ("downloading", self.process_downloading_books),
@@ -268,7 +315,7 @@ class PipelineService:
         db = self._session_factory()
         try:
             folders = db.query(RootFolder).all()
-            return [Path(f.path) for f in folders]
+            return [Path(str(f.path)) for f in folders]
         finally:
             db.close()
 
@@ -298,6 +345,15 @@ class PipelineService:
             coalesce=True,
             replace_existing=True,
         )
+        self._scheduler.add_job(
+            self._run_reconcile_state,
+            trigger=IntervalTrigger(minutes=RECONCILE_INTERVAL_MIN),
+            id="reconcile_state",
+            name="Reconciliation: orphan books",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
         self._scheduler.start()
         logger.info(f"Pipeline monitoring started (interval={PIPELINE_INTERVAL_SECONDS}s)")
 
@@ -305,6 +361,23 @@ class PipelineService:
         if self._scheduler is not None and self._scheduler.running:
             self._scheduler.shutdown(wait=False)
             logger.info("Pipeline monitoring stopped")
+
+    def _run_reconcile_state(self) -> dict[str, int]:
+        empty: dict[str, int] = {"importing_orphans": 0, "downloading_orphans": 0}
+        if self.download_service is None:
+            logger.debug("_run_reconcile_state: no download_service configured, skipping")
+            return empty
+
+        from backend.services.download_service import reconcile_state
+
+        db = self._session_factory()
+        try:
+            return reconcile_state(db, self.download_service.qbit)
+        except Exception as exc:
+            logger.error(f"Periodic reconciliation error: {exc}")
+            return empty
+        finally:
+            db.close()
 
     def _search_and_grab(self, book: Book, db: Any) -> int:
         author_name = book.author.name if book.author else ""

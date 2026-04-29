@@ -300,7 +300,7 @@ class TestImportServiceEvents:
         epub_service.validate_epub.return_value = True
         epub_service.verify_content.return_value = (True, None)
         epub_service.is_drm_protected.return_value = False
-        
+
         source_epub = tmp_path / "source.epub"
         create_test_epub(str(source_epub), "Source Book", "Source Author")
         library_root = tmp_path / "library"

@@ -251,6 +251,53 @@ async def update_book(book_id: int, body: BookUpdateRequest, db: Session = Depen
     return book.to_dict()
 
 
+@router.post("/books/{book_id}/retry", status_code=202)
+def force_retry_book(book_id: int, db: Session = Depends(get_db)):
+    """Force-retry a FAILED or PERMANENT_FAILED book.
+
+    Resets status to WANTED and clears retry_count, failure_reason, and low_confidence
+    so the next pipeline tick will pick it up again.
+    """
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    retryable_statuses = {BookStatus.FAILED.value, BookStatus.PERMANENT_FAILED.value}
+    if book.status not in retryable_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Book is not in a retryable state, current status: {book.status}",
+        )
+
+    previous_status = book.status
+    book.status = BookStatus.WANTED.value
+    book.retry_count = 0
+    book.failure_reason = None
+    book.low_confidence = False
+    book.updated_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        from backend.services.websocket_manager import manager as ws_manager
+
+        ws_manager.broadcast_sync(
+            "book_force_retried",
+            {
+                "book_id": book_id,
+                "previous_status": previous_status,
+                "new_status": BookStatus.WANTED.value,
+            },
+        )
+    except Exception as e:
+        logger.debug("WS broadcast failed for force_retry_book(%s): %s", book_id, e)
+
+    return {
+        "book_id": book_id,
+        "previous_status": previous_status,
+        "new_status": BookStatus.WANTED.value,
+    }
+
+
 @router.delete("/books/{book_id}")
 async def delete_book(book_id: int, db: Session = Depends(get_db)):
     book = db.query(Book).filter(Book.id == book_id).first()

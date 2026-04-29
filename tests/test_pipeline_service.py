@@ -609,7 +609,7 @@ class TestRunPipeline:
         service = make_service(db_session)
         results = service.run_pipeline()
 
-        assert set(results.keys()) == {"grabbed", "downloading", "importing"}
+        assert {"grabbed", "downloading", "importing"}.issubset(set(results.keys()))
 
     def test_does_not_call_search_stages(self, db_session):
         service = make_service(db_session)
