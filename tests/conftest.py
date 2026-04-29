@@ -10,6 +10,12 @@ from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.models import blocklist  # noqa: F401 — registers BlocklistEntry with Base.metadata
 
+pytest_plugins = [
+    "tests.fixtures.mock_clock",
+    "tests.fixtures.mock_qbit",
+    "tests.fixtures.mock_external",
+]
+
 
 @pytest.fixture
 def db_session():
