@@ -7,7 +7,20 @@ Database models for books, authors, root folders, and downloads.
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from backend.database import Base
@@ -24,6 +37,16 @@ class BookStatus(StrEnum):
     IMPORTING = "importing"
     IN_LIBRARY = "in_library"
     FAILED = "failed"
+    PERMANENT_FAILED = "PERMANENT_FAILED"
+
+
+class KindleDeliveryStatus(StrEnum):
+    """Status of Kindle delivery for a book."""
+
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    DELIVERED = "DELIVERED"
+    SKIPPED = "SKIPPED"
 
 
 class DownloadStatus(StrEnum):
@@ -61,7 +84,7 @@ class Author(Base):
     __tablename__ = "author"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(500), nullable=False)
+    name = Column(String(500), nullable=False, unique=True)
     hardcover_id = Column(String(100), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -120,6 +143,12 @@ class Book(Base):
     last_searched_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    failure_reason = Column(String(100), nullable=True)
+    retry_count = Column(Integer, default=0, nullable=False)
+    low_confidence = Column(Boolean, default=False, nullable=False)
+    kindle_delivery_status = Column(String(20), nullable=True)
+    kindle_delivery_attempts = Column(Integer, default=0, nullable=False)
+    kindle_first_pending_at = Column(DateTime, nullable=True)
 
     # Relationships
     author = relationship("Author", back_populates="books")
@@ -155,6 +184,12 @@ class Book(Base):
             "last_searched_at": self.last_searched_at.isoformat() if self.last_searched_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "failure_reason": self.failure_reason,
+            "retry_count": self.retry_count,
+            "low_confidence": self.low_confidence,
+            "kindle_delivery_status": self.kindle_delivery_status,
+            "kindle_delivery_attempts": self.kindle_delivery_attempts,
+            "kindle_first_pending_at": self.kindle_first_pending_at.isoformat() if self.kindle_first_pending_at else None,
         }
 
 
@@ -176,9 +211,23 @@ class Download(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    last_progress_at = Column(DateTime, nullable=True)
+    bytes_at_last_check = Column(Integer, default=0, nullable=False)
 
     # Relationships
     book = relationship("Book", back_populates="downloads")
 
     # Indexes
     __table_args__ = (Index("ix_download_status_created", "status", "created_at"),)
+
+
+class PipelineLock(Base):
+    """Advisory lock to prevent concurrent pipeline runs. Only one row ever (id=1)."""
+
+    __tablename__ = "pipeline_lock"
+
+    id = Column(Integer, primary_key=True)
+    locked_at = Column(DateTime, nullable=False)
+    run_id = Column(String(64), nullable=False)
+    holder = Column(String(20), nullable=False)  # "scheduled" | "manual" | "cli"
+    __table_args__ = (CheckConstraint("id = 1", name="chk_pipeline_lock_single_row"),)

@@ -13,7 +13,8 @@ VALID_BOOK_TRANSITIONS = {
     BookStatus.DOWNLOADING: {BookStatus.IMPORTING, BookStatus.FAILED, BookStatus.GRABBED},
     BookStatus.IMPORTING: {BookStatus.IN_LIBRARY, BookStatus.FAILED},
     BookStatus.IN_LIBRARY: set(),  # Terminal state
-    BookStatus.FAILED: {BookStatus.WANTED, BookStatus.MISSING, BookStatus.SEARCHING},  # Can retry
+    BookStatus.FAILED: {BookStatus.WANTED, BookStatus.MISSING, BookStatus.SEARCHING, BookStatus.PERMANENT_FAILED},
+    BookStatus.PERMANENT_FAILED: {BookStatus.WANTED},  # Only via explicit force-retry
 }
 
 # Valid state transitions for downloads

@@ -31,10 +31,34 @@ class TestMissingStateTransitions:
         assert can_transition(BookStatus.MISSING.value, BookStatus.IN_LIBRARY.value) is False
 
 
+class TestPermanentFailedTransitions:
+    def test_permanent_failed_only_from_failed(self, db_session):
+        """PERMANENT_FAILED can only be reached from FAILED."""
+        # WANTED → PERMANENT_FAILED must be invalid
+        assert can_transition(BookStatus.WANTED.value, BookStatus.PERMANENT_FAILED.value) is False
+        # SEARCHING → PERMANENT_FAILED must be invalid
+        assert can_transition(BookStatus.SEARCHING.value, BookStatus.PERMANENT_FAILED.value) is False
+        # FAILED → PERMANENT_FAILED must be valid
+        assert can_transition(BookStatus.FAILED.value, BookStatus.PERMANENT_FAILED.value) is True
+
+    def test_permanent_failed_to_wanted_only(self, db_session):
+        """PERMANENT_FAILED can only transition to WANTED (force-retry)."""
+        assert can_transition(BookStatus.PERMANENT_FAILED.value, BookStatus.WANTED.value) is True
+        assert can_transition(BookStatus.PERMANENT_FAILED.value, BookStatus.SEARCHING.value) is False
+        assert can_transition(BookStatus.PERMANENT_FAILED.value, BookStatus.MISSING.value) is False
+        assert can_transition(BookStatus.PERMANENT_FAILED.value, BookStatus.FAILED.value) is False
+
+    def test_permanent_failed_transition_book(self, db_session):
+        """transition_book correctly moves FAILED → PERMANENT_FAILED."""
+        book = create_test_book(db_session, status=BookStatus.FAILED)
+        assert transition_book(book, BookStatus.PERMANENT_FAILED.value) is True
+        assert book.status == BookStatus.PERMANENT_FAILED.value
+
+
 class TestPipelinePicksUpMissing:
     def test_process_wanted_books_includes_missing(self, db_session):
-        wanted = create_test_book(db_session, title="Wanted Book", status=BookStatus.WANTED)
-        missing = create_test_book(db_session, title="Missing Book", status=BookStatus.MISSING)
+        wanted = create_test_book(db_session, title="Wanted Book", author_name="Author One", status=BookStatus.WANTED)
+        missing = create_test_book(db_session, title="Missing Book", author_name="Author Two", status=BookStatus.MISSING)
         db_session.commit()
         wanted_id = wanted.id
         missing_id = missing.id

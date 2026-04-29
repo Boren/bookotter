@@ -82,18 +82,21 @@ def create_test_epub(path: str, title: str, author: str) -> None:
         epub.writestr("OEBPS/chapter1.xhtml", chapter_xhtml)
 
 
-def create_test_book(db, title: str = "Test Book", author_name: str = "Test Author", **kwargs) -> Book:
+def create_test_book(db, title: str = "Test Book", author_name: str = None, **kwargs) -> Book:
     """Factory for creating Book records with sensible defaults.
 
     Args:
         db: SQLAlchemy session
         title: Book title
-        author_name: Author name
+        author_name: Author name (defaults to title if not provided, for uniqueness)
         **kwargs: Additional Book fields to override defaults
 
     Returns:
         Created Book instance (not yet committed)
     """
+    if author_name is None:
+        author_name = f"Author of {title}"
+
     author = Author(name=author_name, hardcover_id=kwargs.pop("hardcover_id", None))
     db.add(author)
     db.flush()

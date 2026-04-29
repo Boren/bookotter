@@ -30,17 +30,25 @@ def _make_root_folder(db, tmp_path: Path, org: str = FolderOrganization.FLAT.val
     return rf
 
 
+_book_counter = 0
+
+
 def _make_book(
     db,
     root_folder: RootFolder,
     *,
     title: str = "Test Book",
-    author_name: str = "Jane Doe",
+    author_name: str = None,
     status: str = BookStatus.DOWNLOADING.value,
     series_name: str | None = None,
     series_position: float | None = None,
     description: str | None = None,
 ) -> Book:
+    global _book_counter
+    if author_name is None:
+        _book_counter += 1
+        author_name = f"Author {_book_counter}"
+
     author = Author(name=author_name, created_at=datetime.utcnow())
     db.add(author)
     db.flush()
