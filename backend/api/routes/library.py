@@ -149,6 +149,24 @@ async def get_library_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/dlq")
+def get_dlq(db: Session = Depends(get_db)):
+    """Return dead-letter queue: permanent failures + recent failures."""
+    from backend.services.dlq import get_permanent_failed, get_recent_failures
+
+    permanent = get_permanent_failed(db)
+    recent = get_recent_failures(db)
+
+    return {
+        "permanent_failed": [b.to_dict() for b in permanent],
+        "recent_failures": [b.to_dict() for b in recent],
+        "counts": {
+            "permanent_failed": len(permanent),
+            "recent_failures": len(recent),
+        },
+    }
+
+
 @router.get("/books/{book_id}")
 async def get_book(book_id: int, db: Session = Depends(get_db)):
     book = db.query(Book).options(joinedload(Book.author)).filter(Book.id == book_id).first()

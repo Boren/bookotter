@@ -688,8 +688,8 @@ class TestStartMonitoring:
 
             service.start_monitoring()
 
-            mock_sched.add_job.assert_called_once()
-            call_args = mock_sched.add_job.call_args
+            assert mock_sched.add_job.call_count >= 1
+            call_args = mock_sched.add_job.call_args_list[0]
             assert call_args[0][0] == service.run_pipeline
             assert call_args[1]["id"] == "pipeline_all_stages"
 

@@ -17,10 +17,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.exc import IntegrityError
 
 from backend.database import SessionLocal
+from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
+from backend.utils.cleanup import cleanup_orphan_tmp_files
+from backend.utils.pipeline_lock import acquire_pipeline_lock
 
 logger = logging.getLogger(__name__)
 
@@ -213,23 +216,61 @@ class PipelineService:
         finally:
             db.close()
 
-    def run_pipeline(self) -> dict[str, int]:
-        # Pre-grab search stages are intentionally absent - searches are user-initiated
-        # (search.py routes, /api/wanted/search-all) or future RSS sync, never on a timer.
-        logger.debug("Pipeline run starting (post-grab stages only)")
-        results: dict[str, int] = {}
-        for stage_name, method in [
-            ("grabbed", self.process_grabbed_books),
-            ("downloading", self.process_downloading_books),
-            ("importing", self.process_importing_books),
-        ]:
+    def run_pipeline(self, holder: str = "scheduled") -> dict[str, Any]:
+        """
+        Run all post-grab pipeline stages under an advisory DB lock.
+
+        Pre-grab search stages are intentionally absent — searches are user-initiated
+        (search.py routes, /api/wanted/search-all) or future RSS sync, never on a timer.
+
+        Args:
+            holder: Identifier of caller — "scheduled" (APScheduler), "manual" (API), "cli".
+
+        Returns:
+            Per-stage result counts when the lock is acquired, e.g. {"grabbed": 1, ...}.
+            When another run already holds the lock, returns {"skipped": True, "reason": "lock_held"}
+            instead of raising — this is the canonical signal for callers to surface a 409 / skip log.
+        """
+        logger.debug("Pipeline run starting (post-grab stages only, holder=%s)", holder)
+        db = self._session_factory()
+        try:
             try:
-                results[stage_name] = method()
+                with acquire_pipeline_lock(db, holder=holder) as run_id:
+                    logger.info("Pipeline run started: run_id=%s holder=%s", run_id, holder)
+                    results: dict[str, Any] = {}
+                    for stage_name, method in [
+                        ("grabbed", self.process_grabbed_books),
+                        ("downloading", self.process_downloading_books),
+                        ("importing", self.process_importing_books),
+                    ]:
+                        try:
+                            results[stage_name] = method()
+                        except Exception as exc:
+                            logger.error(f"Pipeline stage '{stage_name}' raised: {exc}")
+                            results[stage_name] = 0
+                    logger.debug(f"Pipeline run complete: {results}")
+                    return results
+            except PipelineError as exc:
+                if exc.reason == FailureReason.PIPELINE_LOCK_HELD:
+                    logger.info("Pipeline lock held, skipping run (holder=%s): %s", holder, exc)
+                    return {"skipped": True, "reason": "lock_held"}
+                raise
+        finally:
+            try:
+                db.close()
             except Exception as exc:
-                logger.error(f"Pipeline stage '{stage_name}' raised: {exc}")
-                results[stage_name] = 0
-        logger.debug(f"Pipeline run complete: {results}")
-        return results
+                logger.debug(f"Error closing pipeline lock session: {exc}")
+
+    def _get_root_dirs(self) -> list:
+        """Get list of root folder paths from database."""
+        from pathlib import Path
+
+        db = self._session_factory()
+        try:
+            folders = db.query(RootFolder).all()
+            return [Path(f.path) for f in folders]
+        finally:
+            db.close()
 
     def start_monitoring(self) -> None:
         if self._scheduler is not None and self._scheduler.running:
@@ -246,6 +287,15 @@ class PipelineService:
             trigger=IntervalTrigger(seconds=PIPELINE_INTERVAL_SECONDS),
             id="pipeline_all_stages",
             name="Pipeline: all stages",
+            replace_existing=True,
+        )
+        self._scheduler.add_job(
+            lambda: cleanup_orphan_tmp_files(self._get_root_dirs()),
+            trigger=IntervalTrigger(hours=1),
+            id="cleanup_tmp_files",
+            name="Cleanup: orphan tmp files",
+            max_instances=1,
+            coalesce=True,
             replace_existing=True,
         )
         self._scheduler.start()

@@ -5,7 +5,7 @@ Handles Hardcover and Kindle sync triggers.
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.clients.hardcover_client import HardcoverClient
@@ -13,6 +13,7 @@ from backend.config import load_config
 from backend.database import SessionLocal
 from backend.services.hardcover_sync_service import HardcoverSyncService
 from backend.services.websocket_manager import manager as ws_manager
+from backend.utils.pipeline_lock import get_active_lock
 
 logger = logging.getLogger(__name__)
 
@@ -90,3 +91,38 @@ async def trigger_kindle_sync(body: KindleSyncRequest, background_tasks: Backgro
     """Manually trigger Kindle sync for library books."""
     background_tasks.add_task(_run_kindle_sync_background, kindle_device=body.kindle_device)
     return {"success": True, "message": f"Kindle sync started for device '{body.kindle_device}'"}
+
+
+@router.post("/pipeline")
+async def trigger_pipeline(request: Request):
+    """
+    Manually trigger a pipeline run (post-grab stages: grabbed → downloading → importing).
+
+    Returns 409 with the active lock holder/run_id if a run is already in progress
+    (e.g. the scheduled APScheduler job, or another concurrent manual trigger).
+    """
+    pipeline = getattr(request.app.state, "pipeline", None)
+    if pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "pipeline_not_initialized"},
+        )
+
+    result = pipeline.run_pipeline(holder="manual")
+
+    if result.get("skipped") and result.get("reason") == "lock_held":
+        db = SessionLocal()
+        try:
+            active_lock = get_active_lock(db)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "pipeline_already_running",
+                    "holder": active_lock.holder if active_lock is not None else "unknown",
+                    "run_id": active_lock.run_id if active_lock is not None else None,
+                },
+            )
+        finally:
+            db.close()
+
+    return {"success": True, "result": result}
