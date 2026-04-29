@@ -72,13 +72,19 @@ class TestMakeRequest:
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
 
         with patch("requests.request", return_value=mock_response):
-            with pytest.raises(requests.exceptions.RequestException):
+            from backend.errors import FailureReason, PipelineError
+
+            with pytest.raises(PipelineError) as exc_info:
                 client._make_request("/api/v1/search")
+            assert exc_info.value.reason == FailureReason.PROWLARR_AUTH_FAILED
 
     def test_make_request_raises_on_timeout(self, client):
         with patch("requests.request", side_effect=requests.exceptions.Timeout("timed out")):
-            with pytest.raises(requests.exceptions.Timeout):
+            from backend.errors import FailureReason, PipelineError
+
+            with pytest.raises(PipelineError) as exc_info:
                 client._make_request("/api/v1/search")
+            assert exc_info.value.reason == FailureReason.PROWLARR_UNREACHABLE
 
     def test_make_request_passes_params(self, client):
         mock_response = MagicMock()

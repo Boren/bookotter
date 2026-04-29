@@ -6,6 +6,7 @@ Handles SSH connections and file transfers to Kindle devices.
 import logging
 import os
 import shlex
+import socket
 import stat
 from collections.abc import Callable
 from pathlib import PurePosixPath
@@ -13,6 +14,9 @@ from pathlib import PurePosixPath
 import paramiko
 
 from backend.clients import ConnectionTestResult, classify_ssh_error
+from backend.constants import KINDLE_RETRY_ATTEMPTS, KINDLE_SSH_TIMEOUT
+from backend.errors import FailureReason, PipelineError
+from backend.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,7 @@ class KindleClient:
         self.password = password
         self.ssh_key_path = ssh_key_path
         self.destination_path = destination_path.rstrip("/") + "/"
+        self._ssh_pool: dict[str, paramiko.SSHClient] = {}
 
     @classmethod
     def from_config(cls, config: dict) -> "KindleClient":
@@ -92,7 +97,7 @@ class KindleClient:
             "hostname": self.hostname,
             "port": self.port,
             "username": self.username,
-            "timeout": 10,
+            "timeout": KINDLE_SSH_TIMEOUT,
         }
 
         # Use either password or key authentication
@@ -104,6 +109,82 @@ class KindleClient:
 
         ssh.connect(**connect_kwargs)
         return ssh
+
+    @retry_with_backoff(
+        attempts=KINDLE_RETRY_ATTEMPTS,
+        exceptions=(paramiko.SSHException, OSError, socket.error),
+        failure_reason=FailureReason.KINDLE_UNREACHABLE,
+    )
+    def _connect_ssh(self, kindle_config: dict) -> paramiko.SSHClient:
+        """
+        Open a fresh SSH connection to the Kindle described by kindle_config.
+
+        Retries on transient errors (SSHException, OSError, socket.error) per
+        KINDLE_RETRY_ATTEMPTS with exponential backoff. Authentication failures
+        are converted to PipelineError(KINDLE_AUTH_FAILED) and NOT retried.
+        """
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        connect_kwargs: dict = {
+            "hostname": kindle_config["hostname"],
+            "port": kindle_config.get("port", 22),
+            "username": kindle_config.get("username", "root"),
+            "timeout": KINDLE_SSH_TIMEOUT,
+        }
+
+        password = kindle_config.get("password")
+        ssh_key_path = kindle_config.get("ssh_key_path")
+        if password:
+            connect_kwargs["password"] = password
+        elif ssh_key_path:
+            connect_kwargs["key_filename"] = os.path.expanduser(ssh_key_path)
+
+        try:
+            ssh.connect(**connect_kwargs)
+        except paramiko.AuthenticationException as e:
+            # AuthenticationException is a subclass of SSHException; catch it FIRST
+            # so the retry decorator (which catches SSHException) never sees it.
+            raise PipelineError(str(e), FailureReason.KINDLE_AUTH_FAILED) from e
+
+        return ssh
+
+    def _get_or_create_ssh(self, kindle_config: dict) -> paramiko.SSHClient:
+        """
+        Return a live SSH connection for kindle_config["hostname"], reusing
+        a pooled connection when its transport is still active. Reconnects
+        when the cached connection is stale.
+        """
+        hostname = kindle_config["hostname"]
+        existing = self._ssh_pool.get(hostname)
+        if existing is not None:
+            transport = existing.get_transport()
+            if transport is not None and transport.is_active():
+                return existing
+            try:
+                existing.close()
+            except Exception:
+                pass
+            self._ssh_pool.pop(hostname, None)
+
+        ssh = self._connect_ssh(kindle_config)
+        self._ssh_pool[hostname] = ssh
+        return ssh
+
+    def close(self) -> None:
+        """Close all pooled SSH connections."""
+        for ssh in list(self._ssh_pool.values()):
+            try:
+                ssh.close()
+            except Exception:
+                pass
+        self._ssh_pool.clear()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def test_connection(self) -> ConnectionTestResult:
         """

@@ -11,6 +11,9 @@ from pathlib import Path
 import requests
 
 from backend.clients import ConnectionTestResult, classify_request_error
+from backend.constants import QBIT_RETRY_ATTEMPTS, QBIT_TIMEOUT
+from backend.errors import FailureReason, PipelineError
+from backend.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,7 @@ class QBittorrentClient:
         Make an authenticated request to the qBittorrent API.
 
         Automatically re-authenticates once if the session is rejected (403).
+        Connection errors (timeout, refused) are retried with exponential backoff.
 
         Args:
             endpoint: API endpoint path (e.g. '/api/v2/torrents/info')
@@ -136,18 +140,25 @@ class QBittorrentClient:
             requests.Response object
 
         Raises:
-            requests.exceptions.RequestException: On network or HTTP errors
+            PipelineError: On connection exhaustion or auth failure after re-auth
+            requests.exceptions.RequestException: On other HTTP errors
         """
-        self._ensure_authenticated()
-        url = f"{self.base_url}{endpoint}"
+        # Wrap the actual request logic with retry_with_backoff for connection errors
+        @retry_with_backoff(
+            attempts=QBIT_RETRY_ATTEMPTS,
+            exceptions=(requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+            failure_reason=FailureReason.QBIT_UNREACHABLE,
+        )
+        def _do_request() -> requests.Response:
+            self._ensure_authenticated()
+            url = f"{self.base_url}{endpoint}"
 
-        try:
             response = self._session.request(
                 method=method,
                 url=url,
                 params=params,
                 data=data,
-                timeout=30,
+                timeout=QBIT_TIMEOUT,
             )
 
             # 403 often means the session cookie expired mid-session — retry once
@@ -160,12 +171,24 @@ class QBittorrentClient:
                     url=url,
                     params=params,
                     data=data,
-                    timeout=30,
+                    timeout=QBIT_TIMEOUT,
+                )
+
+            # 401 after re-auth attempt means credentials are invalid
+            if response.status_code == 401:
+                raise PipelineError(
+                    "qBittorrent returned 401 after re-authentication attempt",
+                    FailureReason.QBIT_AUTH_FAILED,
                 )
 
             response.raise_for_status()
             return response
 
+        try:
+            return _do_request()
+        except PipelineError:
+            # Re-raise PipelineError as-is (already has proper failure reason)
+            raise
         except requests.exceptions.RequestException as e:
             logger.error(f"qBittorrent API request failed [{method} {endpoint}]: {e}")
             raise

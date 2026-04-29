@@ -8,6 +8,9 @@ import logging
 import requests
 
 from backend.clients import ConnectionTestResult, classify_request_error
+from backend.constants import PROWLARR_RETRY_ATTEMPTS, PROWLARR_TIMEOUT
+from backend.errors import FailureReason, PipelineError
+from backend.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +33,16 @@ class ProwlarrClient:
         self.base_url = base_url.rstrip("/")
         self.headers = {"X-Api-Key": api_key}
 
+    @retry_with_backoff(
+        attempts=PROWLARR_RETRY_ATTEMPTS,
+        exceptions=(requests.exceptions.RequestException,),
+        failure_reason=FailureReason.PROWLARR_UNREACHABLE,
+    )
     def _make_request(
         self, endpoint: str, params: dict | None = None, method: str = "GET", json_data: dict | None = None
     ) -> dict | list:
         """
-        Make a request to the Prowlarr API.
+        Make a request to the Prowlarr API with retry logic.
 
         Args:
             endpoint: API endpoint (e.g., '/api/v1/search')
@@ -46,17 +54,25 @@ class ProwlarrClient:
             Response data as dictionary or list
 
         Raises:
-            requests.exceptions.RequestException: If the request fails
+            PipelineError: On auth failure (401/403) or after exhausting retries
         """
         url = f"{self.base_url}{endpoint}"
 
         try:
             response = requests.request(
-                method=method, url=url, headers=self.headers, params=params, json=json_data, timeout=30
+                method=method, url=url, headers=self.headers, params=params, json=json_data, timeout=PROWLARR_TIMEOUT
             )
+            # Check for auth errors before raise_for_status to avoid retry
+            if response.status_code in (401, 403):
+                logger.error(f"Prowlarr authentication failed: {response.status_code}")
+                raise PipelineError("Prowlarr authentication failed", FailureReason.PROWLARR_AUTH_FAILED)
+
             response.raise_for_status()
             return response.json()
 
+        except PipelineError:
+            # Re-raise auth errors immediately without retry
+            raise
         except requests.exceptions.RequestException as e:
             logger.error(f"Prowlarr API request failed: {e}")
             raise
