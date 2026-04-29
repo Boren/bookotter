@@ -5,9 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 
-async def run_concurrently(
-    funcs: list[Callable], n: int | None = None
-) -> list[tuple[Any, Exception | None]]:
+async def run_concurrently(funcs: list[Callable], n: int | None = None) -> list[tuple[Any, Exception | None]]:
     """
     Run sync functions concurrently via asyncio.to_thread.
     Returns list of (result, exception) tuples.

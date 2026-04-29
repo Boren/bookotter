@@ -228,9 +228,7 @@ class ImportService:
         except PipelineError:
             raise
         except OSError as exc:
-            raise PipelineError(
-                f"Failed to copy {source} to {dest}: {exc}", FailureReason.IMPORT_COPY_FAILED
-            ) from exc
+            raise PipelineError(f"Failed to copy {source} to {dest}: {exc}", FailureReason.IMPORT_COPY_FAILED) from exc
 
         return dest
 

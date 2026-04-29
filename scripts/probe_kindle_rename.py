@@ -23,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from backend.config import load_config
 
 
-def create_ssh_client(hostname: str, port: int, username: str, password: str | None, ssh_key_path: str | None, timeout: int = 10) -> paramiko.SSHClient:
+def create_ssh_client(
+    hostname: str, port: int, username: str, password: str | None, ssh_key_path: str | None, timeout: int = 10
+) -> paramiko.SSHClient:
     """Create and connect an SSH client to the Kindle."""
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -160,7 +162,11 @@ def run_probe() -> int:
 
             # Generate markdown documentation
             verdict = "YES" if is_atomic else "NO"
-            strategy = "atomic mv (tmp → rename to final)" if is_atomic else "cp+verify+rm (transfer + size verify + delete tmp)"
+            strategy = (
+                "atomic mv (tmp → rename to final)"
+                if is_atomic
+                else "cp+verify+rm (transfer + size verify + delete tmp)"
+            )
 
             markdown_content = f"""# Kindle Rename Atomicity Probe Results
 

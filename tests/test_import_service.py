@@ -404,9 +404,7 @@ class TestImportBook:
         with pytest.raises(ImportInvalidEpubError):
             svc.import_book(book.id, bad_epub)
 
-    def test_duplicate_destination_creates_versioned_copy(
-        self, db_session, lib_root: Path, source_epub: Path
-    ) -> None:
+    def test_duplicate_destination_creates_versioned_copy(self, db_session, lib_root: Path, source_epub: Path) -> None:
         rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
         book = _make_book(db_session, rf, title="Dup Book", status=BookStatus.DOWNLOADING.value)
         svc = ImportService(db_session)

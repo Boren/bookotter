@@ -37,9 +37,4 @@ def get_recent_failures(db: Session, hours: int = 24, limit: int = 100) -> list[
 
 def get_failures_by_reason(db: Session, reason: FailureReason) -> list[Book]:
     """Return books with a specific failure reason."""
-    return (
-        db.query(Book)
-        .filter(Book.failure_reason == reason.value)
-        .order_by(Book.updated_at.desc())
-        .all()
-    )
+    return db.query(Book).filter(Book.failure_reason == reason.value).order_by(Book.updated_at.desc()).all()

@@ -1,6 +1,5 @@
 """Tests for CLI force-retry subcommand."""
 
-
 from backend.cli import force_retry_book
 from backend.errors import FailureReason
 from backend.models.book import BookStatus

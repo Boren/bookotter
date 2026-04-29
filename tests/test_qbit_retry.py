@@ -76,9 +76,7 @@ class TestConnectionRetryWithBackoff:
         client._authenticated = True
         client._auth_time = 9999999999.0
 
-        with patch.object(
-            client._session, "request", side_effect=requests.exceptions.Timeout("timeout")
-        ):
+        with patch.object(client._session, "request", side_effect=requests.exceptions.Timeout("timeout")):
             with pytest.raises(PipelineError) as exc_info:
                 client._make_request("/api/v2/torrents/info")
 
@@ -90,9 +88,7 @@ class TestConnectionRetryWithBackoff:
         client._authenticated = True
         client._auth_time = 9999999999.0
 
-        with patch.object(
-            client._session, "request", side_effect=requests.exceptions.ConnectionError("refused")
-        ):
+        with patch.object(client._session, "request", side_effect=requests.exceptions.ConnectionError("refused")):
             with pytest.raises(PipelineError) as exc_info:
                 client._make_request("/api/v2/torrents/info")
 

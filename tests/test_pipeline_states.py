@@ -58,7 +58,9 @@ class TestPermanentFailedTransitions:
 class TestPipelinePicksUpMissing:
     def test_process_wanted_books_includes_missing(self, db_session):
         wanted = create_test_book(db_session, title="Wanted Book", author_name="Author One", status=BookStatus.WANTED)
-        missing = create_test_book(db_session, title="Missing Book", author_name="Author Two", status=BookStatus.MISSING)
+        missing = create_test_book(
+            db_session, title="Missing Book", author_name="Author Two", status=BookStatus.MISSING
+        )
         db_session.commit()
         wanted_id = wanted.id
         missing_id = missing.id

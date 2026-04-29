@@ -1,4 +1,5 @@
 """Tests for startup config validation."""
+
 from backend.main import validate_config
 
 

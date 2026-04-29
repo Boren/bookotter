@@ -311,9 +311,7 @@ class PipelineService:
         from backend.constants import KINDLE_DELIVERY_TIMEOUT_DAYS
 
         if self.db is None or self.kindle_client is None:
-            logger.warning(
-                "process_kindle_delivery_books: db or kindle_client not configured, skipping"
-            )
+            logger.warning("process_kindle_delivery_books: db or kindle_client not configured, skipping")
             return 0
 
         now = datetime.utcnow()
@@ -323,14 +321,10 @@ class PipelineService:
         # book is not immediately re-armed by the auto-retry loop in the
         # same call (would create a PENDING↔SKIPPED bounce).
         skipped_books = (
-            self.db.query(Book)
-            .filter(Book.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value)
-            .all()
+            self.db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value).all()
         )
         pending_books = (
-            self.db.query(Book)
-            .filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value)
-            .all()
+            self.db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value).all()
         )
 
         processed = 0
@@ -624,9 +618,7 @@ class PipelineService:
                     else:
                         db.commit()
             else:
-                logger.warning(
-                    "IntegrityError adding Download for '%s' but no existing row found", book.title
-                )
+                logger.warning("IntegrityError adding Download for '%s' but no existing row found", book.title)
             return 0
 
         if not self._transition_book(book, BookStatus.GRABBED, download=download):

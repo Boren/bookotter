@@ -143,6 +143,7 @@ class QBittorrentClient:
             PipelineError: On connection exhaustion or auth failure after re-auth
             requests.exceptions.RequestException: On other HTTP errors
         """
+
         # Wrap the actual request logic with retry_with_backoff for connection errors
         @retry_with_backoff(
             attempts=QBIT_RETRY_ATTEMPTS,

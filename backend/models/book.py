@@ -189,7 +189,9 @@ class Book(Base):
             "low_confidence": self.low_confidence,
             "kindle_delivery_status": self.kindle_delivery_status,
             "kindle_delivery_attempts": self.kindle_delivery_attempts,
-            "kindle_first_pending_at": self.kindle_first_pending_at.isoformat() if self.kindle_first_pending_at else None,
+            "kindle_first_pending_at": self.kindle_first_pending_at.isoformat()
+            if self.kindle_first_pending_at
+            else None,
         }
 
 

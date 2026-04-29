@@ -56,18 +56,14 @@ class TestAtomicCopyDurability:
 
             if dest.exists():
                 actual = dest.stat().st_size
-                assert actual == expected_size, (
-                    f"Partial file detected: expected {expected_size} bytes, got {actual}"
-                )
+                assert actual == expected_size, f"Partial file detected: expected {expected_size} bytes, got {actual}"
 
         leftover_tmp = list(tmp_path.glob("**/*.tmp"))
         assert all(t.parent == tmp_path or t.parent.name == "library" for t in leftover_tmp), (
             f"Unexpected tmp leftovers: {leftover_tmp}"
         )
 
-    def test_enospc_raises_pipeline_error_disk_full(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_enospc_raises_pipeline_error_disk_full(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import errno
 
         src = tmp_path / "src.epub"
@@ -169,9 +165,7 @@ class TestCollisionVersioning:
         svc = ImportService(db_session)
 
         for _ in range(3):
-            book = _make_book(
-                db_session, rf, title="Triple Title", status=BookStatus.DOWNLOADING.value
-            )
+            book = _make_book(db_session, rf, title="Triple Title", status=BookStatus.DOWNLOADING.value)
             svc.import_book(cast(int, book.id), src)
 
         assert (lib / "Triple Title.epub").exists()
@@ -200,9 +194,7 @@ class TestCollisionVersioning:
 
 
 class TestCopyToLibraryAtomic:
-    def test_copy_to_library_uses_atomic_no_tmp_leftover(
-        self, db_session, tmp_path: Path
-    ) -> None:
+    def test_copy_to_library_uses_atomic_no_tmp_leftover(self, db_session, tmp_path: Path) -> None:
         src = tmp_path / "src.epub"
         create_test_epub(str(src), "Atomic Test", "Author")
         dest = tmp_path / "library" / "out.epub"
