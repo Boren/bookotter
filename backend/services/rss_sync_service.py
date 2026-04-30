@@ -51,7 +51,7 @@ class RssSyncService:
     def run_sync_cycle(self, trigger: str = "scheduled") -> dict:
         rss_config = load_config().get("rss", {})
         if rss_config.get("enabled") is False:
-            return {"status": "disabled", "trigger": trigger}
+            return {"status": "disabled", "trigger": trigger, "indexers_polled": 0, "items_found": 0, "items_grabbed": 0, "duration_ms": 0}
 
         if not self._sync_lock.acquire(blocking=False):
             return {"status": "in_progress"}

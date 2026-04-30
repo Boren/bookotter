@@ -248,6 +248,8 @@ class TestMonitorDownloads:
         assert count == 1
 
     def test_queued_transitions_to_downloading_when_qbit_active(self, service, qbit, db, book_record, queued_download):
+        book_record.status = BookStatus.GRABBED.value
+        db.commit()
         qbit.get_torrents.return_value = [{"hash": HASH_HEX, "state": TorrentState.DOWNLOADING, "progress": 0.3}]
         service.monitor_downloads()
 
@@ -404,7 +406,7 @@ class TestReconcileOnStartup:
         db.refresh(queued_download)
         assert "not found" in queued_download.error_message.lower()
 
-    def test_completed_torrent_calls_handle_completed(self, service, qbit, db, book_record, queued_download):
+    def test_completed_torrent_calls_handle_completed(self, service, qbit, db, book_record, downloading_download):
         qbit.get_torrents.return_value = [{"hash": HASH_HEX, "state": TorrentState.UPLOADING, "progress": 1.0}]
         qbit.get_completed_file_path.return_value = Path("/dl/book.epub")
         book_record.status = BookStatus.DOWNLOADING.value
@@ -412,8 +414,8 @@ class TestReconcileOnStartup:
 
         counts = service.reconcile_on_startup()
 
-        db.refresh(queued_download)
-        assert queued_download.status == DownloadStatus.COMPLETED.value
+        db.refresh(downloading_download)
+        assert downloading_download.status == DownloadStatus.COMPLETED.value
         assert counts["completed"] == 1
 
     def test_downloading_torrent_updates_queued_to_downloading(self, service, qbit, db, book_record, queued_download):
@@ -444,7 +446,7 @@ class TestReconcileOnStartup:
         counts = service.reconcile_on_startup()
 
         db.refresh(completed_dl)
-        assert completed_dl.status == DownloadStatus.COMPLETED.value
+        assert str(completed_dl.status) == DownloadStatus.COMPLETED.value
         assert counts["failed"] == 0
         assert counts["reconciled"] == 1
 
