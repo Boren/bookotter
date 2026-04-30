@@ -102,6 +102,82 @@ class SchedulerService:
             "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
         }
 
+    def add_rss_sync_job(
+        self,
+        job_id: str,
+        cron_expression: str,
+        sync_func: Callable,
+    ) -> None:
+        """
+        Add a scheduled RSS sync job.
+
+        Args:
+            job_id: Unique identifier for the job
+            cron_expression: Cron expression (e.g., "0 2 * * *" for 2am daily)
+            sync_func: Async function to call when job triggers (called with no arguments)
+
+        On invalid cron expression: logs ERROR and returns None (does not raise).
+        """
+        # Parse cron expression
+        try:
+            trigger = CronTrigger.from_crontab(cron_expression)
+        except ValueError as e:
+            logger.error(f"Invalid cron expression for RSS sync job '{job_id}': {e}")
+            return None
+
+        # Remove existing job if it exists
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+
+        # Add the job (no kwargs passed to sync_func)
+        self.scheduler.add_job(
+            sync_func,
+            trigger=trigger,
+            id=job_id,
+            name=f"RSS sync: {job_id}",
+            replace_existing=True,
+        )
+
+        logger.info(f"RSS sync job '{job_id}' registered with cron: {cron_expression}")
+
+    def add_rss_cleanup_job(
+        self,
+        job_id: str,
+        cron_expression: str,
+        cleanup_func: Callable,
+    ) -> None:
+        """
+        Add a scheduled RSS cleanup job.
+
+        Args:
+            job_id: Unique identifier for the job
+            cron_expression: Cron expression (e.g., "0 2 * * *" for 2am daily)
+            cleanup_func: Async function to call when job triggers (called with no arguments)
+
+        On invalid cron expression: logs ERROR and returns None (does not raise).
+        """
+        # Parse cron expression
+        try:
+            trigger = CronTrigger.from_crontab(cron_expression)
+        except ValueError as e:
+            logger.error(f"Invalid cron expression for RSS cleanup job '{job_id}': {e}")
+            return None
+
+        # Remove existing job if it exists
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+
+        # Add the job (no kwargs passed to cleanup_func)
+        self.scheduler.add_job(
+            cleanup_func,
+            trigger=trigger,
+            id=job_id,
+            name=f"RSS cleanup: {job_id}",
+            replace_existing=True,
+        )
+
+        logger.info(f"RSS cleanup job '{job_id}' registered with cron: {cron_expression}")
+
     def remove_job(self, job_id: str) -> bool:
         """Remove a scheduled job."""
         job = self.scheduler.get_job(job_id)
