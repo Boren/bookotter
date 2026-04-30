@@ -200,6 +200,14 @@ def get_default_config() -> dict:
                 "read": {"download": True, "kindle_sync": False},
             },
         },
+        "rss": {
+            "enabled": False,
+            "cron_expression": "*/15 * * * *",
+            "max_age_days": 3,
+            "limit": 100,
+            "cleanup_retention_days": 60,
+            "caps_cache_seconds": 3600,
+        },
         "logging": {
             "log_file": "bookotter.log",
             "log_level": "INFO",

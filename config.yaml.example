@@ -78,6 +78,15 @@ transfer:
   cleanup_sdr_folders: true  # Also remove .sdr reading data folders
   cleanup_protected_paths: []  # Paths to never delete (e.g., ["/mnt/us/documents/"])
 
+# RSS Sync — automatically grab new releases matching wanted books
+rss:
+  enabled: false                    # Set to true to enable RSS polling
+  cron_expression: "*/15 * * * *"   # How often to poll (cron format)
+  max_age_days: 3                   # Only fetch items published in the last N days
+  limit: 100                        # Max items to fetch per indexer per poll
+  cleanup_retention_days: 60        # Delete seen-item records older than N days
+  caps_cache_seconds: 3600          # Cache indexer capability checks for N seconds (1 hour)
+
 # Logging Settings
 logging:
   log_file: "bookotter.log"
