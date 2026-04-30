@@ -424,6 +424,7 @@ class DownloadService:
                 elif state in ACTIVE_DL_STATES and download.status == DownloadStatus.QUEUED.value:
                     if not transition_download(download, DownloadStatus.DOWNLOADING, db):
                         logger.warning("Could not transition download %s to DOWNLOADING", download.id)
+                        db.rollback()
                         continue
                     book = db.query(Book).filter(Book.id == download.book_id).first()
                     if book:
