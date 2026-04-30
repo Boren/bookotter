@@ -433,7 +433,14 @@ def test_disabled_no_op(db_session, fake_ws, mock_load_config):
 
     result = rss_service.run_sync_cycle(trigger="scheduled")
 
-    assert result == {"status": "disabled", "trigger": "scheduled"}
+    assert result == {
+        "status": "disabled",
+        "trigger": "scheduled",
+        "indexers_polled": 0,
+        "items_found": 0,
+        "items_grabbed": 0,
+        "duration_ms": 0,
+    }
     prowlarr.get_indexers.assert_not_called()
     prowlarr.get_indexer_caps.assert_not_called()
     prowlarr.fetch_rss.assert_not_called()

@@ -45,11 +45,11 @@ def client(monkeypatch):
     session = SessionLocal()
 
     app.dependency_overrides[get_db] = lambda: session
-    
+
     # Store session on the client for tests that need it
     test_client = TestClient(app)
     test_client._test_session = session
-    
+
     yield test_client
     app.dependency_overrides.clear()
 
