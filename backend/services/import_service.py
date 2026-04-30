@@ -279,7 +279,7 @@ class ImportService:
 
     def _transition_book(self, book: Book, target_status: str) -> bool:
         old_status = book.status
-        if not transition_book(book, target_status):
+        if not transition_book(book, target_status, self.db):
             return False
 
         self._broadcast(

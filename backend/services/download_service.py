@@ -321,12 +321,14 @@ class DownloadService:
 
             book = db.query(Book).filter(Book.id == book_id).first()
             if book:
-                if not self._transition_book(book, BookStatus.GRABBED, download=download):
+                if not self._transition_book(book, BookStatus.GRABBED, db=db, download=download):
                     logger.warning(
                         "Could not transition book %d from %r → grabbed",
                         book_id,
                         book.status,
                     )
+                    db.rollback()
+                    return None
             else:
                 logger.warning("Book %d not found in DB when adding download", book_id)
 
@@ -391,10 +393,13 @@ class DownloadService:
 
                 if is_complete and download.status == DownloadStatus.DOWNLOADING.value:
                     logger.info("Download completed: %r (id=%d)", download.torrent_name, download.id)
-                    self.handle_completed(download, db=db)
+                    if not self.handle_completed(download, db=db):
+                        db.rollback()
+                        processed += 1
+                        continue
 
                 elif state == TorrentState.ERROR or state == TorrentState.MISSING_FILES:
-                    if transition_download(download, DownloadStatus.FAILED):
+                    if transition_download(download, DownloadStatus.FAILED, db):
                         download.error_message = f"Torrent in error state ({state})"
                         logger.warning(
                             "Download errored in qBit: %r (id=%d, state=%s)",
@@ -410,12 +415,22 @@ class DownloadService:
                                 "reason": download.error_message,
                             },
                         )
+                    else:
+                        logger.warning("Could not transition download %s to FAILED", download.id)
+                        db.rollback()
+                        processed += 1
+                        continue
 
                 elif state in ACTIVE_DL_STATES and download.status == DownloadStatus.QUEUED.value:
-                    transition_download(download, DownloadStatus.DOWNLOADING)
+                    if not transition_download(download, DownloadStatus.DOWNLOADING, db):
+                        logger.warning("Could not transition download %s to DOWNLOADING", download.id)
+                        continue
                     book = db.query(Book).filter(Book.id == download.book_id).first()
                     if book:
-                        self._transition_book(book, BookStatus.DOWNLOADING, download=download)
+                        if not self._transition_book(book, BookStatus.DOWNLOADING, db=db, download=download):
+                            logger.warning("Could not transition book %s to DOWNLOADING", book.id)
+                            db.rollback()
+                            continue
 
                 if state in ACTIVE_DL_STATES:
                     self._broadcast(
@@ -480,7 +495,10 @@ class DownloadService:
                     download.torrent_hash[:16],
                     download.id,
                 )
-                transition_download(download, DownloadStatus.FAILED)
+                if not transition_download(download, DownloadStatus.FAILED, db):
+                    logger.warning("Could not transition download %s to FAILED", download.id)
+                    db.rollback()
+                    return False
                 download.error_message = "No EPUB file found in completed torrent"
                 self._broadcast(
                     "download_failed",
@@ -491,18 +509,23 @@ class DownloadService:
                     },
                 )
             else:
-                transition_download(download, DownloadStatus.COMPLETED)
+                if not transition_download(download, DownloadStatus.COMPLETED, db):
+                    logger.warning("Could not transition download %s to COMPLETED", download.id)
+                    db.rollback()
+                    return False
                 download.file_path = str(epub_path)
                 download.completed_at = datetime.now(UTC)
 
                 book = db.query(Book).filter(Book.id == download.book_id).first()
                 if book:
-                    if not self._transition_book(book, BookStatus.IMPORTING, download=download):
+                    if not self._transition_book(book, BookStatus.IMPORTING, db=db, download=download):
                         logger.warning(
                             "Could not transition book %d from %r → importing",
                             download.book_id,
                             book.status,
                         )
+                        db.rollback()
+                        return False
 
                 logger.info(
                     "Download handled: %r → %s",
@@ -808,21 +831,25 @@ class DownloadService:
         reason: FailureReason,
         message: str,
     ) -> None:
-        if transition_download(download, DownloadStatus.FAILED):
-            download.error_message = message
-            logger.warning(
-                "Download %s: %r (id=%d, hash=%s...)",
-                reason.value,
-                download.torrent_name,
-                download.id,
-                download.torrent_hash[:16],
-            )
+        if not transition_download(download, DownloadStatus.FAILED, db):
+            logger.warning("Could not transition download %d from %r → FAILED for stall", download.id, download.status)
+            db.rollback()
+            return
+
+        download.error_message = message
+        logger.warning(
+            "Download %s: %r (id=%d, hash=%s...)",
+            reason.value,
+            download.torrent_name,
+            download.id,
+            download.torrent_hash[:16],
+        )
 
         book = db.query(Book).filter(Book.id == download.book_id).first()
         if book is not None:
             book.failure_reason = reason.value
             old_status = book.status
-            if transition_book(book, BookStatus.FAILED):
+            if transition_book(book, BookStatus.FAILED, db):
                 self._broadcast(
                     "book_status_changed",
                     {
@@ -842,6 +869,8 @@ class DownloadService:
                     book.id,
                     old_status,
                 )
+                db.rollback()
+                return
 
         try:
             self.qbit.delete_torrent(download.torrent_hash)
@@ -861,9 +890,9 @@ class DownloadService:
         if self.ws_manager:
             self.ws_manager.broadcast_sync(event, data)
 
-    def _transition_book(self, book: Book, target_status: str, download: Download | None = None) -> bool:
+    def _transition_book(self, book: Book, target_status: str, db: "Session", download: Download | None = None) -> bool:
         old_status = book.status
-        if not transition_book(book, target_status):
+        if not transition_book(book, target_status, db):
             return False
 
         self._broadcast(

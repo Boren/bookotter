@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _require_transition(book: Book, target_status: str, db: Session, detail: str) -> None:
+    if transition_book(book, target_status, db):
+        return
+
+    db.rollback()
+    raise HTTPException(status_code=409, detail=detail)
+
+
 class SearchResultItem(BaseModel):
     """A single search result from Prowlarr."""
 
@@ -159,7 +167,7 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
     )
     db.add(download)
 
-    transition_book(book, BookStatus.GRABBED.value)
+    _require_transition(book, BookStatus.GRABBED.value, db, f"Book {book.id} could not transition to grabbed")
     book.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(download)
@@ -189,7 +197,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
 
     author_name = book.author.name if book.author else ""
 
-    transition_book(book, BookStatus.SEARCHING.value)
+    _require_transition(book, BookStatus.SEARCHING.value, db, f"Book {book.id} could not transition to searching")
     book.search_attempts = (book.search_attempts or 0) + 1
     book.last_searched_at = datetime.utcnow()
     db.commit()
@@ -206,13 +214,13 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Search failed: {e}")
 
     if not results:
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         return {"success": False, "message": "No results found", "book_id": book_id, "results_count": 0}
 
     approved_results = [result for result in results if result.approved]
     if not approved_results:
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         return {
             "success": False,
@@ -224,13 +232,13 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
     best = approved_results[0]
     download_url = best.magnet_url or best.download_url
     if not download_url:
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         return {"success": False, "message": "Best result has no download URL", "book_id": book_id}
 
     torrent_hash = extract_info_hash_from_url(best.magnet_url) or extract_info_hash_from_url(download_url)
     if not torrent_hash:
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         return {
             "success": False,
@@ -255,7 +263,9 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
 
         success = qbt.add_torrent(torrent_url=download_url, category=category)
         if not success:
-            transition_book(book, BookStatus.WANTED.value)
+            _require_transition(
+                book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted"
+            )
             db.commit()
             return {"success": False, "message": "Failed to add torrent to qBittorrent", "book_id": book_id}
 
@@ -263,7 +273,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Failed to add torrent for book {book_id}: {e}")
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         raise HTTPException(status_code=502, detail=f"qBittorrent error: {e}")
 
@@ -279,7 +289,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
     )
     db.add(download)
 
-    transition_book(book, BookStatus.GRABBED.value)
+    _require_transition(book, BookStatus.GRABBED.value, db, f"Book {book.id} could not transition to grabbed")
     book.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(download)
@@ -302,7 +312,7 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
     if not book:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
 
-    transition_book(book, BookStatus.SEARCHING.value)
+    _require_transition(book, BookStatus.SEARCHING.value, db, f"Book {book.id} could not transition to searching")
     book.search_attempts = (book.search_attempts or 0) + 1
     book.last_searched_at = datetime.utcnow()
     db.commit()
@@ -314,17 +324,17 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
         results = search_service.search_book(title=book.title, author=author_name)
 
     except HTTPException:
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         raise
     except Exception as e:
         logger.error(f"Preview search failed for book {book_id}: {e}")
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
         raise HTTPException(status_code=502, detail=f"Search failed: {e}")
 
     if not results:
-        transition_book(book, BookStatus.WANTED.value)
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()
 
     return {

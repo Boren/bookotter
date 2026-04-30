@@ -12,13 +12,13 @@ class TestMissingStateTransitions:
     def test_missing_to_searching(self, db_session):
         book = create_test_book(db_session, status=BookStatus.MISSING)
 
-        assert transition_book(book, BookStatus.SEARCHING.value) is True
+        assert transition_book(book, BookStatus.SEARCHING.value, db_session) is True
         assert book.status == BookStatus.SEARCHING.value
 
     def test_missing_to_failed(self, db_session):
         book = create_test_book(db_session, status=BookStatus.MISSING)
 
-        assert transition_book(book, BookStatus.FAILED.value) is True
+        assert transition_book(book, BookStatus.FAILED.value, db_session) is True
         assert book.status == BookStatus.FAILED.value
 
     def test_wanted_to_missing(self, db_session):
@@ -51,8 +51,16 @@ class TestPermanentFailedTransitions:
     def test_permanent_failed_transition_book(self, db_session):
         """transition_book correctly moves FAILED → PERMANENT_FAILED."""
         book = create_test_book(db_session, status=BookStatus.FAILED)
-        assert transition_book(book, BookStatus.PERMANENT_FAILED.value) is True
+        assert transition_book(book, BookStatus.PERMANENT_FAILED.value, db_session) is True
         assert book.status == BookStatus.PERMANENT_FAILED.value
+
+    def test_transition_book_returns_false_after_concurrent_status_change(self, db_session):
+        book = create_test_book(db_session, status=BookStatus.FAILED)
+        mock_result = MagicMock(rowcount=0)
+        db_session.execute = MagicMock(return_value=mock_result)
+
+        assert transition_book(book, BookStatus.PERMANENT_FAILED.value, db_session) is False
+        assert book.status == BookStatus.FAILED.value
 
 
 class TestPipelinePicksUpMissing:

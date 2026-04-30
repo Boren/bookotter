@@ -1,8 +1,13 @@
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false
+
 """
 Pipeline state machine for book and download status transitions with validation.
 """
 
-from backend.models.book import BookStatus, DownloadStatus
+from sqlalchemy import update
+from sqlalchemy.orm import Session
+
+from backend.models.book import Book, BookStatus, Download, DownloadStatus
 
 # Valid state transitions for books
 VALID_BOOK_TRANSITIONS = {
@@ -58,13 +63,14 @@ def can_transition(current_status: str, target_status: str, is_download: bool = 
     return target in VALID_BOOK_TRANSITIONS.get(current, set())
 
 
-def transition_book(book, target_status: str) -> bool:
+def transition_book(book: Book, target_status: str, db: Session) -> bool:
     """
     Transition a book to a new status if valid.
 
     Args:
         book: Book model instance
         target_status: Target BookStatus value
+        db: Active SQLAlchemy session
 
     Returns:
         True if transition succeeded, False if invalid
@@ -72,22 +78,35 @@ def transition_book(book, target_status: str) -> bool:
     if not can_transition(book.status, target_status, is_download=False):
         return False
 
+    result = db.execute(update(Book).where(Book.id == book.id, Book.status == book.status).values(status=target_status))
+    if result.rowcount != 1:
+        return False
+
     book.status = target_status
     return True
 
 
-def transition_download(download, target_status: str) -> bool:
+def transition_download(download: Download, target_status: str, db: Session) -> bool:
     """
     Transition a download to a new status if valid.
 
     Args:
         download: Download model instance
         target_status: Target DownloadStatus value
+        db: Active SQLAlchemy session
 
     Returns:
         True if transition succeeded, False if invalid
     """
     if not can_transition(download.status, target_status, is_download=True):
+        return False
+
+    result = db.execute(
+        update(Download)
+        .where(Download.id == download.id, Download.status == download.status)
+        .values(status=target_status)
+    )
+    if result.rowcount != 1:
         return False
 
     download.status = target_status

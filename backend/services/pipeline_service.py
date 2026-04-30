@@ -124,10 +124,15 @@ class PipelineService:
                 try:
                     success = self.download_service.add_torrent(download)
                     if success:
-                        if transition_download(download, DownloadStatus.DOWNLOADING):
-                            db.commit()
-                        if self._transition_book(book, BookStatus.DOWNLOADING, download=download):
-                            db.commit()
+                        if not transition_download(download, DownloadStatus.DOWNLOADING, db):
+                            logger.warning("Could not transition download %s to DOWNLOADING", download.id)
+                            db.rollback()
+                            continue
+                        if not self._transition_book(book, BookStatus.DOWNLOADING, db=db, download=download):
+                            logger.warning("Could not transition '%s' to DOWNLOADING", book.title)
+                            db.rollback()
+                            continue
+                        db.commit()
                         started += 1
                         logger.info(f"Download started for '{book.title}'")
                     else:
@@ -165,10 +170,15 @@ class PipelineService:
                         continue
                     download.file_path = str(file_path)
                     download.completed_at = datetime.now(UTC)
-                    if transition_download(download, DownloadStatus.COMPLETED):
-                        db.commit()
-                    if self._transition_book(book, BookStatus.IMPORTING, download=download):
-                        db.commit()
+                    if not transition_download(download, DownloadStatus.COMPLETED, db):
+                        logger.warning("Could not transition download %s to COMPLETED", download.id)
+                        db.rollback()
+                        continue
+                    if not self._transition_book(book, BookStatus.IMPORTING, db=db, download=download):
+                        logger.warning("Could not transition '%s' to IMPORTING", book.title)
+                        db.rollback()
+                        continue
+                    db.commit()
                     importing += 1
                     logger.info(f"Download complete for '{book.title}': {file_path}")
                 except Exception as exc:
@@ -204,12 +214,19 @@ class PipelineService:
                 try:
                     success = self.import_service.import_epub(book, download.file_path)
                     if success:
-                        if transition_download(download, DownloadStatus.IMPORTING):
-                            db.commit()
-                        if transition_download(download, DownloadStatus.IMPORTED):
-                            db.commit()
-                        if self._transition_book(book, BookStatus.IN_LIBRARY, download=download):
-                            db.commit()
+                        if not transition_download(download, DownloadStatus.IMPORTING, db):
+                            logger.warning("Could not transition download %s to IMPORTING", download.id)
+                            db.rollback()
+                            continue
+                        if not transition_download(download, DownloadStatus.IMPORTED, db):
+                            logger.warning("Could not transition download %s to IMPORTED", download.id)
+                            db.rollback()
+                            continue
+                        if not self._transition_book(book, BookStatus.IN_LIBRARY, db=db, download=download):
+                            logger.warning("Could not transition '%s' to IN_LIBRARY", book.title)
+                            db.rollback()
+                            continue
+                        db.commit()
                         imported += 1
                         logger.info(f"Imported '{book.title}' to library")
                     else:
@@ -500,7 +517,7 @@ class PipelineService:
         author_name = book.author.name if book.author else ""
 
         if book.status in {BookStatus.WANTED, BookStatus.MISSING}:
-            if not self._transition_book(book, BookStatus.SEARCHING):
+            if not self._transition_book(book, BookStatus.SEARCHING, db=db):
                 logger.warning(f"Could not transition '{book.title}' to SEARCHING from {book.status}, skipping")
                 return 0
 
@@ -523,8 +540,10 @@ class PipelineService:
                 f"No EPUB results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
             )
             # Return book to WANTED state for retry on next pipeline cycle
-            if not self._transition_book(book, BookStatus.WANTED):
+            if not self._transition_book(book, BookStatus.WANTED, db=db):
                 logger.warning(f"Could not transition '{book.title}' back to WANTED, leaving in current state")
+                db.rollback()
+                return 0
             db.commit()
             return 0
 
@@ -533,8 +552,10 @@ class PipelineService:
             logger.info(
                 f"No approved results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
             )
-            if not self._transition_book(book, BookStatus.WANTED):
+            if not self._transition_book(book, BookStatus.WANTED, db=db):
                 logger.warning(f"Could not transition '{book.title}' back to WANTED, leaving in current state")
+                db.rollback()
+                return 0
             db.commit()
             return 0
 
@@ -554,8 +575,10 @@ class PipelineService:
                 best_magnet_url,
                 best_download_url,
             )
-            if not self._transition_book(book, BookStatus.WANTED):
+            if not self._transition_book(book, BookStatus.WANTED, db=db):
                 logger.warning("Could not transition '%s' back to WANTED", book.title)
+                db.rollback()
+                return 0
             db.commit()
             return 0
 
@@ -578,10 +601,10 @@ class PipelineService:
                 existing_active.status,
             )
             if book.status == BookStatus.SEARCHING:
-                if self._transition_book(book, BookStatus.GRABBED, download=existing_active):
+                if self._transition_book(book, BookStatus.GRABBED, db=db, download=existing_active):
                     db.commit()
                 else:
-                    db.commit()
+                    db.rollback()
             else:
                 db.commit()
             return 0
@@ -613,15 +636,15 @@ class PipelineService:
                     existing.book_id,
                 )
                 if existing.book_id == book.id and book.status == BookStatus.SEARCHING:
-                    if self._transition_book(book, BookStatus.GRABBED, download=existing):
+                    if self._transition_book(book, BookStatus.GRABBED, db=db, download=existing):
                         db.commit()
                     else:
-                        db.commit()
+                        db.rollback()
             else:
                 logger.warning("IntegrityError adding Download for '%s' but no existing row found", book.title)
             return 0
 
-        if not self._transition_book(book, BookStatus.GRABBED, download=download):
+        if not self._transition_book(book, BookStatus.GRABBED, db=db, download=download):
             logger.warning(f"Could not transition '{book.title}' SEARCHING→GRABBED")
             db.rollback()
             return 0
@@ -639,7 +662,7 @@ class PipelineService:
 
     def _fail_book(self, book: Book, db: Any, reason: str = "Pipeline book failure") -> None:
         try:
-            if self._transition_book(book, BookStatus.FAILED):
+            if self._transition_book(book, BookStatus.FAILED, db=db):
                 db.commit()
                 self._broadcast(
                     "book_failed",
@@ -651,6 +674,8 @@ class PipelineService:
                     reason=book.failure_reason or reason,
                     stage="pipeline",
                 )
+            else:
+                db.rollback()
         except Exception as exc:
             logger.error(f"Could not fail book '{book.title}': {exc}")
             db.rollback()
@@ -658,12 +683,14 @@ class PipelineService:
     def _fail_download(self, download: Download, db: Any, reason: str = "") -> None:
         try:
             download.error_message = reason
-            if transition_download(download, DownloadStatus.FAILED):
+            if transition_download(download, DownloadStatus.FAILED, db):
                 db.commit()
                 self._broadcast(
                     "download_failed",
                     {"book_id": download.book_id, "download_id": download.id, "reason": reason},
                 )
+            else:
+                db.rollback()
         except Exception as exc:
             logger.error(f"Could not fail download {download.id}: {exc}")
             db.rollback()
@@ -676,11 +703,12 @@ class PipelineService:
         self,
         book: Book,
         target_status: str,
+        db: Any,
         *,
         download: Download | None = None,
     ) -> bool:
         old_status = book.status
-        if not transition_book(book, target_status):
+        if not transition_book(book, target_status, db):
             return False
 
         self._broadcast(
