@@ -93,6 +93,22 @@ class SearchService:
         ranked = self._rank(normalized)
         return [result.to_dict() for result in ranked]
 
+    def evaluate_and_rank(
+        self,
+        raw_results: list[dict],
+        query_title: str = "",
+        query_author: str = "",
+    ) -> list[ScoredResult]:
+        """Evaluate and rank a pre-fetched list of result dicts (e.g., from RSS).
+        Used by RssSyncService to reuse existing filtering and matching logic
+        without performing a Prowlarr search."""
+        blocklisted_set = self._blocklist_set()
+        scored = [
+            self._evaluate(raw, blocklisted_set, query_title=query_title, query_author=query_author)
+            for raw in raw_results
+        ]
+        return self._rank(scored)
+
     def _evaluate(
         self,
         raw: dict,
