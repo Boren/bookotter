@@ -18,6 +18,7 @@ Self-hosted book management platform — automatically search, download, and man
 - **Pipeline Automation**: Configurable status → action mapping (e.g., "want to read" triggers search + download + Kindle sync)
 - **Multi-Kindle Support**: Configure multiple Kindle devices and choose which to sync to
 - **Scheduled Syncs**: Configure cron-like schedules via the web UI
+- **RSS Sync (Auto-Grab)**: Automatically monitor Prowlarr indexers for new releases matching your wanted books
 - **Real-time Progress**: Live WebSocket updates during operations
 - **Web Interface**: Modern Vue 3 dashboard for configuration, scheduling, and monitoring
 - **Docker Support**: Run in a container with easy deployment
@@ -245,6 +246,13 @@ pipeline:
       download: true
       kindle_sync: false
 
+# RSS Sync (Auto-Grab)
+rss:
+  enabled: false            # Enable background RSS monitoring
+  cron_expression: "*/15 * * * *" # How often to poll indexers
+  max_age_days: 3           # Only consider items newer than this
+  limit: 100                # Max items to fetch per indexer per poll
+
 # Matching Settings
 matching:
   use_isbn: true
@@ -281,6 +289,15 @@ The pipeline automates the full book lifecycle. When a Hardcover sync finds book
 4. **Sync** imported books to your Kindle
 
 Control which statuses trigger which actions via `pipeline.status_actions`. For example, you might want "read" books downloaded for your library but not automatically sent to Kindle.
+
+### RSS Sync (Auto-Grab)
+
+The RSS sync feature periodically polls your Prowlarr indexers for new releases. If a release matches a book in your library with a `WANTED` or `MISSING` status, it is automatically grabbed for download.
+
+- **First-run behavior**: On the very first poll, BookOtter marks all current RSS items as "seen" **without grabbing them**. This prevents an accidental flood of old downloads. To backfill existing books, use the manual search workflow.
+- **Matching**: Uses fuzzy title and author matching (respects `matching.fuzzy_threshold`).
+- **Exclusions**: Currently ignores Usenet and audiobooks.
+- **Events**: Emits `rss_sync_started`, `rss_sync_completed`, `rss_sync_failed`, `rss_indexer_polled`, `rss_match_found`, and `rss_grabbed`.
 
 ### Folder Organization
 
