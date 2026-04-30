@@ -22,6 +22,7 @@ from backend.database import SessionLocal
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus, Download, DownloadStatus, KindleDeliveryStatus, RootFolder
 from backend.services.pipeline_states import transition_book, transition_download
+from backend.services.search_service import ScoredResult
 from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.cleanup import cleanup_orphan_tmp_files
@@ -560,20 +561,53 @@ class PipelineService:
             return 0
 
         best = approved_results[0]
-        best_title = best.get("title") if isinstance(best, dict) else best.title
-        best_indexer = best.get("indexer") if isinstance(best, dict) else best.indexer
-        best_download_url = best.get("download_url") if isinstance(best, dict) else best.download_url
-        best_magnet_url = best.get("magnet_url") if isinstance(best, dict) else best.magnet_url
-        best_size = best.get("size") if isinstance(best, dict) else best.size
-        best_seeders = best.get("seeders") if isinstance(best, dict) else best.seeders
+        if isinstance(best, dict):
+            best = ScoredResult(
+                guid=best.get("guid"),
+                indexer_id=best.get("indexer_id"),
+                indexer=best.get("indexer"),
+                title=best.get("title"),
+                size=best.get("size"),
+                seeders=best.get("seeders"),
+                leechers=best.get("leechers"),
+                download_url=best.get("download_url"),
+                magnet_url=best.get("magnet_url"),
+                publish_date=best.get("publish_date"),
+                protocol=best.get("protocol"),
+                categories=best.get("categories") or [],
+                age_days=best.get("age_days") or 0.0,
+                title_similarity=best.get("title_similarity") or 1.0,
+                author_match=best.get("author_match", False),
+                rejections=best.get("rejections") or [],
+                approved=best.get("approved", True),
+            )
 
-        torrent_hash = extract_info_hash_from_url(best_magnet_url) or extract_info_hash_from_url(best_download_url)
+        return self.grab_known_result(book, best, db)
+
+    def grab_known_result(self, book: Book, scored_result: ScoredResult, db: Any) -> int:
+        if scored_result.approved is not True:
+            return 0
+
+        if book.status in {BookStatus.WANTED, BookStatus.MISSING}:
+            if not self._transition_book(book, BookStatus.SEARCHING, db=db):
+                logger.warning(f"Could not transition '{book.title}' to SEARCHING from {book.status}, skipping")
+                return 0
+
+            book.search_attempts = (book.search_attempts or 0) + 1
+            book.last_searched_at = datetime.now(UTC)
+        elif book.status != BookStatus.SEARCHING:
+            logger.warning("Cannot grab known result for '%s' from status %s", book.title, book.status)
+            return 0
+
+        torrent_hash = extract_info_hash_from_url(scored_result.magnet_url) or extract_info_hash_from_url(
+            scored_result.download_url
+        )
         if not torrent_hash:
             logger.error(
                 "Could not derive info hash for '%s' from magnet=%r or url=%r — leaving WANTED",
                 book.title,
-                best_magnet_url,
-                best_download_url,
+                scored_result.magnet_url,
+                scored_result.download_url,
             )
             if not self._transition_book(book, BookStatus.WANTED, db=db):
                 logger.warning("Could not transition '%s' back to WANTED", book.title)
@@ -612,11 +646,11 @@ class PipelineService:
         download = Download(
             book_id=book.id,
             torrent_hash=torrent_hash,
-            torrent_name=best_title or book.title,
-            indexer_name=best_indexer or "unknown",
-            download_url=best_download_url or best_magnet_url or "",
-            size=best_size or 0,
-            seeders=best_seeders or 0,
+            torrent_name=scored_result.title or book.title,
+            indexer_name=scored_result.indexer or "unknown",
+            download_url=scored_result.download_url or scored_result.magnet_url or "",
+            size=scored_result.size or 0,
+            seeders=scored_result.seeders or 0,
             status=DownloadStatus.QUEUED,
         )
         db.add(download)
