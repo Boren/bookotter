@@ -1,6 +1,7 @@
 """Tests for RSS API routes — /api/rss/status and /api/rss/sync endpoints."""
 
 import tempfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -9,12 +10,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.database import Base, get_db
 from backend.main import app
 from backend.models import blocklist, rss  # noqa: F401 — registers models with Base.metadata
 from backend.models.rss import RssIndexerState
+
+
+@dataclass
+class ClientWithSession:
+    """Test client with attached database session."""
+
+    client: TestClient
+    session: Session
 
 
 def _make_mock_rss_service(
@@ -46,11 +55,9 @@ def client(monkeypatch):
 
     app.dependency_overrides[get_db] = lambda: session
 
-    # Store session on the client for tests that need it
     test_client = TestClient(app)
-    test_client._test_session = session
 
-    yield test_client
+    yield ClientWithSession(client=test_client, session=session)
     app.dependency_overrides.clear()
 
     session.close()
@@ -69,7 +76,7 @@ class TestGetRssStatus:
         with patch("backend.api.routes.rss.load_config") as mock_config:
             mock_config.return_value = {"rss": {"enabled": False}}
 
-            response = client.get("/api/rss/status")
+            response = client.client.get("/api/rss/status")
             assert response.status_code == 200
             data = response.json()
             assert "enabled" in data
@@ -87,7 +94,7 @@ class TestGetRssStatus:
 
     def test_get_status_with_indexers(self, client):
         """Pre-populate RssIndexerState rows; assert they appear in response."""
-        session = client._test_session
+        session = client.session
         indexer1 = RssIndexerState(
             indexer_id=1,
             indexer_name="Test Indexer 1",
@@ -115,7 +122,7 @@ class TestGetRssStatus:
         with patch("backend.api.routes.rss.load_config") as mock_config:
             mock_config.return_value = {"rss": {"enabled": True}}
 
-            response = client.get("/api/rss/status")
+            response = client.client.get("/api/rss/status")
             assert response.status_code == 200
             data = response.json()
             assert data["enabled"] is True
@@ -156,7 +163,7 @@ class TestGetRssStatus:
         with patch("backend.api.routes.rss.load_config") as mock_config:
             mock_config.return_value = {"rss": {"enabled": True}}
 
-            response = client.get("/api/rss/status")
+            response = client.client.get("/api/rss/status")
             assert response.status_code == 200
             data = response.json()
 
@@ -173,7 +180,7 @@ class TestPostRssSync:
         mock_service = _make_mock_rss_service(is_in_progress=False)
         app.state.rss_service = mock_service
 
-        response = client.post("/api/rss/sync")
+        response = client.client.post("/api/rss/sync")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "started"
@@ -183,7 +190,7 @@ class TestPostRssSync:
         mock_service = _make_mock_rss_service(is_in_progress=True)
         app.state.rss_service = mock_service
 
-        response = client.post("/api/rss/sync")
+        response = client.client.post("/api/rss/sync")
         assert response.status_code == 409
         data = response.json()
         assert data["status"] == "in_progress"
@@ -195,7 +202,7 @@ class TestPostRssSync:
         mock_service = _make_mock_rss_service(is_in_progress=False)
         app.state.rss_service = mock_service
 
-        response = client.post("/api/rss/sync")
+        response = client.client.post("/api/rss/sync")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "started"
