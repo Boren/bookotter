@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useSyncStore } from '../stores/sync'
 import type { Kindle } from '../types'
+import RssActivityCard from '../components/RssActivityCard.vue'
 
 const syncStore = useSyncStore()
 const kindles = ref<Kindle[]>([])
@@ -180,8 +181,13 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- RSS Activity Card -->
+    <div class="animate-fade-in-up stagger-3">
+      <RssActivityCard />
+    </div>
+
     <!-- Recent Additions Card -->
-    <div class="card animate-fade-in-up stagger-3">
+    <div class="card animate-fade-in-up stagger-4">
       <div class="flex items-center gap-3 mb-4">
         <div class="icon-container">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

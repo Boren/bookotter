@@ -1,61 +1,12 @@
 <script setup lang="ts">
-const props = defineProps<{
-  syncInProgress?: boolean
-}>()
+import { onMounted } from 'vue'
+import { useRssStore } from '@/stores/rss'
 
-const emit = defineEmits<{
-  (e: 'trigger-sync'): void
-}>()
+const store = useRssStore()
 
-// Placeholder data for indexers
-const indexers = [
-  {
-    id: 1,
-    name: 'MyAnonamouse',
-    last_poll_at: new Date(Date.now() - 5 * 60000).toISOString(), // 5 mins ago
-    last_status: 'ok',
-    items_seen_count: 142,
-    items_grabbed_count: 2
-  },
-  {
-    id: 2,
-    name: 'Anna\'s Archive',
-    last_poll_at: new Date(Date.now() - 120 * 60000).toISOString(), // 2 hours ago
-    last_status: 'rate_limited',
-    items_seen_count: 0,
-    items_grabbed_count: 0
-  },
-  {
-    id: 3,
-    name: 'LibGen',
-    last_poll_at: new Date(Date.now() - 1440 * 60000).toISOString(), // 1 day ago
-    last_status: 'error',
-    items_seen_count: 0,
-    items_grabbed_count: 0
-  }
-]
-
-// Placeholder data for recent matches
-const recentMatches = [
-  {
-    id: 101,
-    title: 'The Way of Kings',
-    indexer: 'MyAnonamouse',
-    time: new Date(Date.now() - 15 * 60000).toISOString() // 15 mins ago
-  },
-  {
-    id: 102,
-    title: 'Project Hail Mary',
-    indexer: 'MyAnonamouse',
-    time: new Date(Date.now() - 120 * 60000).toISOString() // 2 hours ago
-  },
-  {
-    id: 103,
-    title: 'Dune',
-    indexer: 'Anna\'s Archive',
-    time: new Date(Date.now() - 2880 * 60000).toISOString() // 2 days ago
-  }
-]
+onMounted(() => {
+  store.fetchStatus()
+})
 
 const formatRelativeTime = (dateStr: string | null): string => {
   if (!dateStr) return 'Never'
@@ -113,12 +64,12 @@ const getStatusText = (status: string) => {
       </div>
       <button
         type="button"
-        @click="emit('trigger-sync')"
-        :disabled="syncInProgress"
+        @click="store.triggerSync()"
+        :disabled="store.syncInProgress"
         class="btn btn-secondary btn-sm shrink-0"
       >
         <svg
-          v-if="syncInProgress"
+          v-if="store.syncInProgress"
           class="w-3.5 h-3.5 animate-spin"
           fill="none"
           viewBox="0 0 24 24"
@@ -156,27 +107,27 @@ const getStatusText = (status: string) => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="indexer in indexers" :key="indexer.id" class="table-row">
+            <tr v-for="indexer in store.indexers" :key="indexer.indexerId" class="table-row">
               <td class="table-cell font-medium text-stone-900">
-                {{ indexer.name }}
+                {{ indexer.indexerName }}
               </td>
               <td class="table-cell">
                 <div class="flex items-center gap-2">
-                  <span class="w-2 h-2 rounded-full" :class="getStatusColor(indexer.last_status)"></span>
-                  <span class="text-stone-600">{{ getStatusText(indexer.last_status) }}</span>
+                  <span class="w-2 h-2 rounded-full" :class="getStatusColor(indexer.lastStatus || 'unknown')"></span>
+                  <span class="text-stone-600">{{ getStatusText(indexer.lastStatus || 'unknown') }}</span>
                 </div>
               </td>
               <td class="table-cell text-right text-stone-500 tabular-nums">
-                {{ formatRelativeTime(indexer.last_poll_at) }}
+                {{ formatRelativeTime(indexer.lastPollAt) }}
               </td>
               <td class="table-cell text-right text-stone-600 tabular-nums">
-                {{ indexer.items_seen_count }}
+                {{ indexer.itemsSeenCount }}
               </td>
               <td class="table-cell text-right text-stone-600 tabular-nums">
-                {{ indexer.items_grabbed_count }}
+                {{ indexer.itemsGrabbedCount }}
               </td>
             </tr>
-            <tr v-if="indexers.length === 0">
+            <tr v-if="store.indexers.length === 0">
               <td colspan="5" class="table-cell text-center text-stone-500 py-4">
                 No indexers configured for RSS sync.
               </td>
@@ -189,10 +140,10 @@ const getStatusText = (status: string) => {
     <!-- Recent Matches -->
     <div>
       <h3 class="text-sm font-medium text-stone-700 mb-3">Recent Matches</h3>
-      <div v-if="recentMatches.length > 0" class="space-y-2">
+      <div v-if="store.recentMatches.length > 0" class="space-y-2">
         <div 
-          v-for="match in recentMatches" 
-          :key="match.id"
+          v-for="match in store.recentMatches.slice(0, 5)" 
+          :key="match.guid"
           class="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-100"
         >
           <div class="min-w-0 flex-1 pr-4">
@@ -204,7 +155,7 @@ const getStatusText = (status: string) => {
             </p>
           </div>
           <div class="text-xs text-stone-500 tabular-nums shrink-0">
-            {{ formatRelativeTime(match.time) }}
+            {{ formatRelativeTime(match.matchedAt) }}
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { Book } from '../types';
 import { useDownloadStore } from './download';
+import { useRssStore } from './rss';
 
 export const useSyncStore = defineStore('sync', () => {
   const isRunning = ref(false);
@@ -80,6 +81,12 @@ export const useSyncStore = defineStore('sync', () => {
 
   const handleWebSocketMessage = (message: { event: string; data: unknown }) => {
     const downloadStore = useDownloadStore();
+    const rssStore = useRssStore();
+
+    if (message.event.startsWith('rss_')) {
+      rssStore.handleWebSocketEvent(message.event, message.data);
+      return;
+    }
 
     switch (message.event) {
       case 'book_status_changed':
