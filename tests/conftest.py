@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import blocklist  # noqa: F401 — registers BlocklistEntry with Base.metadata
+from backend.models import blocklist, rss  # noqa: F401 — registers models with Base.metadata
 
 pytest_plugins = [
     "tests.fixtures.mock_clock",
