@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+    <channel>
+        <atom:link href="http://prowlarr.local/api?t=search&amp;cat=7020" rel="self" type="application/rss+xml" />
+        <title>MockIndexer</title>
+        <description>MockIndexer book feed</description>
+        <link>http://prowlarr.local/</link>
+        <language>en-US</language>
+        <category>Books</category>
+
+        <item>
+            <title>The Hobbit by J.R.R. Tolkien (EPUB)</title>
+            <description>The Hobbit, or There and Back Again</description>
+            <guid isPermaLink="true">https://prowlarr.local/api/v1/indexer/1/release/abc123/</guid>
+            <comments>https://prowlarr.local/details/abc123</comments>
+            <pubDate>Mon, 28 Apr 2025 14:30:00 +0000</pubDate>
+            <size>5242880</size>
+            <link>https://prowlarr.local/api/v1/indexer/1/download/abc123</link>
+            <category>7020</category>
+            <enclosure url="https://prowlarr.local/api/v1/indexer/1/download/abc123" length="5242880" type="application/x-bittorrent" />
+            <torznab:attr name="category" value="7020" />
+            <torznab:attr name="category" value="7000" />
+            <torznab:attr name="seeders" value="42" />
+            <torznab:attr name="peers" value="5" />
+            <torznab:attr name="size" value="5242880" />
+            <torznab:attr name="magneturl" value="magnet:?xt=urn:btih:abc123hobbit&amp;dn=The+Hobbit" />
+            <torznab:attr name="downloadvolumefactor" value="0" />
+            <torznab:attr name="uploadvolumefactor" value="1" />
+        </item>
+
+        <item>
+            <title>Foundation by Isaac Asimov (EPUB+MOBI)</title>
+            <description>Foundation - Isaac Asimov classic sci-fi</description>
+            <guid isPermaLink="true">https://prowlarr.local/api/v1/indexer/1/release/def456</guid>
+            <comments>https://prowlarr.local/details/def456</comments>
+            <pubDate>Tue, 29 Apr 2025 09:15:30 +0000</pubDate>
+            <link>https://prowlarr.local/api/v1/indexer/1/download/def456</link>
+            <category>7020</category>
+            <enclosure url="https://prowlarr.local/api/v1/indexer/1/download/def456" length="3145728" type="application/x-bittorrent" />
+            <torznab:attr name="category" value="7020" />
+            <torznab:attr name="seeders" value="17" />
+            <torznab:attr name="peers" value="2" />
+            <torznab:attr name="size" value="3145728" />
+            <torznab:attr name="downloadvolumefactor" value="0" />
+            <torznab:attr name="uploadvolumefactor" value="1" />
+        </item>
+
+        <item>
+            <title>Dune by Frank Herbert (EPUB)</title>
+            <description>Dune - Frank Herbert</description>
+            <guid isPermaLink="false">https://prowlarr.local/api/v1/indexer/1/release/ghi789/</guid>
+            <pubDate>Wed, 30 Apr 2025 22:00:00 +0000</pubDate>
+            <link>https://prowlarr.local/api/v1/indexer/1/download/ghi789</link>
+            <category>7020</category>
+            <enclosure url="https://prowlarr.local/api/v1/indexer/1/download/ghi789" length="8388608" type="application/x-bittorrent" />
+            <torznab:attr name="category" value="7020" />
+            <torznab:attr name="seeders" value="123" />
+            <torznab:attr name="peers" value="11" />
+            <torznab:attr name="size" value="8388608" />
+            <torznab:attr name="magneturl" value="magnet:?xt=urn:btih:ghi789dune&amp;dn=Dune" />
+        </item>
+    </channel>
+</rss>

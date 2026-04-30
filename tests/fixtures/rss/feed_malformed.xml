@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+    <channel>
+        <title>Broken Feed</title>
+        <description>This XML is intentionally malformed - unclosed tag below</description>
+        <item>
+            <title>Some Book
+            <guid>https://example.com/release/broken</guid>
+            <pubDate>Mon, 28 Apr 2025 14:30:00 +0000</pubDate>
+            <link>https://example.com/download/broken
+        </item>
+    </channel>
+&unclosed_entity;

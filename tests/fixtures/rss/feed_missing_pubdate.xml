@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+    <channel>
+        <atom:link href="http://prowlarr.local/api?t=search&amp;cat=7020" rel="self" type="application/rss+xml" />
+        <title>MockIndexer</title>
+        <description>MockIndexer book feed (one item missing pubDate)</description>
+        <link>http://prowlarr.local/</link>
+        <language>en-US</language>
+        <category>Books</category>
+
+        <item>
+            <title>1984 by George Orwell (EPUB)</title>
+            <description>Nineteen Eighty-Four by George Orwell</description>
+            <guid isPermaLink="true">https://prowlarr.local/api/v1/indexer/1/release/orwell-1984</guid>
+            <pubDate>Mon, 28 Apr 2025 10:00:00 +0000</pubDate>
+            <link>https://prowlarr.local/api/v1/indexer/1/download/orwell-1984</link>
+            <category>7020</category>
+            <enclosure url="https://prowlarr.local/api/v1/indexer/1/download/orwell-1984" length="2097152" type="application/x-bittorrent" />
+            <torznab:attr name="category" value="7020" />
+            <torznab:attr name="seeders" value="33" />
+            <torznab:attr name="peers" value="4" />
+            <torznab:attr name="size" value="2097152" />
+        </item>
+
+        <item>
+            <title>Brave New World by Aldous Huxley (EPUB) [MISSING PUBDATE]</title>
+            <description>Brave New World - this item should be skipped because pubDate is missing</description>
+            <guid isPermaLink="true">https://prowlarr.local/api/v1/indexer/1/release/huxley-bnw</guid>
+            <link>https://prowlarr.local/api/v1/indexer/1/download/huxley-bnw</link>
+            <category>7020</category>
+            <enclosure url="https://prowlarr.local/api/v1/indexer/1/download/huxley-bnw" length="1572864" type="application/x-bittorrent" />
+            <torznab:attr name="category" value="7020" />
+            <torznab:attr name="seeders" value="9" />
+            <torznab:attr name="peers" value="1" />
+            <torznab:attr name="size" value="1572864" />
+        </item>
+
+        <item>
+            <title>Fahrenheit 451 by Ray Bradbury (EPUB)</title>
+            <description>Fahrenheit 451 - Ray Bradbury</description>
+            <guid isPermaLink="true">https://prowlarr.local/api/v1/indexer/1/release/bradbury-451/</guid>
+            <pubDate>Tue, 29 Apr 2025 18:45:00 +0000</pubDate>
+            <link>https://prowlarr.local/api/v1/indexer/1/download/bradbury-451</link>
+            <category>7020</category>
+            <enclosure url="https://prowlarr.local/api/v1/indexer/1/download/bradbury-451" length="1048576" type="application/x-bittorrent" />
+            <torznab:attr name="category" value="7020" />
+            <torznab:attr name="seeders" value="51" />
+            <torznab:attr name="peers" value="6" />
+            <torznab:attr name="size" value="1048576" />
+        </item>
+    </channel>
+</rss>

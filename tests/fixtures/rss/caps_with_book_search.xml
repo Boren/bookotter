@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+    <server appversion="1.0" version="0.1" title="MockIndexer" image="" />
+    <limits max="100" default="100" />
+    <searching>
+        <search available="yes" supportedParams="q" />
+        <tv-search available="no" />
+        <movie-search available="no" />
+        <audio-search available="no" />
+        <book-search available="yes" supportedParams="q,title,author" />
+    </searching>
+    <categories>
+        <category id="7000" name="Books">
+            <subcat id="7020" name="EBook" />
+            <subcat id="7030" name="Comics" />
+        </category>
+        <category id="3000" name="Audio">
+            <subcat id="3030" name="Audiobook" />
+        </category>
+    </categories>
+</caps>
