@@ -10,15 +10,17 @@ export interface RssIndexerState {
   itemsSeenCount: number;
   itemsGrabbedCount: number;
   retryNotBeforeAt: string | null;
+  capsCachedAt: string | null;
   capsSupportsBookSearch: boolean | null;
 }
 
 export interface RssMatchEvent {
   indexer: string;
   guid: string;
-  bookId: number;
+  book_id: number;
   title: string;
-  matchedAt: string;
+  matched_at: string;
+  similarity?: number | null;
 }
 
 export const useRssStore = defineStore('rss', () => {
@@ -50,6 +52,7 @@ export const useRssStore = defineStore('rss', () => {
       if (response.status === 200) {
         syncInProgress.value = true;
       } else if (response.status === 409) {
+        syncInProgress.value = true;
       } else {
         console.error('Failed to trigger RSS sync:', response.statusText);
       }
@@ -63,16 +66,16 @@ export const useRssStore = defineStore('rss', () => {
     switch (event) {
       case 'rss_sync_started':
         syncInProgress.value = true;
-        if (payload?.startedAt) {
-          lastSyncStartedAt.value = payload.startedAt as string;
+        if (payload?.started_at) {
+          lastSyncStartedAt.value = payload.started_at as string;
         } else {
           lastSyncStartedAt.value = new Date().toISOString();
         }
         break;
       case 'rss_sync_completed':
         syncInProgress.value = false;
-        if (payload?.completedAt) {
-          lastSyncCompletedAt.value = payload.completedAt as string;
+        if (payload?.completed_at) {
+          lastSyncCompletedAt.value = payload.completed_at as string;
         } else {
           lastSyncCompletedAt.value = new Date().toISOString();
         }
@@ -81,26 +84,47 @@ export const useRssStore = defineStore('rss', () => {
         syncInProgress.value = false;
         break;
       case 'rss_indexer_polled':
-        if (payload?.indexerId) {
-          const index = indexers.value.findIndex((i) => i.indexerId === payload.indexerId);
+        if (payload?.indexer_id) {
+          const index = indexers.value.findIndex((i) => i.indexerId === payload.indexer_id);
+          const previous = index !== -1 ? indexers.value[index] : null;
+          const indexerState: RssIndexerState = {
+            indexerId: payload.indexer_id as number,
+            indexerName: (payload.indexer_name as string | null) ?? null,
+            lastPollAt: new Date().toISOString(),
+            lastStatus: (payload.status as string | null) ?? null,
+            lastError: previous?.lastError ?? null,
+            itemsSeenCount: (previous?.itemsSeenCount ?? 0) + ((payload.items_seen as number) ?? 0),
+            itemsGrabbedCount: previous?.itemsGrabbedCount ?? 0,
+            retryNotBeforeAt: previous?.retryNotBeforeAt ?? null,
+            capsCachedAt: previous?.capsCachedAt ?? null,
+            capsSupportsBookSearch: previous?.capsSupportsBookSearch ?? null,
+          };
           if (index !== -1) {
-            indexers.value[index] = { ...indexers.value[index], ...payload };
+            indexers.value[index] = { ...indexers.value[index], ...indexerState };
           } else {
-            indexers.value.push(payload as unknown as RssIndexerState);
+            indexers.value.push(indexerState);
           }
         }
         break;
       case 'rss_match_found':
       case 'rss_grabbed':
-        if (payload) {
-          const existingIndex = recentMatches.value.findIndex((m) => m.guid === payload.guid);
+        if (payload?.guid) {
+          const matchEvent: RssMatchEvent = {
+            indexer: payload.indexer as string,
+            guid: payload.guid as string,
+            book_id: payload.book_id as number,
+            title: payload.title as string,
+            matched_at: (payload.matched_at as string) ?? new Date().toISOString(),
+            similarity: (payload.similarity as number | null | undefined) ?? null,
+          };
+          const existingIndex = recentMatches.value.findIndex((m) => m.guid === matchEvent.guid);
           if (existingIndex !== -1) {
             recentMatches.value[existingIndex] = {
               ...recentMatches.value[existingIndex],
-              ...payload,
-            } as RssMatchEvent;
+              ...matchEvent,
+            };
           } else {
-            recentMatches.value.push(payload as unknown as RssMatchEvent);
+            recentMatches.value.push(matchEvent);
           }
 
           if (recentMatches.value.length > 20) {

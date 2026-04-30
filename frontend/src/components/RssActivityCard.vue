@@ -90,8 +90,6 @@ const getStatusText = (status: string) => {
       </button>
     </div>
 
-    <!-- Connect to store in T16 -->
-    
     <!-- Indexer Table -->
     <div class="mb-6">
       <h3 class="text-sm font-medium text-stone-700 mb-3">Indexers</h3>
@@ -155,7 +153,7 @@ const getStatusText = (status: string) => {
             </p>
           </div>
           <div class="text-xs text-stone-500 tabular-nums shrink-0">
-            {{ formatRelativeTime(match.matchedAt) }}
+            {{ formatRelativeTime(match.matched_at) }}
           </div>
         </div>
       </div>

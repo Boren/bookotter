@@ -1,4 +1,3 @@
-# pyright: reportArgumentType=false
 """
 RSS API routes.
 Exposes status and manual-trigger endpoints for the Prowlarr RSS sync service.
@@ -6,6 +5,7 @@ Exposes status and manual-trigger endpoints for the Prowlarr RSS sync service.
 
 import logging
 from datetime import datetime
+from typing import Any, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
@@ -37,17 +37,18 @@ class RssIndexerStateResponse(BaseModel):
 
     @classmethod
     def from_orm_state(cls, state: RssIndexerState) -> "RssIndexerStateResponse":
+        state_row = cast(Any, state)
         return cls(
-            indexer_id=int(state.indexer_id),
-            indexer_name=state.indexer_name,
-            last_poll_at=state.last_poll_at,
-            last_status=state.last_status,
-            last_error=state.last_error,
-            items_seen_count=int(state.items_seen_count or 0),
-            items_grabbed_count=int(state.items_grabbed_count or 0),
-            retry_not_before_at=state.retry_not_before_at,
-            caps_cached_at=state.caps_cached_at,
-            caps_supports_book_search=state.caps_supports_book_search,
+            indexer_id=int(state_row.indexer_id),
+            indexer_name=state_row.indexer_name,
+            last_poll_at=state_row.last_poll_at,
+            last_status=state_row.last_status,
+            last_error=state_row.last_error,
+            items_seen_count=int(state_row.items_seen_count or 0),
+            items_grabbed_count=int(state_row.items_grabbed_count or 0),
+            retry_not_before_at=state_row.retry_not_before_at,
+            caps_cached_at=state_row.caps_cached_at,
+            caps_supports_book_search=state_row.caps_supports_book_search,
         )
 
 
@@ -56,10 +57,10 @@ class RssStatusResponse(BaseModel):
 
     enabled: bool
     sync_in_progress: bool = Field(serialization_alias="syncInProgress")
-    last_sync_started_at: datetime | None = Field(default=None, serialization_alias="lastSyncStartedAt")
-    last_sync_completed_at: datetime | None = Field(default=None, serialization_alias="lastSyncCompletedAt")
+    last_sync_started_at: str | None = Field(default=None, serialization_alias="lastSyncStartedAt")
+    last_sync_completed_at: str | None = Field(default=None, serialization_alias="lastSyncCompletedAt")
     indexers: list[RssIndexerStateResponse] = Field(default_factory=list)
-    recent_matches: list[dict] = Field(default_factory=list, serialization_alias="recentMatches")
+    recent_matches: list[dict[str, Any]] = Field(default_factory=list, serialization_alias="recentMatches")
 
 
 @router.get("/status")
@@ -67,6 +68,9 @@ async def get_rss_status(request: Request, db: Session = Depends(get_db)) -> JSO
     """Return the current RSS sync state for the dashboard."""
     rss_service = getattr(request.app.state, "rss_service", None)
     sync_in_progress = bool(rss_service.is_sync_in_progress()) if rss_service is not None else False
+    last_sync_started_at = getattr(rss_service, "_last_sync_started_at", None)
+    last_sync_completed_at = getattr(rss_service, "_last_sync_completed_at", None)
+    recent_matches = getattr(rss_service, "_recent_matches", [])
 
     config = load_config()
     enabled = bool(config.get("rss", {}).get("enabled", False))
@@ -77,10 +81,10 @@ async def get_rss_status(request: Request, db: Session = Depends(get_db)) -> JSO
     response = RssStatusResponse(
         enabled=enabled,
         sync_in_progress=sync_in_progress,
-        last_sync_started_at=None,
-        last_sync_completed_at=None,
+        last_sync_started_at=last_sync_started_at,
+        last_sync_completed_at=last_sync_completed_at,
         indexers=indexers,
-        recent_matches=[],
+        recent_matches=list(recent_matches),
     )
     return JSONResponse(content=response.model_dump(mode="json", by_alias=True))
 

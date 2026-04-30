@@ -1,14 +1,14 @@
-# pyright: reportArgumentType=false, reportAttributeAccessIssue=false
-
 import logging
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import Session, joinedload, sessionmaker
 
+from backend.clients.prowlarr_client import ProwlarrClient
 from backend.config import load_config
 from backend.constants import (
     EPUB_TITLE_SIMILARITY_THRESHOLD,
@@ -19,6 +19,9 @@ from backend.constants import (
 )
 from backend.models.book import Book, BookStatus
 from backend.models.rss import RssIndexerState, RssSeenItem
+from backend.services.pipeline_service import PipelineService
+from backend.services.search_service import SearchService
+from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,18 +29,21 @@ logger = logging.getLogger(__name__)
 class RssSyncService:
     def __init__(
         self,
-        prowlarr_client,
-        search_service,
-        pipeline_service,
-        ws_manager,
-        db_session_factory,
-    ):
+        prowlarr_client: ProwlarrClient,
+        search_service: SearchService,
+        pipeline_service: PipelineService,
+        ws_manager: WebSocketManager | None,
+        db_session_factory: sessionmaker[Session] | Callable[[], Session],
+    ) -> None:
         self.prowlarr_client = prowlarr_client
         self.search_service = search_service
         self.pipeline_service = pipeline_service
         self.ws_manager = ws_manager
         self._session_factory = db_session_factory
         self._sync_lock = threading.Lock()
+        self._last_sync_started_at: str | None = None
+        self._last_sync_completed_at: str | None = None
+        self._recent_matches: list[dict[str, Any]] = []
 
     def is_sync_in_progress(self) -> bool:
         return self._sync_lock.locked()
@@ -51,6 +57,7 @@ class RssSyncService:
             return {"status": "in_progress"}
 
         started_at = datetime.now(UTC).isoformat()
+        self._last_sync_started_at = started_at
         started_monotonic = time.monotonic()
         summary = {
             "status": "ok",
@@ -94,9 +101,12 @@ class RssSyncService:
                     )
 
             summary["duration_ms"] = int((time.monotonic() - started_monotonic) * 1000)
+            completed_at = datetime.now(UTC).isoformat()
+            self._last_sync_completed_at = completed_at
             self._broadcast(
                 "rss_sync_completed",
                 {
+                    "completed_at": completed_at,
                     "indexers_polled": summary["indexers_polled"],
                     "items_found": summary["items_found"],
                     "items_grabbed": summary["items_grabbed"],
@@ -137,13 +147,14 @@ class RssSyncService:
         indexer_id = int(indexer["id"])
         indexer_name = str(indexer.get("name") or indexer_id)
         state = self._load_or_create_state(indexer_id=indexer_id, indexer_name=indexer_name)
+        state_row = cast(Any, state)
 
-        if self._is_retry_in_future(state.retry_not_before_at, now):
+        if self._is_retry_in_future(cast(datetime | None, state_row.retry_not_before_at), now):
             self._broadcast_indexer(indexer_id, indexer_name, "rate_limited", bootstrap=False, items_seen=0)
             return {"items_found": 0, "items_grabbed": 0}
 
-        caps_stale = state.caps_cached_at is None or not self._is_caps_cache_fresh(
-            state.caps_cached_at, now, caps_cache_seconds
+        caps_stale = state_row.caps_cached_at is None or not self._is_caps_cache_fresh(
+            cast(datetime, state_row.caps_cached_at), now, caps_cache_seconds
         )
         if caps_stale:
             caps = self.prowlarr_client.get_indexer_caps(indexer_id)
@@ -153,8 +164,9 @@ class RssSyncService:
                 supports_book_search=bool(caps.get("book_search_supported")),
                 cached_at=now,
             )
+            state_row = cast(Any, state)
 
-        if state.caps_supports_book_search is False:
+        if state_row.caps_supports_book_search is False:
             self._broadcast_indexer(indexer_id, indexer_name, "no_book_search", bootstrap=False, items_seen=0)
             return {"items_found": 0, "items_grabbed": 0}
 
@@ -183,7 +195,7 @@ class RssSyncService:
             self._broadcast_indexer(indexer_id, indexer_name, "error", bootstrap=False, items_seen=0)
             return {"items_found": 0, "items_grabbed": 0}
 
-        if state.last_poll_at is None:
+        if state_row.last_poll_at is None:
             self._bootstrap_seen_items(indexer_id=indexer_id, items=items)
             bootstrap_seen = len(items)
             self._update_state_fields(
@@ -225,8 +237,8 @@ class RssSyncService:
                 db.add(state)
                 db.commit()
                 db.refresh(state)
-            elif state.indexer_name != indexer_name:
-                state.indexer_name = indexer_name
+            elif cast(Any, state).indexer_name != indexer_name:
+                cast(Any, state).indexer_name = indexer_name
                 db.commit()
                 db.refresh(state)
             else:
@@ -246,9 +258,10 @@ class RssSyncService:
         db = self._session_factory()
         try:
             state = self._get_or_create_state_in_session(db, indexer_id=indexer_id, indexer_name=indexer_name)
-            state.indexer_name = indexer_name
-            state.caps_cached_at = cached_at
-            state.caps_supports_book_search = supports_book_search
+            state_row = cast(Any, state)
+            state_row.indexer_name = indexer_name
+            state_row.caps_cached_at = cached_at
+            state_row.caps_supports_book_search = supports_book_search
             db.commit()
             db.refresh(state)
             db.expunge(state)
@@ -271,15 +284,16 @@ class RssSyncService:
         db = self._session_factory()
         try:
             state = self._get_or_create_state_in_session(db, indexer_id=indexer_id, indexer_name=indexer_name)
-            state.indexer_name = indexer_name
+            state_row = cast(Any, state)
+            state_row.indexer_name = indexer_name
             if last_poll_at is not None:
-                state.last_poll_at = last_poll_at
+                state_row.last_poll_at = last_poll_at
             if last_status is not None:
-                state.last_status = last_status
-            state.last_error = last_error
-            state.retry_not_before_at = retry_not_before_at
-            state.items_seen_count = int(state.items_seen_count or 0) + items_seen_delta
-            state.items_grabbed_count = int(state.items_grabbed_count or 0) + items_grabbed_delta
+                state_row.last_status = last_status
+            state_row.last_error = last_error
+            state_row.retry_not_before_at = retry_not_before_at
+            state_row.items_seen_count = int(state_row.items_seen_count or 0) + items_seen_delta
+            state_row.items_grabbed_count = int(state_row.items_grabbed_count or 0) + items_grabbed_delta
             db.commit()
         finally:
             db.close()
@@ -345,10 +359,11 @@ class RssSyncService:
             )
 
             for book in books:
-                author_name = book.author.name if book.author else ""
+                book_row = cast(Any, book)
+                author_name = book_row.author.name if book_row.author else ""
                 scored_results = self.search_service.evaluate_and_rank(
                     new_items,
-                    query_title=book.title,
+                    query_title=str(book_row.title),
                     query_author=author_name,
                 )
                 approved_matches = [
@@ -369,22 +384,34 @@ class RssSyncService:
                         scored.age_days or 0.0,
                     ),
                 )[0]
+                matched_at = datetime.now(UTC).isoformat()
 
                 self._broadcast(
                     "rss_match_found",
                     {
-                        "book_id": book.id,
+                        "book_id": int(book_row.id),
                         "indexer": indexer_name,
                         "guid": best_match.guid,
                         "title": best_match.title,
+                        "matched_at": matched_at,
                         "similarity": best_match.title_similarity,
                     },
+                )
+                self._record_recent_match(
+                    {
+                        "book_id": int(book_row.id),
+                        "indexer": indexer_name,
+                        "guid": best_match.guid,
+                        "title": best_match.title,
+                        "matched_at": matched_at,
+                        "similarity": best_match.title_similarity,
+                    }
                 )
                 if self.pipeline_service.grab_known_result(book, best_match, db) == 1:
                     grabbed += 1
                     self._broadcast(
                         "rss_grabbed",
-                        {"book_id": book.id, "indexer": indexer_name, "title": best_match.title},
+                        {"book_id": int(book_row.id), "indexer": indexer_name, "title": best_match.title},
                     )
 
             return grabbed
@@ -409,6 +436,11 @@ class RssSyncService:
             db.add(state)
             db.flush()
         return state
+
+    def _record_recent_match(self, match: dict[str, Any]) -> None:
+        self._recent_matches.append(match)
+        if len(self._recent_matches) > 20:
+            self._recent_matches = self._recent_matches[-20:]
 
     def _is_retry_in_future(self, retry_not_before_at: datetime | None, now: datetime) -> bool:
         if retry_not_before_at is None:
@@ -448,4 +480,4 @@ class RssSyncService:
             self.ws_manager.broadcast_sync(event, data)
 
     def _utcnow(self) -> datetime:
-        return datetime.utcnow()
+        return datetime.now(UTC).replace(tzinfo=None)

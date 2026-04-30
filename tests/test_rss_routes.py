@@ -1,23 +1,33 @@
 """Tests for RSS API routes — /api/rss/status and /api/rss/sync endpoints."""
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from backend.api.routes.rss import get_rss_status, trigger_rss_sync
 from backend.models.rss import RssIndexerState
 
 
-def _make_mock_rss_service(is_in_progress: bool = False):
+def _make_mock_rss_service(
+    is_in_progress: bool = False,
+    last_sync_started_at: str | None = None,
+    last_sync_completed_at: str | None = None,
+    recent_matches: list[dict[str, Any]] | None = None,
+) -> Any:
     """Create a mock RssSyncService for testing."""
     service = MagicMock()
     service.is_sync_in_progress.return_value = is_in_progress
     service.run_sync_cycle = MagicMock()
+    service._last_sync_started_at = last_sync_started_at
+    service._last_sync_completed_at = last_sync_completed_at
+    service._recent_matches = recent_matches or []
     return service
 
 
-def _make_request(rss_service=None):
+def _make_request(rss_service: Any = None) -> Any:
     """Create a mock Request object with app.state.rss_service."""
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(rss_service=rss_service)))
 
@@ -34,11 +44,7 @@ class TestGetRssStatus:
             mock_config.return_value = {"rss": {"enabled": False}}
 
             response = asyncio.run(get_rss_status(request, db_session))
-            data = response.body.decode()
-
-            import json
-
-            data = json.loads(data)
+            data = json.loads(bytes(response.body))
             assert "enabled" in data
             assert data["enabled"] is False
             assert "syncInProgress" in data
@@ -82,11 +88,7 @@ class TestGetRssStatus:
             mock_config.return_value = {"rss": {"enabled": True}}
 
             response = asyncio.run(get_rss_status(request, db_session))
-            data = response.body.decode()
-
-            import json
-
-            data = json.loads(data)
+            data = json.loads(bytes(response.body))
             assert data["enabled"] is True
             assert len(data["indexers"]) == 2
 
@@ -105,6 +107,33 @@ class TestGetRssStatus:
             assert idx2["itemsSeenCount"] == 5
             assert idx2["itemsGrabbedCount"] == 0
 
+    def test_get_status_includes_runtime_sync_metadata(self, db_session):
+        """Runtime service state should flow through to status response."""
+        mock_service = _make_mock_rss_service(
+            last_sync_started_at="2026-04-30T10:00:00+00:00",
+            last_sync_completed_at="2026-04-30T10:01:00+00:00",
+            recent_matches=[
+                {
+                    "book_id": 42,
+                    "guid": "rss-guid",
+                    "indexer": "Test Indexer",
+                    "title": "The Hobbit (EPUB)",
+                    "matched_at": "2026-04-30T10:00:30+00:00",
+                }
+            ],
+        )
+        request = _make_request(rss_service=mock_service)
+
+        with patch("backend.api.routes.rss.load_config") as mock_config:
+            mock_config.return_value = {"rss": {"enabled": True}}
+
+            response = asyncio.run(get_rss_status(request, db_session))
+            data = json.loads(bytes(response.body))
+
+        assert data["lastSyncStartedAt"] == "2026-04-30T10:00:00+00:00"
+        assert data["lastSyncCompletedAt"] == "2026-04-30T10:01:00+00:00"
+        assert data["recentMatches"][0]["guid"] == "rss-guid"
+
 
 class TestPostRssSync:
     """Tests for POST /api/rss/sync endpoint."""
@@ -118,11 +147,7 @@ class TestPostRssSync:
         background_tasks = BackgroundTasks()
 
         response = asyncio.run(trigger_rss_sync(request, background_tasks))
-        data = response.body.decode()
-
-        import json
-
-        data = json.loads(data)
+        data = json.loads(bytes(response.body))
         assert data["status"] == "started"
         assert len(background_tasks.tasks) > 0
 
@@ -135,11 +160,7 @@ class TestPostRssSync:
         background_tasks = BackgroundTasks()
 
         response = asyncio.run(trigger_rss_sync(request, background_tasks))
-        data = response.body.decode()
-
-        import json
-
-        data = json.loads(data)
+        data = json.loads(bytes(response.body))
         assert response.status_code == 409
         assert data["status"] == "in_progress"
         assert data["reason"] == "sync_in_progress"
@@ -154,10 +175,6 @@ class TestPostRssSync:
         background_tasks = BackgroundTasks()
 
         response = asyncio.run(trigger_rss_sync(request, background_tasks))
-        data = response.body.decode()
-
-        import json
-
-        data = json.loads(data)
+        data = json.loads(bytes(response.body))
         assert response.status_code == 200
         assert data["status"] == "started"
