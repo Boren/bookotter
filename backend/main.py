@@ -24,6 +24,7 @@ from backend.api.routes import (
     library,
     logs,
     root_folders,
+    rss,
     schedules,
     search,
     services,
@@ -205,6 +206,44 @@ async def lifespan(app: FastAPI):
                 logger.info("Download reconciliation completed on startup")
             except Exception as e:
                 logger.error(f"Download reconciliation failed on startup: {e}")
+
+            try:
+                from backend.services.rss_sync_service import RssSyncService
+
+                rss_service = RssSyncService(
+                    prowlarr_client=prowlarr,
+                    search_service=search_service,
+                    pipeline_service=pipeline,
+                    ws_manager=ws_manager,
+                    db_session_factory=SessionLocal,
+                )
+                app.state.rss_service = rss_service
+                logger.info("RSS sync service initialized")
+
+                rss_config = app_config.get("rss", {})
+                if rss_config.get("enabled") is True:
+                    try:
+                        scheduler.add_rss_sync_job(
+                            "rss_sync",
+                            rss_config.get("cron_expression", "*/15 * * * *"),
+                            lambda: rss_service.run_sync_cycle("scheduled"),
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to register RSS sync job: {e}")
+                else:
+                    logger.info("RSS sync is disabled (rss.enabled=False)")
+
+                # Cleanup runs even when rss.enabled=False, to drain old seen items
+                try:
+                    scheduler.add_rss_cleanup_job(
+                        "rss_cleanup",
+                        "0 3 * * *",
+                        lambda: rss_service.cleanup_old_seen_items(),
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to register RSS cleanup job: {e}")
+            except Exception as e:
+                logger.error(f"Failed to initialize RSS sync service: {e}")
         else:
             logger.info("Pipeline not started: Prowlarr/qBittorrent not fully configured")
     except Exception as e:
@@ -286,6 +325,7 @@ app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"]
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(wanted.router, prefix="/api/wanted", tags=["wanted"])
 app.include_router(blocklist.router, prefix="/api/blocklist", tags=["blocklist"])
+app.include_router(rss.router, prefix="/api/rss", tags=["rss"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
 
