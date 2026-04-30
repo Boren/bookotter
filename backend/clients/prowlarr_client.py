@@ -4,18 +4,58 @@ Handles REST API queries to search for books across configured indexers.
 """
 
 import logging
+import math
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import requests
 
 from backend.clients import ConnectionTestResult, classify_request_error
-from backend.constants import PROWLARR_RETRY_ATTEMPTS, PROWLARR_TIMEOUT
+from backend.constants import (
+    PROWLARR_RETRY_ATTEMPTS,
+    PROWLARR_TIMEOUT,
+    RSS_DEFAULT_LIMIT,
+    RSS_DEFAULT_MAX_AGE_DAYS,
+    RSS_HTTP_TIMEOUT_SECONDS,
+)
 from backend.errors import FailureReason, PipelineError
+from backend.utils.newznab import parse_caps_xml, parse_rss_xml
 from backend.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
 # Prowlarr category ID for ebooks/books
 BOOK_CATEGORY_ID = 7020
+
+
+def _parse_retry_after(value: str | None) -> int | None:
+    """Parse the Retry-After header value into an integer number of seconds.
+
+    Accepts either an integer (seconds) or an HTTP-date string (RFC 7231 / RFC 2822).
+    Returns None when the header is missing or unparseable. Negative deltas are
+    clamped to zero. The HTTP-date branch rounds up to the next whole second.
+    """
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+
+    try:
+        return max(0, int(text))
+    except ValueError:
+        pass
+
+    try:
+        dt = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    delta = (dt - datetime.now(UTC)).total_seconds()
+    return max(0, math.ceil(delta))
 
 
 class ProwlarrClient:
@@ -237,3 +277,79 @@ class ProwlarrClient:
         except Exception as e:
             logger.error(f"Prowlarr connection test failed: {e}")
             return classify_request_error(e, "Prowlarr")
+
+    def get_indexer_caps(self, indexer_id: int) -> dict:
+        """Fetch the Newznab capabilities document for a single indexer.
+
+        Issues exactly one HTTP request — no retries — and never raises.
+        Returns the dict produced by ``parse_caps_xml`` on success, or
+        ``{"book_search_supported": False, "categories": [], "error": "<reason>"}``
+        on transport / HTTP failure.
+        """
+        url = f"{self.base_url}/api/v1/indexer/{indexer_id}/newznab"
+        params = {"t": "caps"}
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=RSS_HTTP_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            return parse_caps_xml(response.text)
+        except requests.RequestException as exc:
+            logger.warning(f"Failed to fetch caps for indexer {indexer_id}: {exc}")
+            return {"book_search_supported": False, "categories": [], "error": str(exc)}
+
+    def fetch_rss(
+        self,
+        indexer_id: int,
+        indexer_name: str,
+        max_age_days: int = RSS_DEFAULT_MAX_AGE_DAYS,
+        limit: int = RSS_DEFAULT_LIMIT,
+    ) -> tuple[list[dict], dict]:
+        """Fetch and parse the Newznab book RSS feed for a single indexer.
+
+        Issues exactly one HTTP request — no retries — and never raises.
+        Returns ``(items, meta)`` where ``meta`` always carries the keys
+        ``status`` (``"ok"`` | ``"rate_limited"`` | ``"error"``),
+        ``retry_after_seconds`` (int | None), ``error`` (str | None), and
+        ``http_status`` (int | None). On HTTP 429 the ``Retry-After`` header is
+        parsed (integer seconds or HTTP-date) into ``retry_after_seconds``.
+        """
+        url = f"{self.base_url}/api/v1/indexer/{indexer_id}/newznab"
+        params = {"t": "book", "maxage": max_age_days, "limit": limit}
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=RSS_HTTP_TIMEOUT_SECONDS)
+        except requests.RequestException as exc:
+            logger.warning(f"Request error fetching RSS from {indexer_name}: {exc}")
+            return [], {
+                "status": "error",
+                "retry_after_seconds": None,
+                "error": str(exc),
+                "http_status": None,
+            }
+
+        if response.status_code == 429:
+            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+            logger.warning(f"Indexer {indexer_name} rate-limited (HTTP 429), retry-after={retry_after}s")
+            return [], {
+                "status": "rate_limited",
+                "retry_after_seconds": retry_after,
+                "error": None,
+                "http_status": 429,
+            }
+
+        if response.status_code >= 400:
+            logger.warning(f"HTTP {response.status_code} fetching RSS from {indexer_name}")
+            return [], {
+                "status": "error",
+                "retry_after_seconds": None,
+                "error": f"HTTP {response.status_code}",
+                "http_status": response.status_code,
+            }
+
+        items = parse_rss_xml(response.text, indexer_id, indexer_name)
+        logger.info(f"Fetched RSS from indexer {indexer_name}: {len(items)} items")
+        return items, {
+            "status": "ok",
+            "retry_after_seconds": None,
+            "error": None,
+            "http_status": response.status_code,
+        }
