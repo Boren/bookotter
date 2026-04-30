@@ -51,3 +51,11 @@ MAX_COLLISION_ATTEMPTS: Final[int] = 99  # max versioned suffix: (1), (2), ..., 
 # ─── Search / Filtering ────────────────────────────────────────────────────────
 SEARCH_MIN_SIZE_MB: Final[int] = 1  # MB — reject results smaller than this
 SEARCH_MAX_SIZE_MB: Final[int] = 500  # MB — reject results larger than this
+
+# ─── RSS Sync ──────────────────────────────────────────────────────────────────
+RSS_DEFAULT_MAX_AGE_DAYS: Final[int] = 3  # Newznab ?maxage=N parameter
+RSS_DEFAULT_LIMIT: Final[int] = 100  # Newznab ?limit=N parameter
+RSS_CAPS_CACHE_SECONDS: Final[int] = 3600  # caps cache TTL (1 hour)
+RSS_CLEANUP_RETENTION_DAYS: Final[int] = 60  # delete rss_seen_item rows older than this
+RSS_HTTP_TIMEOUT_SECONDS: Final[int] = 30  # HTTP request timeout
+RSS_DEFAULT_CRON: Final[str] = "*/15 * * * *"  # default polling interval
