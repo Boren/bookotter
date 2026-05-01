@@ -5,7 +5,7 @@ Handles Hardcover and Kindle sync triggers.
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.clients.hardcover_client import HardcoverClient
@@ -39,7 +39,7 @@ async def get_sync_status():
     }
 
 
-def _run_hardcover_sync_background() -> dict:
+def _run_hardcover_sync_background(app: FastAPI | None = None) -> dict:
     config = load_config()
     hc_config = config.get("hardcover", {})
     api_token = hc_config.get("api_token", "")
@@ -54,9 +54,35 @@ def _run_hardcover_sync_background() -> dict:
 
     db = SessionLocal()
     try:
-        return service.sync_hardcover_lists(db)
+        result = service.sync_hardcover_lists(db)
     finally:
         db.close()
+
+    pipeline_config = config.get("pipeline", {})
+    search_on_add = pipeline_config.get("search_on_add", True)
+    new_books = result.get("new_books", 0)
+
+    if search_on_add and new_books > 0 and app is not None:
+        pipeline = getattr(app.state, "pipeline", None)
+        if pipeline is not None:
+            try:
+                grabbed = pipeline.process_wanted_books()
+                logger.info(
+                    "Auto-search after Hardcover sync: grabbed %d/%d new books",
+                    grabbed,
+                    new_books,
+                )
+                result["auto_searched"] = grabbed
+            except Exception as exc:
+                logger.error("Auto-search after Hardcover sync failed: %s", exc)
+                result["auto_search_error"] = str(exc)
+        else:
+            logger.warning(
+                "search_on_add=true but pipeline service is not initialized — skipping auto-search for %d new book(s)",
+                new_books,
+            )
+
+    return result
 
 
 async def _run_kindle_sync_background(kindle_device: str) -> dict:
@@ -80,9 +106,9 @@ async def _run_kindle_sync_background(kindle_device: str) -> dict:
 
 
 @router.post("/hardcover")
-async def trigger_hardcover_sync(background_tasks: BackgroundTasks):
+async def trigger_hardcover_sync(request: Request, background_tasks: BackgroundTasks):
     """Manually trigger Hardcover list sync."""
-    background_tasks.add_task(_run_hardcover_sync_background)
+    background_tasks.add_task(_run_hardcover_sync_background, app=request.app)
     return {"success": True, "message": "Hardcover sync started"}
 
 
