@@ -4,10 +4,20 @@ import hashlib
 import os
 from unittest.mock import MagicMock
 
+from sqlalchemy.orm import object_session
+
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.hardcover_sync_service import HardcoverSyncService
 from backend.services.pipeline_service import PipelineService
 from tests.helpers import create_test_book, create_test_epub
+
+
+def _import_to_in_library(book, file_path):
+    sess = object_session(book)
+    book.status = BookStatus.IN_LIBRARY.value
+    if sess is not None:
+        sess.commit()
+    return True
 
 
 def make_pipeline(db_session, search_service=None, download_service=None, import_service=None):
@@ -63,7 +73,7 @@ class TestFullPipelineHappyPath:
         mock_download.get_completed_file_path.return_value = epub_path
 
         mock_import = MagicMock()
-        mock_import.import_epub.return_value = True
+        mock_import.import_epub.side_effect = _import_to_in_library
 
         pipeline = make_pipeline(db_session, mock_search, mock_download, mock_import)
         grabbed_count = pipeline.process_wanted_books()
@@ -348,7 +358,7 @@ class TestHardcoverSyncIntegration:
         mock_dl.get_completed_file_path.return_value = "/tmp/Synced.epub"
 
         mock_import = MagicMock()
-        mock_import.import_epub.return_value = True
+        mock_import.import_epub.side_effect = _import_to_in_library
 
         pipeline = make_pipeline(db_session, mock_search, mock_dl, mock_import)
         pipeline.process_wanted_books()
@@ -399,7 +409,7 @@ class TestMultiBookPipeline:
         mock_download.get_completed_file_path.return_value = "/tmp/completed.epub"
 
         mock_import = MagicMock()
-        mock_import.import_epub.return_value = True
+        mock_import.import_epub.side_effect = _import_to_in_library
 
         pipeline = make_pipeline(db_session, mock_search, mock_download, mock_import)
         pipeline.process_wanted_books()

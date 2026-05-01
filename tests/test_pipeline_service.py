@@ -484,8 +484,13 @@ class TestProcessImportingBooks:
         db_session.commit()
         book_id, dl_id = book.id, download.id
 
+        def _import_side_effect(book, file_path):
+            book.status = BookStatus.IN_LIBRARY.value
+            db_session.commit()
+            return True
+
         mock_imp = MagicMock()
-        mock_imp.import_epub.return_value = True
+        mock_imp.import_epub.side_effect = _import_side_effect
         service = make_service(db_session, import_service=mock_imp)
 
         imported = service.process_importing_books()
@@ -648,8 +653,13 @@ class TestRunPipeline:
         mock_dl.add_torrent.return_value = True
         mock_dl.get_completed_file_path.return_value = "/downloads/Dune.epub"
 
+        def _import_side_effect(book, file_path):
+            book.status = BookStatus.IN_LIBRARY.value
+            db_session.commit()
+            return True
+
         mock_imp = MagicMock()
-        mock_imp.import_epub.return_value = True
+        mock_imp.import_epub.side_effect = _import_side_effect
 
         service = make_service(
             db_session, search_service=mock_search, download_service=mock_dl, import_service=mock_imp

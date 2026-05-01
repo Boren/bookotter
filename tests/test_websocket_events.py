@@ -125,8 +125,28 @@ class TestPipelineEvents:
         download_service = MagicMock()
         download_service.add_torrent.return_value = True
         download_service.get_completed_file_path.return_value = "/downloads/dune.epub"
+
+        def _import_side_effect(book, file_path):
+            old_status = book.status
+            book.status = BookStatus.IN_LIBRARY.value
+            db_session.commit()
+            ws_manager.broadcast_sync(
+                "book_status_changed",
+                {
+                    "book_id": book.id,
+                    "old_status": old_status,
+                    "new_status": BookStatus.IN_LIBRARY.value,
+                    "title": book.title,
+                },
+            )
+            ws_manager.broadcast_sync(
+                "import_completed",
+                {"book_id": book.id, "title": book.title, "file_path": file_path},
+            )
+            return True
+
         import_service = MagicMock()
-        import_service.import_epub.return_value = True
+        import_service.import_epub.side_effect = _import_side_effect
 
         service = PipelineService(
             search_service=search_service,

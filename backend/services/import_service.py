@@ -128,6 +128,7 @@ class ImportService:
                 raise BookImportError(f"Failed to transition book {book_id} to IN_LIBRARY")
 
             self.db.flush()
+            self.db.commit()
             self._broadcast(
                 "import_completed",
                 {"book_id": book.id, "title": book.title, "file_path": str(dest_path)},
@@ -150,6 +151,7 @@ class ImportService:
             if book.status == BookStatus.IMPORTING.value:
                 self._transition_book(book, BookStatus.FAILED.value)
                 self.db.flush()
+                self.db.commit()
             raise
 
     def _resolve_collision(self, dest: Path) -> Path:

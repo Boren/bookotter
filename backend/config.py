@@ -257,6 +257,23 @@ def get_all_kindles() -> list[dict]:
     return config.get("kindles", [])
 
 
+def get_first_real_kindle(config: dict | None = None) -> dict | None:
+    """Return the first Kindle config with a non-empty hostname, or None.
+
+    The default config seeds a placeholder Kindle with hostname="" — that
+    placeholder is NOT a real device. This helper distinguishes real
+    user-configured devices from the default stub. Used to gate automatic
+    per-book Kindle delivery (the bulk path takes a kindle_id and is
+    unaffected).
+    """
+    if config is None:
+        config = load_config()
+    for kindle in config.get("kindles", []):
+        if (kindle.get("hostname") or "").strip():
+            return kindle
+    return None
+
+
 def get_qbit_category(config: dict | None = None) -> str:
     """Return the configured qBittorrent category label, defaulting to 'books'."""
     if config is None:

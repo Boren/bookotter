@@ -34,8 +34,13 @@ class TestPipelineIdempotency:
         mock_download.add_torrent.return_value = True
         mock_download.get_completed_file_path.side_effect = [f"/tmp/book-{i}.epub" for i in range(1, 6)]
 
+        def _import_side_effect(book, file_path):
+            book.status = BookStatus.IN_LIBRARY.value
+            db_session.commit()
+            return True
+
         mock_import = MagicMock()
-        mock_import.import_epub.return_value = True
+        mock_import.import_epub.side_effect = _import_side_effect
 
         pipeline = _pipeline(
             db_session,
@@ -67,7 +72,13 @@ class TestPipelineIdempotency:
         second_results = pipeline.run_pipeline(holder="manual")
 
         assert second_grabbed == 0
-        assert second_results == {"failed_retried": 0, "grabbed": 0, "downloading": 0, "importing": 0}
+        assert second_results == {
+            "failed_retried": 0,
+            "grabbed": 0,
+            "downloading": 0,
+            "importing": 0,
+            "kindle_delivery": 0,
+        }
         mock_search.search_book.assert_not_called()
         mock_download.add_torrent.assert_not_called()
         mock_download.get_completed_file_path.assert_not_called()

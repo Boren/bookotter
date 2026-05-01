@@ -7,6 +7,7 @@ See run_pipeline() for the rationale.
 """
 
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -195,6 +196,12 @@ class PipelineService:
             logger.warning("process_importing_books: no import_service configured, skipping")
             return 0
 
+        from backend.config import get_first_real_kindle, load_config
+
+        config_for_pipeline = load_config()
+        auto_kindle = config_for_pipeline.get("pipeline", {}).get("kindle_sync_on_import", True)
+        real_kindle = get_first_real_kindle(config_for_pipeline) if auto_kindle else None
+
         db = self._session_factory()
         imported = 0
         try:
@@ -214,7 +221,17 @@ class PipelineService:
                     continue
                 try:
                     success = self.import_service.import_epub(book, download.file_path)
+                    db.refresh(book)
                     if success:
+                        if book.status != BookStatus.IN_LIBRARY.value:
+                            logger.warning(
+                                "ImportService claimed success but book %d has status=%r — failing",
+                                book.id,
+                                book.status,
+                            )
+                            self._fail_download(download, db, "Import success but book status mismatched")
+                            self._fail_book(book, db, "Import success but book status mismatched")
+                            continue
                         if not transition_download(download, DownloadStatus.IMPORTING, db):
                             logger.warning("Could not transition download %s to IMPORTING", download.id)
                             db.rollback()
@@ -223,21 +240,26 @@ class PipelineService:
                             logger.warning("Could not transition download %s to IMPORTED", download.id)
                             db.rollback()
                             continue
-                        if not self._transition_book(book, BookStatus.IN_LIBRARY, db=db, download=download):
-                            logger.warning("Could not transition '%s' to IN_LIBRARY", book.title)
-                            db.rollback()
-                            continue
+                        if real_kindle is not None:
+                            book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+                            book.kindle_first_pending_at = datetime.utcnow()
                         db.commit()
                         imported += 1
                         logger.info(f"Imported '{book.title}' to library")
                     else:
                         logger.warning(f"import_epub returned False for '{book.title}'")
-                        self._fail_download(download, db, "import_epub returned False")
-                        self._fail_book(book, db, "import_epub returned False")
+                        if book.status != BookStatus.FAILED.value:
+                            self._fail_download(download, db, "import_epub returned False")
+                            self._fail_book(book, db, "import_epub returned False")
                 except Exception as exc:
                     logger.error(f"Error importing '{book.title}': {exc}")
-                    self._fail_download(download, db, str(exc))
-                    self._fail_book(book, db, str(exc))
+                    try:
+                        db.refresh(book)
+                    except Exception:
+                        pass
+                    if book.status != BookStatus.FAILED.value:
+                        self._fail_download(download, db, str(exc))
+                        self._fail_book(book, db, str(exc))
             return imported
         finally:
             db.close()
@@ -300,12 +322,20 @@ class PipelineService:
             db.close()
 
     def _get_kindle_config(self) -> dict | None:
-        """Return the active Kindle config dict, or None when not configured.
+        """Return the first user-configured (non-placeholder) Kindle config, or None.
 
-        Default stub returns None — overridden by tests, CLI, or future DI to
-        supply the dict consumed by KindleClient.from_config().
+        Reads YAML on every call so Settings UI changes take effect on the next
+        pipeline cycle without an app restart.
         """
-        return None
+        from backend.config import get_first_real_kindle
+
+        return get_first_real_kindle()
+
+    def _load_config_for_delivery(self) -> dict:
+        """Indirection so tests can override config loading without monkeypatching the module."""
+        from backend.config import load_config
+
+        return load_config()
 
     def process_kindle_delivery_books(self) -> int:
         """Drive the Kindle delivery state machine.
@@ -313,10 +343,10 @@ class PipelineService:
         PENDING:
             - Stamp kindle_first_pending_at if missing.
             - If now - first_pending_at > KINDLE_DELIVERY_TIMEOUT_DAYS → SKIPPED.
-            - Otherwise attempt SFTP transfer:
-                success → DELIVERED
-                failure → stays PENDING (retry next cycle)
-              kindle_delivery_attempts increments on every transfer attempt.
+            - Otherwise resolve absolute path and attempt SFTP transfer:
+                result["success"] is True → DELIVERED (kindle_delivery_attempts++)
+                result["success"] is False → stays PENDING (attempts++)
+                exception → stays PENDING (attempts++)
 
         SKIPPED:
             - Ping Kindle (_get_or_create_ssh). If reachable → re-arm as
@@ -326,64 +356,121 @@ class PipelineService:
             Number of PENDING books that reached a terminal state
             (DELIVERED or SKIPPED) during this run.
         """
+        from backend.clients.kindle_client import KindleClient
         from backend.constants import KINDLE_DELIVERY_TIMEOUT_DAYS
 
-        if self.db is None or self.kindle_client is None:
-            logger.warning("process_kindle_delivery_books: db or kindle_client not configured, skipping")
+        kindle_config = self._get_kindle_config()
+        if kindle_config is None:
+            logger.debug("process_kindle_delivery_books: no real kindle configured, skipping")
             return 0
 
+        # Build KindleClient lazily from fresh config so Settings UI changes take effect
+        # on the next pipeline cycle without an app restart. Tests inject a mock via the
+        # constructor's `kindle_client=` parameter.
+        kindle_client = self.kindle_client or KindleClient.from_config(kindle_config)
+
+        config = self._load_config_for_delivery()
+        folder_org = config.get("transfer", {}).get("folder_organization", "flat")
+
+        db = self._session_factory()
         now = datetime.utcnow()
         timeout = timedelta(days=KINDLE_DELIVERY_TIMEOUT_DAYS)
-
-        # Snapshot SKIPPED *before* mutating PENDING so a freshly-timed-out
-        # book is not immediately re-armed by the auto-retry loop in the
-        # same call (would create a PENDING↔SKIPPED bounce).
-        skipped_books = (
-            self.db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value).all()
-        )
-        pending_books = (
-            self.db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value).all()
-        )
-
         processed = 0
-        for book in pending_books:
-            if book.kindle_first_pending_at is None:
-                book.kindle_first_pending_at = now
 
-            if (now - book.kindle_first_pending_at) > timeout:
-                book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
-                logger.info("Kindle delivery timed out for book %s — marking SKIPPED", book.id)
-                processed += 1
-                continue
+        try:
+            # Snapshot SKIPPED *before* mutating PENDING so a freshly-timed-out
+            # book is not immediately re-armed by the auto-retry loop in the
+            # same call (would create a PENDING↔SKIPPED bounce).
+            skipped_books = (
+                db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value).all()
+            )
+            pending_books = (
+                db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value).all()
+            )
 
-            kindle_config = self._get_kindle_config()
-            if kindle_config is None:
-                continue
+            for book in pending_books:
+                if book.kindle_first_pending_at is None:
+                    book.kindle_first_pending_at = now
 
-            try:
+                if (now - book.kindle_first_pending_at) > timeout:
+                    book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
+                    logger.info("Kindle delivery timed out for book %s — marking SKIPPED", book.id)
+                    processed += 1
+                    continue
+
+                if book.root_folder is None or not book.file_path:
+                    logger.warning(
+                        "Kindle delivery: book %s has no root_folder or file_path — leaving PENDING",
+                        book.id,
+                    )
+                    continue
+                abs_path = os.path.join(str(book.root_folder.path), str(book.file_path))
+                if not os.path.exists(abs_path):
+                    logger.warning(
+                        "Kindle delivery: file missing for book %s at %s — leaving PENDING",
+                        book.id,
+                        abs_path,
+                    )
+                    continue
+
                 book.kindle_delivery_status = KindleDeliveryStatus.IN_PROGRESS.value
-                self.kindle_client.transfer_file(book.file_path)
-                book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
                 book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
-                processed += 1
-            except Exception as exc:
+                db.commit()
+
+                author_name = book.author.name if book.author else ""
+                series_name = str(book.series_name) if book.series_name else ""
+                transfer_start = time.monotonic()
+
+                try:
+                    result = kindle_client.transfer_file(
+                        local_path=abs_path,
+                        skip_existing=True,
+                        author=author_name,
+                        series=series_name,
+                        folder_organization=folder_org,
+                    )
+                except Exception as exc:
+                    logger.warning("Kindle delivery raised for book %s: %s", book.id, exc)
+                    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+                    db.commit()
+                    continue
+
+                if result.get("success"):
+                    book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+                    duration_ms = int((time.monotonic() - transfer_start) * 1000)
+                    logger.info(
+                        "Kindle delivery DELIVERED for book %s (%s, %d bytes)",
+                        book.id,
+                        result.get("status", "transferred"),
+                        result.get("file_size", 0),
+                    )
+                    log_event(
+                        "kindle_delivered",
+                        book_id=book.id,
+                        duration_ms=duration_ms,
+                        size_bytes=result.get("file_size", 0),
+                    )
+                    processed += 1
+                else:
+                    logger.warning(
+                        "Kindle delivery soft-failed for book %s: %s",
+                        book.id,
+                        result.get("error", "unknown"),
+                    )
+                    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+                db.commit()
+
+            for book in skipped_books:
+                try:
+                    kindle_client._get_or_create_ssh(kindle_config)
+                except Exception:
+                    continue
                 book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-                book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
-                logger.warning("Kindle delivery failed for book %s: %s", book.id, exc)
-
-        for book in skipped_books:
-            kindle_config = self._get_kindle_config()
-            if kindle_config is None:
-                continue
-            try:
-                self.kindle_client._get_or_create_ssh(kindle_config)
-            except Exception:
-                continue
-            book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-            book.kindle_first_pending_at = now
-
-        self.db.commit()
-        return processed
+                book.kindle_first_pending_at = now
+            db.commit()
+            return processed
+        finally:
+            db.close()
 
     def run_pipeline(self, holder: str = "scheduled") -> dict[str, Any]:
         """
@@ -413,6 +500,7 @@ class PipelineService:
                         ("grabbed", self.process_grabbed_books),
                         ("downloading", self.process_downloading_books),
                         ("importing", self.process_importing_books),
+                        ("kindle_delivery", self.process_kindle_delivery_books),
                     ]:
                         try:
                             results[stage_name] = method()
@@ -429,6 +517,7 @@ class PipelineService:
                         grabbed=results.get("grabbed", 0),
                         downloading=results.get("downloading", 0),
                         importing=results.get("importing", 0),
+                        kindle_delivery=results.get("kindle_delivery", 0),
                     )
                     logger.debug(f"Pipeline run complete: {results}")
                     return results

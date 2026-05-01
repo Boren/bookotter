@@ -1,4 +1,4 @@
-# pyright: reportCallIssue=false, reportArgumentType=false, reportOptionalCall=false
+# pyright: reportCallIssue=false, reportArgumentType=false, reportOptionalCall=false, reportAttributeAccessIssue=false
 
 """
 Hardcover sync service: polls Hardcover lists and adds new books to the library DB.
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
 from backend.config import get_kindle_by_id
-from backend.models.book import Author, Book, BookStatus
+from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus
 from backend.utils.events import log_event
 
 logger = logging.getLogger(__name__)
@@ -215,6 +215,7 @@ class HardcoverSyncService:
                         skipped += 1
                     else:
                         transferred += 1
+                        book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
                         logger.info(f"Transferred '{book.title}' to Kindle ({result.get('file_size', 0)} bytes)")
                         log_event(
                             "kindle_delivered",
@@ -230,6 +231,9 @@ class HardcoverSyncService:
             except Exception as e:
                 logger.error(f"Error transferring '{book.title}' to Kindle: {e}")
                 failed += 1
+
+        if transferred > 0:
+            db.commit()
 
         logger.info(f"Kindle sync complete: {transferred} transferred, {skipped} skipped, {failed} failed")
         return {"transferred": transferred, "skipped": skipped, "failed": failed}
