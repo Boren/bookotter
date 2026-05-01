@@ -46,6 +46,11 @@ DEFAULT_CATEGORY = "books"
 # avoid racing with qBit metadata-parsing immediately after add_torrent().
 RECONCILE_GRACE_SECONDS = 60
 
+# Grace window for SEARCHING orphan recovery. A typical Prowlarr search
+# completes in <5s; the pipeline cycle is 15s. 5 minutes is 60x typical and
+# small enough that crashed-mid-search books recover within one reconcile run.
+SEARCHING_ORPHAN_GRACE_SECONDS = 300
+
 ACTIVE_DL_STATES = {
     TorrentState.DOWNLOADING,
     TorrentState.STALLED_DL,
@@ -65,11 +70,12 @@ def reconcile_state(
     *,
     category: str = DEFAULT_CATEGORY,
     grace_seconds: int = RECONCILE_GRACE_SECONDS,
+    searching_grace_seconds: int = SEARCHING_ORPHAN_GRACE_SECONDS,
 ) -> dict[str, int]:
     """
-    Detect and fail orphaned books stuck in transient pipeline states.
+    Detect and recover orphaned books stuck in transient pipeline states.
 
-    Two orphan classes are reconciled:
+    Three orphan classes are reconciled:
 
     1. Books in ``IMPORTING`` with **no** ``COMPLETED`` Download row.
        The completed download was lost (e.g. crash mid-import). Mark the book
@@ -78,6 +84,13 @@ def reconcile_state(
     2. Books in ``DOWNLOADING`` whose active Download's ``torrent_hash`` is no
        longer present in qBittorrent (after a grace window for fresh adds).
        Mark the book ``FAILED`` with ``DOWNLOAD_TORRENT_ERROR``.
+
+    3. Books in ``SEARCHING`` whose ``updated_at`` is older than
+       ``searching_grace_seconds`` (default 5 minutes). A typical Prowlarr
+       search takes <5s; if a book has been SEARCHING for >5min, the search
+       crashed before completing the SEARCHING→GRABBED or SEARCHING→WANTED
+       transition. Recover by transitioning back to ``WANTED`` so the next
+       pipeline cycle (or "Search All") picks it up naturally.
 
     This function is callable independently — it makes no assumption about
     being invoked at startup, and is scheduled periodically via
@@ -90,12 +103,17 @@ def reconcile_state(
         db: Active SQLAlchemy session.
         qbit_client: QBittorrent client used to enumerate live torrents.
         category: qBittorrent category to query (defaults to ``"books"``).
-        grace_seconds: Skip detection for downloads younger than this window.
+        grace_seconds: Skip downloading-orphan detection for downloads younger than this window.
+        searching_grace_seconds: Skip searching-orphan detection for books updated within this window.
 
     Returns:
-        Dict with counts: ``{"importing_orphans": N, "downloading_orphans": N}``.
+        Dict with counts: ``{"importing_orphans": N, "downloading_orphans": N, "searching_orphans": N}``.
     """
-    counts: dict[str, int] = {"importing_orphans": 0, "downloading_orphans": 0}
+    counts: dict[str, int] = {
+        "importing_orphans": 0,
+        "downloading_orphans": 0,
+        "searching_orphans": 0,
+    }
     now = datetime.now(UTC)
 
     importing_books = db.query(Book).filter(Book.status == BookStatus.IMPORTING.value).all()
@@ -159,18 +177,44 @@ def reconcile_state(
             book.updated_at = now.replace(tzinfo=None)
             counts["downloading_orphans"] += 1
 
-    if counts["importing_orphans"] or counts["downloading_orphans"]:
+    searching_books = db.query(Book).filter(Book.status == BookStatus.SEARCHING.value).all()
+    cutoff = now.replace(tzinfo=None) - timedelta(seconds=searching_grace_seconds)
+    for book in searching_books:
+        if book.updated_at and book.updated_at >= cutoff:
+            continue
+        logger.warning(
+            "Orphan book id=%d (%r) SEARCHING for >%ds — recovering to WANTED",
+            book.id,
+            book.title,
+            searching_grace_seconds,
+        )
+        if not transition_book(book, BookStatus.WANTED.value, db):
+            logger.warning(
+                "Could not transition orphan book id=%d from SEARCHING to WANTED",
+                book.id,
+            )
+            continue
+        book.failure_reason = None
+        book.updated_at = now.replace(tzinfo=None)
+        counts["searching_orphans"] += 1
+
+    if counts["importing_orphans"] or counts["downloading_orphans"] or counts["searching_orphans"]:
         try:
             db.commit()
             logger.info(
-                "reconcile_state: %d importing orphan(s), %d downloading orphan(s) reconciled",
+                "reconcile_state: %d importing, %d downloading, %d searching orphan(s) reconciled",
                 counts["importing_orphans"],
                 counts["downloading_orphans"],
+                counts["searching_orphans"],
             )
         except Exception as exc:
             logger.error("reconcile_state: commit failed: %s", exc)
             db.rollback()
-            return {"importing_orphans": 0, "downloading_orphans": 0}
+            return {
+                "importing_orphans": 0,
+                "downloading_orphans": 0,
+                "searching_orphans": 0,
+            }
 
     return counts
 
