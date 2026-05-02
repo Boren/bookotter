@@ -102,7 +102,7 @@ def download_service(qbit, SessionLocal):
 
 @pytest.fixture
 def book_record(db):
-    book = Book(title="Dedup Test Book", status=BookStatus.SEARCHING.value)
+    book = Book(title="Dedup Test Book", hardcover_id="test-dedup-book", status=BookStatus.SEARCHING.value)
     db.add(book)
     db.commit()
     db.refresh(book)
@@ -162,8 +162,8 @@ class TestDownloadServiceDedup:
         qbit.add_torrent.assert_not_called()
 
     def test_dedup_by_hash_across_books(self, download_service, qbit, db):
-        book_one = Book(title="Book One", status=BookStatus.SEARCHING.value)
-        book_two = Book(title="Book Two", status=BookStatus.SEARCHING.value)
+        book_one = Book(title="Book One", hardcover_id="test-book-one", status=BookStatus.SEARCHING.value)
+        book_two = Book(title="Book Two", hardcover_id="test-book-two", status=BookStatus.SEARCHING.value)
         db.add_all([book_one, book_two])
         db.commit()
 
@@ -241,7 +241,7 @@ class TestIntegrityErrorRace:
 class TestConcurrentGrabs:
     def test_concurrent_add_download_no_duplicates(self, file_SessionLocal, qbit):
         setup_db = file_SessionLocal()
-        book = Book(title="Concurrent Book", status=BookStatus.SEARCHING.value)
+        book = Book(title="Concurrent Book", hardcover_id="test-concurrent-book", status=BookStatus.SEARCHING.value)
         setup_db.add(book)
         setup_db.commit()
         book_id = book.id
@@ -318,7 +318,7 @@ class TestPipelineServiceDedup:
 
     def test_pipeline_concurrent_grab_no_duplicate(self, file_SessionLocal):
         setup_db = file_SessionLocal()
-        book = Book(title="Pipeline Concurrent", status=BookStatus.WANTED.value)
+        book = Book(title="Pipeline Concurrent", hardcover_id="test-pipeline-concurrent", status=BookStatus.WANTED.value)
         setup_db.add(book)
         setup_db.commit()
         book_id = book.id

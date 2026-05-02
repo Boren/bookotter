@@ -55,7 +55,7 @@ def service(qbit, SessionLocal):
 def _make_book(db, status=BookStatus.DOWNLOADING.value):
     """Create a test book with explicit timestamps (freezegun cannot patch column defaults)."""
     now = datetime.utcnow()
-    book = Book(title="Stall Test Book", status=status, created_at=now, updated_at=now)
+    book = Book(title="Stall Test Book", hardcover_id="test-stall-book", status=status, created_at=now, updated_at=now)
     db.add(book)
     db.commit()
     db.refresh(book)

@@ -45,6 +45,7 @@ def _make_book(
 
     book = Book(
         title=title,
+        hardcover_id=f"test-{title.replace(' ', '-').lower()}",
         author_id=author.id if author else None,
         isbn=isbn,
         status=status,

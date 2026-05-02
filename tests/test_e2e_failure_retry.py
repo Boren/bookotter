@@ -118,6 +118,7 @@ class TestE2EFailureRetrySuccess:
 
         book = Book(
             title="Dune",
+            hardcover_id="test-dune",
             author_id=author.id,
             status=BookStatus.FAILED.value,
             failure_reason=FailureReason.PROWLARR_UNREACHABLE.value,

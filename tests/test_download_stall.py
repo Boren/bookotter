@@ -56,7 +56,7 @@ def _make_book(db, status=BookStatus.DOWNLOADING.value):
     # SQLAlchemy column defaults capture function refs at class-definition time,
     # so freezegun cannot patch them here. Set timestamp fields explicitly.
     now = datetime.utcnow()
-    book = Book(title="Stall Test Book", status=status, created_at=now, updated_at=now)
+    book = Book(title="Stall Test Book", hardcover_id="test-stall-book", status=status, created_at=now, updated_at=now)
     db.add(book)
     db.commit()
     db.refresh(book)

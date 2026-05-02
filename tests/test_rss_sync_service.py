@@ -564,6 +564,7 @@ def test_multiple_matches_deterministic(db_session, fake_ws):
     db_session.flush()
     book_a = Book(
         title="The Hobbit",
+        hardcover_id="test-hobbit",
         author_id=shared_author.id,
         status=BookStatus.WANTED.value,
         created_at=datetime.utcnow(),
@@ -571,6 +572,7 @@ def test_multiple_matches_deterministic(db_session, fake_ws):
     )
     book_b = Book(
         title="The Hobbit Companion",
+        hardcover_id="test-hobbit-companion",
         author_id=shared_author.id,
         status=BookStatus.WANTED.value,
         created_at=datetime.utcnow(),

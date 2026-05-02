@@ -54,6 +54,7 @@ def _make_book(
 
     book = Book(
         title=title,
+        hardcover_id=f"test-{_book_counter}",
         author_id=author.id,
         status=status,
         root_folder_id=root_folder.id,
@@ -404,6 +405,7 @@ class TestImportBook:
         db_session.flush()
         book = Book(
             title="Orphan",
+            hardcover_id="test-orphan",
             author_id=author.id,
             status=BookStatus.DOWNLOADING.value,
             created_at=datetime.utcnow(),

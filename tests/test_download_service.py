@@ -69,7 +69,7 @@ def service(qbit, SessionLocal):
 
 @pytest.fixture
 def book_record(db):
-    book = Book(title="Test Book", status=BookStatus.SEARCHING.value)
+    book = Book(title="Test Book", hardcover_id="test-book", status=BookStatus.SEARCHING.value)
     db.add(book)
     db.commit()
     db.refresh(book)

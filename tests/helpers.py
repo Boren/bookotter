@@ -104,6 +104,7 @@ def create_test_book(db, title: str = "Test Book", author_name: str = None, **kw
     defaults = {
         "title": title,
         "author_id": author.id,
+        "hardcover_id": kwargs.pop("hardcover_id", f"test-{title.replace(' ', '-').lower()}"),
         "isbn": kwargs.pop("isbn", "978-0-123456-78-9"),
         "status": BookStatus.WANTED.value,
         "created_at": datetime.utcnow(),
