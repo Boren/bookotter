@@ -13,7 +13,6 @@ Tests cover:
 - Mixed case
 """
 
-
 from backend.services.scanner.normalize import normalize
 
 
