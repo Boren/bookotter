@@ -2,6 +2,8 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { Book } from '../types';
 import { useDownloadStore } from './download';
+import { useFailedStore } from './failed';
+import { useLibraryStore } from './library';
 import { useRssStore } from './rss';
 
 export const useSyncStore = defineStore('sync', () => {
@@ -82,6 +84,8 @@ export const useSyncStore = defineStore('sync', () => {
   const handleWebSocketMessage = (message: { event: string; data: unknown }) => {
     const downloadStore = useDownloadStore();
     const rssStore = useRssStore();
+    const failedStore = useFailedStore();
+    const libraryStore = useLibraryStore();
 
     if (message.event.startsWith('rss_')) {
       rssStore.handleWebSocketEvent(message.event, message.data);
@@ -90,6 +94,28 @@ export const useSyncStore = defineStore('sync', () => {
 
     switch (message.event) {
       case 'book_status_changed':
+        fetchPipelineStats();
+        failedStore.handleBookEvent(
+          'book_status_changed',
+          message.data as { book_id: number; new_status: string }
+        );
+        libraryStore.handleBookEvent(
+          'book_status_changed',
+          message.data as { book_id: number; new_status: string }
+        );
+        break;
+
+      case 'book_force_retried':
+        failedStore.handleBookEvent(
+          'book_force_retried',
+          message.data as { book_id: number; book_status: string }
+        );
+        libraryStore.handleBookEvent(
+          'book_force_retried',
+          message.data as { book_id: number; book_status: string }
+        );
+        break;
+
       case 'book_searching':
       case 'book_grabbed':
       case 'download_started':

@@ -63,14 +63,23 @@ export const useLibraryStore = defineStore('library', () => {
   const fetchBook = async (id: number) => {
     isLoading.value = true;
     error.value = null;
-    currentBook.value = null;
+    if (currentBook.value?.id !== id) {
+      currentBook.value = null;
+    }
     try {
       const response = await fetch(`/api/library/books/${id}`);
       if (!response.ok) {
         if (response.status === 404) throw new Error('Book not found');
         throw new Error('Failed to fetch book');
       }
-      currentBook.value = await response.json();
+      const data = await response.json();
+      if (currentBook.value?.id === id || !currentBook.value) {
+        currentBook.value = data;
+      }
+      const idx = books.value.findIndex((b) => b.id === id);
+      if (idx !== -1) {
+        books.value[idx] = data;
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch book';
     } finally {
@@ -143,6 +152,16 @@ export const useLibraryStore = defineStore('library', () => {
     offset.value = 0;
   };
 
+  const handleBookEvent = (event: string, payload: { book_id: number; [key: string]: unknown }) => {
+    if (event === 'book_status_changed' || event === 'book_force_retried') {
+      const inBooks = books.value.some((b) => b.id === payload.book_id);
+      const isCurrent = currentBook.value?.id === payload.book_id;
+      if (inBooks || isCurrent) {
+        fetchBook(payload.book_id);
+      }
+    }
+  };
+
   // Computed
   const bookCount = computed(() => books.value.length);
   const totalPages = computed(() => Math.ceil(total.value / limit.value));
@@ -184,5 +203,6 @@ export const useLibraryStore = defineStore('library', () => {
     searchBooks,
     setFilterStatus,
     clearError,
+    handleBookEvent,
   };
 });

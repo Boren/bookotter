@@ -3,10 +3,12 @@ import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useSyncStore } from './stores/sync'
 import { useWantedStore } from './stores/wanted'
+import { useFailedStore } from './stores/failed'
 
 const route = useRoute()
 const syncStore = useSyncStore()
 const wantedStore = useWantedStore()
+const failedStore = useFailedStore()
 const mobileMenuOpen = ref(false)
 
 // Otter-themed taglines - randomly selected on each page load
@@ -44,6 +46,13 @@ const navLinks = [
     path: '/wanted',
     icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
+    </svg>`
+  },
+  {
+    name: 'Failed',
+    path: '/failed',
+    icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
     </svg>`
   },
   {
@@ -121,6 +130,7 @@ onUnmounted(() => {
           v-for="link in navLinks"
           :key="link.path"
           :to="link.path"
+          :data-testid="link.name === 'Failed' ? 'nav-failed' : undefined"
           :class="[
             'nav-item flex items-center justify-between',
             isActive(link.path) ? 'nav-item-active' : ''
@@ -128,13 +138,19 @@ onUnmounted(() => {
         >
           <div class="flex items-center gap-3">
             <span v-html="link.icon"></span>
-            <span>{{ link.name }}</span>
+            <span>{{ link.name === 'Failed' ? 'Failed Books' : link.name }}</span>
           </div>
           <span
             v-if="link.name === 'Wanted' && wantedStore.missingCount > 0"
             class="bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full"
           >
             {{ wantedStore.missingCount }}
+          </span>
+          <span
+            v-if="link.name === 'Failed' && (failedStore.counts.permanent_failed > 0 || failedStore.counts.recent_failures > 0)"
+            class="bg-error-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full"
+          >
+            {{ failedStore.counts.permanent_failed + failedStore.counts.recent_failures }}
           </span>
         </RouterLink>
       </nav>
@@ -236,6 +252,7 @@ onUnmounted(() => {
             v-for="link in navLinks"
             :key="link.path"
             :to="link.path"
+            :data-testid="link.name === 'Failed' ? 'nav-failed-mobile' : undefined"
             :class="[
               'nav-item',
               isActive(link.path) ? 'nav-item-active' : ''
@@ -243,7 +260,7 @@ onUnmounted(() => {
             @click="closeMobileMenu"
           >
             <span v-html="link.icon"></span>
-            <span>{{ link.name }}</span>
+            <span>{{ link.name === 'Failed' ? 'Failed Books' : link.name }}</span>
           </RouterLink>
         </nav>
       </div>
