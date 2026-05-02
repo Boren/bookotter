@@ -97,10 +97,7 @@ def _build_add_column_ddl(table_name, column) -> str:
         column_definition.append(f"DEFAULT {_sqlite_default_sql(column)}")
         column_definition.append("NOT NULL")
 
-    return (
-        f"ALTER TABLE {_quote_sqlite_identifier(table_name)} "
-        f"ADD COLUMN {' '.join(column_definition)}"
-    )
+    return f"ALTER TABLE {_quote_sqlite_identifier(table_name)} ADD COLUMN {' '.join(column_definition)}"
 
 
 def _sqlite_column_type(column) -> str:

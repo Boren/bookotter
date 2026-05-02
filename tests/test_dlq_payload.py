@@ -19,7 +19,7 @@ class TestDLQPayload:
                 "attempt": 1,
             }
         ]
-        book = create_test_book(
+        create_test_book(
             db_session,
             status=BookStatus.PERMANENT_FAILED.value,
             failure_history=failure_history,
@@ -37,7 +37,7 @@ class TestDLQPayload:
 
     def test_dlq_payload_null_failure_history_preserved(self, db_session):
         """Verify NULL failure_history is preserved as None in JSON."""
-        book = create_test_book(
+        create_test_book(
             db_session,
             status=BookStatus.PERMANENT_FAILED.value,
             failure_history=None,

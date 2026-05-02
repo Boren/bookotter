@@ -1,6 +1,5 @@
 # pyright: reportGeneralTypeIssues=false
 
-import json
 import sqlite3
 from pathlib import Path
 
@@ -36,9 +35,7 @@ def test_failure_history_column_round_trip(tmp_path, monkeypatch):
     session = session_local()
     try:
         # Create a book with failure_history
-        failure_history = [
-            {"reason": "download_stalled", "timestamp": "2026-01-01T00:00:00Z", "attempt": 1}
-        ]
+        failure_history = [{"reason": "download_stalled", "timestamp": "2026-01-01T00:00:00Z", "attempt": 1}]
         book = Book(
             title="Test Book",
             author_id=None,
