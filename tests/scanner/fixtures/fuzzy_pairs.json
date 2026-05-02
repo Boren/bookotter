@@ -1,0 +1,807 @@
+{
+  "_description": "Hand-curated WRatio threshold validation corpus for the T12 FuzzyMatcher. Query format: normalize(f'{title} {author}'). All should_match pairs score >= 85; all should_not_match pairs score <= 80; observed separation min(should_match) - max(should_not_match) = 6.09 (>5 required). Curation strategy: pairs that are inherently ambiguous to WRatio alone (e.g., 'Dune' vs 'Dune Messiah', 'Foundation' vs 'Foundation and Empire') were excluded from should_not_match because that ambiguity is the matcher's known limitation; T12 resolves those via ISBN/embedded ID/exact-normalized signals before falling back to fuzzy.",
+  "should_match": [
+    {
+      "book_title": "Harry Potter and the Philosopher's Stone",
+      "book_author": "J.K. Rowling",
+      "file_title": "Harry Potter and the Philosophers Stone",
+      "file_author": "J.K. Rowling",
+      "expected_score_min": 85,
+      "rationale": "apostrophe drop in title"
+    },
+    {
+      "book_title": "Don't Look Now",
+      "book_author": "Daphne du Maurier",
+      "file_title": "Dont Look Now",
+      "file_author": "Daphne du Maurier",
+      "expected_score_min": 85,
+      "rationale": "apostrophe drop in title"
+    },
+    {
+      "book_title": "It's a Wonderful Life",
+      "book_author": "Philip Van Doren Stern",
+      "file_title": "Its a Wonderful Life",
+      "file_author": "Philip Van Doren Stern",
+      "expected_score_min": 85,
+      "rationale": "apostrophe drop in title"
+    },
+    {
+      "book_title": "The Hitchhiker's Guide to the Galaxy",
+      "book_author": "Douglas Adams",
+      "file_title": "The Hitchhikers Guide to the Galaxy",
+      "file_author": "Douglas Adams",
+      "expected_score_min": 85,
+      "rationale": "apostrophe drop in title"
+    },
+    {
+      "book_title": "Ender's Game",
+      "book_author": "Orson Scott Card",
+      "file_title": "Enders Game",
+      "file_author": "Orson Scott Card",
+      "expected_score_min": 85,
+      "rationale": "apostrophe drop in title"
+    },
+    {
+      "book_title": "Foundation",
+      "book_author": "Isaac Asimov",
+      "file_title": "Foundation",
+      "file_author": "Asimov, Isaac",
+      "expected_score_min": 85,
+      "rationale": "author name reorder (Last, First)"
+    },
+    {
+      "book_title": "Dune",
+      "book_author": "Frank Herbert",
+      "file_title": "Dune",
+      "file_author": "Herbert, Frank",
+      "expected_score_min": 85,
+      "rationale": "author name reorder (Last, First)"
+    },
+    {
+      "book_title": "Neuromancer",
+      "book_author": "William Gibson",
+      "file_title": "Neuromancer",
+      "file_author": "Gibson, William",
+      "expected_score_min": 85,
+      "rationale": "author name reorder (Last, First)"
+    },
+    {
+      "book_title": "Hyperion",
+      "book_author": "Dan Simmons",
+      "file_title": "Hyperion",
+      "file_author": "Simmons, Dan",
+      "expected_score_min": 85,
+      "rationale": "author name reorder (Last, First)"
+    },
+    {
+      "book_title": "Snow Crash",
+      "book_author": "Neal Stephenson",
+      "file_title": "Snow Crash",
+      "file_author": "Stephenson, Neal",
+      "expected_score_min": 85,
+      "rationale": "author name reorder (Last, First)"
+    },
+    {
+      "book_title": "The Seven Husbands of Evelyn Hugo",
+      "book_author": "Taylor Jenkins Reid",
+      "file_title": "The Seven Husbands of Evelyn Hugo: A Novel",
+      "file_author": "Taylor Jenkins Reid",
+      "expected_score_min": 85,
+      "rationale": "subtitle 'A Novel' on long base title"
+    },
+    {
+      "book_title": "Dune",
+      "book_author": "Frank Herbert",
+      "file_title": "Dune (Special Edition)",
+      "file_author": "Frank Herbert",
+      "expected_score_min": 85,
+      "rationale": "edition suffix in parentheses"
+    },
+    {
+      "book_title": "The Stand",
+      "book_author": "Stephen King",
+      "file_title": "The Stand: Complete and Uncut",
+      "file_author": "Stephen King",
+      "expected_score_min": 85,
+      "rationale": "edition subtitle after colon"
+    },
+    {
+      "book_title": "Where the Crawdads Sing",
+      "book_author": "Delia Owens",
+      "file_title": "Where the Crawdads Sing - A Novel",
+      "file_author": "Delia Owens",
+      "expected_score_min": 85,
+      "rationale": "subtitle after dash"
+    },
+    {
+      "book_title": "The Way of Kings",
+      "book_author": "Brandon Sanderson",
+      "file_title": "The Way of Kings (The Stormlight Archive)",
+      "file_author": "Brandon Sanderson",
+      "expected_score_min": 85,
+      "rationale": "series name appended in parentheses"
+    },
+    {
+      "book_title": "The Hobbit",
+      "book_author": "J.R.R. Tolkien",
+      "file_title": "Hobbit",
+      "file_author": "J.R.R. Tolkien",
+      "expected_score_min": 85,
+      "rationale": "leading article dropped"
+    },
+    {
+      "book_title": "The Great Gatsby",
+      "book_author": "F. Scott Fitzgerald",
+      "file_title": "Great Gatsby",
+      "file_author": "F. Scott Fitzgerald",
+      "expected_score_min": 85,
+      "rationale": "leading article dropped"
+    },
+    {
+      "book_title": "A Game of Thrones",
+      "book_author": "George R.R. Martin",
+      "file_title": "Game of Thrones",
+      "file_author": "George R.R. Martin",
+      "expected_score_min": 85,
+      "rationale": "leading article dropped"
+    },
+    {
+      "book_title": "The Catcher in the Rye",
+      "book_author": "J.D. Salinger",
+      "file_title": "Catcher in the Rye",
+      "file_author": "J.D. Salinger",
+      "expected_score_min": 85,
+      "rationale": "leading article dropped"
+    },
+    {
+      "book_title": "The Name of the Wind",
+      "book_author": "Patrick Rothfuss",
+      "file_title": "Name of the Wind",
+      "file_author": "Patrick Rothfuss",
+      "expected_score_min": 85,
+      "rationale": "leading article dropped"
+    },
+    {
+      "book_title": "Café",
+      "book_author": "Patti Smith",
+      "file_title": "Cafe",
+      "file_author": "Patti Smith",
+      "expected_score_min": 85,
+      "rationale": "diacritic stripped (handled by normalizer, still validated)"
+    },
+    {
+      "book_title": "Les Misérables",
+      "book_author": "Victor Hugo",
+      "file_title": "Les Miserables",
+      "file_author": "Victor Hugo",
+      "expected_score_min": 85,
+      "rationale": "diacritic stripped in title"
+    },
+    {
+      "book_title": "L'Étranger",
+      "book_author": "Albert Camus",
+      "file_title": "LEtranger",
+      "file_author": "Albert Camus",
+      "expected_score_min": 85,
+      "rationale": "diacritic + apostrophe drop"
+    },
+    {
+      "book_title": "Jurassic Park",
+      "book_author": "Michael Crichton",
+      "file_title": "Jurassic Park",
+      "file_author": "Michael Crichtón",
+      "expected_score_min": 85,
+      "rationale": "diacritic in author name (one side only)"
+    },
+    {
+      "book_title": "The Brothers Karamazov",
+      "book_author": "Fyodor Dostoyevsky",
+      "file_title": "The Brothers Karamázov",
+      "file_author": "Fyodor Dostoyévsky",
+      "expected_score_min": 85,
+      "rationale": "diacritics in both title and author"
+    },
+    {
+      "book_title": "The Left Hand of Darkness",
+      "book_author": "Ursula K. Le Guin",
+      "file_title": "The Left Hand of Darkness",
+      "file_author": "Le Guin, Ursula K.",
+      "expected_score_min": 85,
+      "rationale": "multi-word last name with reorder"
+    },
+    {
+      "book_title": "A Wizard of Earthsea",
+      "book_author": "Ursula K. Le Guin",
+      "file_title": "A Wizard of Earthsea",
+      "file_author": "Ursula K Le Guin",
+      "expected_score_min": 85,
+      "rationale": "punctuation drift in author name"
+    },
+    {
+      "book_title": "One Hundred Years of Solitude",
+      "book_author": "Gabriel García Márquez",
+      "file_title": "One Hundred Years of Solitude",
+      "file_author": "Gabriel Garcia Marquez",
+      "expected_score_min": 85,
+      "rationale": "diacritics stripped from author"
+    },
+    {
+      "book_title": "The Old Man and the Sea",
+      "book_author": "Ernest Hemingway",
+      "file_title": "The Old Man and the Sea",
+      "file_author": "Hemingway, Ernest",
+      "expected_score_min": 85,
+      "rationale": "Last, First author reorder"
+    },
+    {
+      "book_title": "Slaughterhouse-Five",
+      "book_author": "Kurt Vonnegut",
+      "file_title": "Slaughterhouse Five",
+      "file_author": "Kurt Vonnegut",
+      "expected_score_min": 85,
+      "rationale": "hyphen replaced with space in title"
+    },
+    {
+      "book_title": "Mistborn: The Final Empire",
+      "book_author": "Brandon Sanderson",
+      "file_title": "Mistborn 1 The Final Empire",
+      "file_author": "Brandon Sanderson",
+      "expected_score_min": 85,
+      "rationale": "series volume notation 'Series N Title' vs 'Series: Title'"
+    },
+    {
+      "book_title": "The Eye of the World",
+      "book_author": "Robert Jordan",
+      "file_title": "The Eye of the World (Wheel of Time, Book 1)",
+      "file_author": "Robert Jordan",
+      "expected_score_min": 85,
+      "rationale": "series tag suffix in parentheses"
+    },
+    {
+      "book_title": "Harry Potter and the Chamber of Secrets",
+      "book_author": "J.K. Rowling",
+      "file_title": "Harry Potter 2 - Chamber of Secrets",
+      "file_author": "J.K. Rowling",
+      "expected_score_min": 85,
+      "rationale": "series number prefix collapses 'and the'"
+    },
+    {
+      "book_title": "A Storm of Swords",
+      "book_author": "George R.R. Martin",
+      "file_title": "A Song of Ice and Fire 03 - A Storm of Swords",
+      "file_author": "George R.R. Martin",
+      "expected_score_min": 85,
+      "rationale": "filename includes series prefix and volume number"
+    },
+    {
+      "book_title": "Dune Messiah",
+      "book_author": "Frank Herbert",
+      "file_title": "Dune 2 - Dune Messiah",
+      "file_author": "Frank Herbert",
+      "expected_score_min": 85,
+      "rationale": "duplicated series prefix in filename"
+    },
+    {
+      "book_title": "The Lord of the Rings",
+      "book_author": "J.R.R. Tolkien",
+      "file_title": "The Lord of the Ring",
+      "file_author": "J.R.R. Tolkien",
+      "expected_score_min": 85,
+      "rationale": "missing trailing 's' typo"
+    },
+    {
+      "book_title": "Pride and Prejudice",
+      "book_author": "Jane Austen",
+      "file_title": "Pride and Predjudice",
+      "file_author": "Jane Austen",
+      "expected_score_min": 85,
+      "rationale": "1-character insertion typo"
+    },
+    {
+      "book_title": "The Picture of Dorian Gray",
+      "book_author": "Oscar Wilde",
+      "file_title": "The Pictur of Dorian Gray",
+      "file_author": "Oscar Wilde",
+      "expected_score_min": 85,
+      "rationale": "1-character drop typo"
+    },
+    {
+      "book_title": "Frankenstein",
+      "book_author": "Mary Shelley",
+      "file_title": "Frankensetin",
+      "file_author": "Mary Shelley",
+      "expected_score_min": 85,
+      "rationale": "character transposition typo"
+    },
+    {
+      "book_title": "Wuthering Heights",
+      "book_author": "Emily Brontë",
+      "file_title": "Wurthering Heights",
+      "file_author": "Emily Bronte",
+      "expected_score_min": 85,
+      "rationale": "1-character typo combined with author diacritic strip"
+    },
+    {
+      "book_title": "Catch-22",
+      "book_author": "Joseph Heller",
+      "file_title": "Catch 22",
+      "file_author": "Joseph Heller",
+      "expected_score_min": 85,
+      "rationale": "hyphen replaced with space"
+    },
+    {
+      "book_title": "Nineteen Eighty-Four",
+      "book_author": "George Orwell",
+      "file_title": "Nineteen Eighty Four",
+      "file_author": "George Orwell",
+      "expected_score_min": 85,
+      "rationale": "hyphen drop in title"
+    },
+    {
+      "book_title": "The Hunger Games",
+      "book_author": "Suzanne Collins",
+      "file_title": "Hunger Games, The",
+      "file_author": "Suzanne Collins",
+      "expected_score_min": 85,
+      "rationale": "comma-suffixed article (library cataloging style)"
+    },
+    {
+      "book_title": "Brave New World",
+      "book_author": "Aldous Huxley",
+      "file_title": "Brave New World.",
+      "file_author": "Aldous Huxley",
+      "expected_score_min": 85,
+      "rationale": "trailing punctuation"
+    },
+    {
+      "book_title": "Fahrenheit 451",
+      "book_author": "Ray Bradbury",
+      "file_title": "Fahrenheit 451 (Reissue)",
+      "file_author": "Ray Bradbury",
+      "expected_score_min": 85,
+      "rationale": "edition tag in parentheses"
+    },
+    {
+      "book_title": "American Gods",
+      "book_author": "Neil Gaiman",
+      "file_title": "American Gods - Neil Gaiman",
+      "file_author": "Neil Gaiman",
+      "expected_score_min": 85,
+      "rationale": "Calibre-style 'Title - Author' filename with author duplication"
+    },
+    {
+      "book_title": "Good Omens",
+      "book_author": "Terry Pratchett",
+      "file_title": "Good Omens",
+      "file_author": "Terry Pratchett & Neil Gaiman",
+      "expected_score_min": 85,
+      "rationale": "co-author appended (DB has primary author only)"
+    },
+    {
+      "book_title": "The Martian",
+      "book_author": "Andy Weir",
+      "file_title": "The Martian (2014)",
+      "file_author": "Andy Weir",
+      "expected_score_min": 85,
+      "rationale": "year suffix in parentheses"
+    },
+    {
+      "book_title": "Project Hail Mary",
+      "book_author": "Andy Weir",
+      "file_title": "Project Hail Mary - A Novel",
+      "file_author": "Andy Weir",
+      "expected_score_min": 85,
+      "rationale": "subtitle 'A Novel' after dash"
+    },
+    {
+      "book_title": "The Underground Railroad",
+      "book_author": "Colson Whitehead",
+      "file_title": "The Underground Railroad: A Novel",
+      "file_author": "Colson Whitehead",
+      "expected_score_min": 85,
+      "rationale": "subtitle 'A Novel' after colon on long title"
+    }
+  ],
+  "should_not_match": [
+    {
+      "book_title": "The Final Empire",
+      "book_author": "Brandon Sanderson",
+      "file_title": "The Well of Ascension",
+      "file_author": "Brandon Sanderson",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (Mistborn 1 vs 2)"
+    },
+    {
+      "book_title": "Harry Potter and the Philosopher's Stone",
+      "book_author": "J.K. Rowling",
+      "file_title": "Harry Potter and the Chamber of Secrets",
+      "file_author": "J.K. Rowling",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (HP 1 vs 2)"
+    },
+    {
+      "book_title": "Harry Potter and the Chamber of Secrets",
+      "book_author": "J.K. Rowling",
+      "file_title": "Harry Potter and the Prisoner of Azkaban",
+      "file_author": "J.K. Rowling",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (HP 2 vs 3)"
+    },
+    {
+      "book_title": "A Game of Thrones",
+      "book_author": "George R.R. Martin",
+      "file_title": "A Clash of Kings",
+      "file_author": "George R.R. Martin",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (ASOIAF 1 vs 2)"
+    },
+    {
+      "book_title": "A Storm of Swords",
+      "book_author": "George R.R. Martin",
+      "file_title": "A Feast for Crows",
+      "file_author": "George R.R. Martin",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (ASOIAF 3 vs 4)"
+    },
+    {
+      "book_title": "Dune Messiah",
+      "book_author": "Frank Herbert",
+      "file_title": "Children of Dune",
+      "file_author": "Frank Herbert",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (Dune 2 vs 3)"
+    },
+    {
+      "book_title": "Foundation",
+      "book_author": "Isaac Asimov",
+      "file_title": "I, Robot",
+      "file_author": "Isaac Asimov",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "The Stand",
+      "book_author": "Stephen King",
+      "file_title": "Carrie",
+      "file_author": "Stephen King",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "American Gods",
+      "book_author": "Neil Gaiman",
+      "file_title": "Coraline",
+      "file_author": "Neil Gaiman",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Neuromancer",
+      "book_author": "William Gibson",
+      "file_title": "Pattern Recognition",
+      "file_author": "William Gibson",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "The Hobbit",
+      "book_author": "J.R.R. Tolkien",
+      "file_title": "The Silmarillion",
+      "file_author": "J.R.R. Tolkien",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Ender's Game",
+      "book_author": "Orson Scott Card",
+      "file_title": "Speaker for the Dead",
+      "file_author": "Orson Scott Card",
+      "expected_score_max": 80,
+      "rationale": "sequel with completely different title"
+    },
+    {
+      "book_title": "Pride and Prejudice",
+      "book_author": "Jane Austen",
+      "file_title": "Sense and Sensibility",
+      "file_author": "Jane Austen",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Down and Out in Paris and London",
+      "book_author": "George Orwell",
+      "file_title": "Homage to Catalonia",
+      "file_author": "George Orwell",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Slaughterhouse-Five",
+      "book_author": "Kurt Vonnegut",
+      "file_title": "Cat's Cradle",
+      "file_author": "Kurt Vonnegut",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "The Fellowship of the Ring",
+      "book_author": "J.R.R. Tolkien",
+      "file_title": "The Two Towers",
+      "file_author": "J.R.R. Tolkien",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (LOTR 1 vs 2)"
+    },
+    {
+      "book_title": "The Two Towers",
+      "book_author": "J.R.R. Tolkien",
+      "file_title": "The Return of the King",
+      "file_author": "J.R.R. Tolkien",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (LOTR 2 vs 3)"
+    },
+    {
+      "book_title": "Old Man's War",
+      "book_author": "John Scalzi",
+      "file_title": "The Ghost Brigades",
+      "file_author": "John Scalzi",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series"
+    },
+    {
+      "book_title": "The Way of Kings",
+      "book_author": "Brandon Sanderson",
+      "file_title": "Words of Radiance",
+      "file_author": "Brandon Sanderson",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (Stormlight 1 vs 2)"
+    },
+    {
+      "book_title": "Words of Radiance",
+      "book_author": "Brandon Sanderson",
+      "file_title": "Oathbringer",
+      "file_author": "Brandon Sanderson",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (Stormlight 2 vs 3)"
+    },
+    {
+      "book_title": "Red Rising",
+      "book_author": "Pierce Brown",
+      "file_title": "Golden Son",
+      "file_author": "Pierce Brown",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series"
+    },
+    {
+      "book_title": "Leviathan Wakes",
+      "book_author": "James S.A. Corey",
+      "file_title": "Caliban's War",
+      "file_author": "James S.A. Corey",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (Expanse 1 vs 2)"
+    },
+    {
+      "book_title": "The Eye of the World",
+      "book_author": "Robert Jordan",
+      "file_title": "The Great Hunt",
+      "file_author": "Robert Jordan",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (Wheel of Time 1 vs 2)"
+    },
+    {
+      "book_title": "The Stand",
+      "book_author": "Stephen King",
+      "file_title": "The Sand",
+      "file_author": "Will Hobbs",
+      "expected_score_max": 80,
+      "rationale": "1-character title difference, different author"
+    },
+    {
+      "book_title": "The Road",
+      "book_author": "Cormac McCarthy",
+      "file_title": "The Rope",
+      "file_author": "Nevada Barr",
+      "expected_score_max": 80,
+      "rationale": "1-character title difference, different author"
+    },
+    {
+      "book_title": "Dark Matter",
+      "book_author": "Blake Crouch",
+      "file_title": "Dark Places",
+      "file_author": "Gillian Flynn",
+      "expected_score_max": 80,
+      "rationale": "common-word collision, different authors"
+    },
+    {
+      "book_title": "Gone Girl",
+      "book_author": "Gillian Flynn",
+      "file_title": "Gone",
+      "file_author": "Michael Grant",
+      "expected_score_max": 80,
+      "rationale": "title overlap on common word, different authors"
+    },
+    {
+      "book_title": "Wonder",
+      "book_author": "R.J. Palacio",
+      "file_title": "Wonderland",
+      "file_author": "Jennifer Hillier",
+      "expected_score_max": 80,
+      "rationale": "common stem, different authors"
+    },
+    {
+      "book_title": "Beloved",
+      "book_author": "Toni Morrison",
+      "file_title": "Belove",
+      "file_author": "Made Up Author",
+      "expected_score_max": 80,
+      "rationale": "1-character title typo + different author"
+    },
+    {
+      "book_title": "The Giver",
+      "book_author": "Lois Lowry",
+      "file_title": "The River",
+      "file_author": "Gary Paulsen",
+      "expected_score_max": 80,
+      "rationale": "1-character title difference, different author"
+    },
+    {
+      "book_title": "Frankenstein",
+      "book_author": "Mary Shelley",
+      "file_title": "Frankenstein in Baghdad",
+      "file_author": "Ahmed Saadawi",
+      "expected_score_max": 80,
+      "rationale": "title prefix overlap, different book and author"
+    },
+    {
+      "book_title": "Anna Karenina",
+      "book_author": "Leo Tolstoy",
+      "file_title": "War and Peace",
+      "file_author": "Leo Tolstoy",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Crime and Punishment",
+      "book_author": "Fyodor Dostoyevsky",
+      "file_title": "The Brothers Karamazov",
+      "file_author": "Fyodor Dostoyevsky",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Moby Dick",
+      "book_author": "Herman Melville",
+      "file_title": "Billy Budd",
+      "file_author": "Herman Melville",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "The Sun Also Rises",
+      "book_author": "Ernest Hemingway",
+      "file_title": "A Farewell to Arms",
+      "file_author": "Ernest Hemingway",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Cryptonomicon",
+      "book_author": "Neal Stephenson",
+      "file_title": "Anathem",
+      "file_author": "Neal Stephenson",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Stardust",
+      "book_author": "Neil Gaiman",
+      "file_title": "Neverwhere",
+      "file_author": "Neil Gaiman",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Ringworld",
+      "book_author": "Larry Niven",
+      "file_title": "Footfall",
+      "file_author": "Larry Niven",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Do Androids Dream of Electric Sheep",
+      "book_author": "Philip K. Dick",
+      "file_title": "The Man in the High Castle",
+      "file_author": "Philip K. Dick",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Childhood's End",
+      "book_author": "Arthur C. Clarke",
+      "file_title": "Rendezvous with Rama",
+      "file_author": "Arthur C. Clarke",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Stranger in a Strange Land",
+      "book_author": "Robert Heinlein",
+      "file_title": "Starship Troopers",
+      "file_author": "Robert Heinlein",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Solaris",
+      "book_author": "Stanislaw Lem",
+      "file_title": "Fiasco",
+      "file_author": "Stanislaw Lem",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Salem's Lot",
+      "book_author": "Stephen King",
+      "file_title": "Pet Sematary",
+      "file_author": "Stephen King",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "The Dark Tower",
+      "book_author": "Stephen King",
+      "file_title": "Misery",
+      "file_author": "Stephen King",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Good Omens",
+      "book_author": "Neil Gaiman",
+      "file_title": "Anansi Boys",
+      "file_author": "Neil Gaiman",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "A Storm of Swords",
+      "book_author": "George R.R. Martin",
+      "file_title": "A Dance with Dragons",
+      "file_author": "George R.R. Martin",
+      "expected_score_max": 80,
+      "rationale": "different volume in same series (ASOIAF 3 vs 5)"
+    },
+    {
+      "book_title": "The Way of Kings",
+      "book_author": "Brandon Sanderson",
+      "file_title": "Mistborn: The Final Empire",
+      "file_author": "Brandon Sanderson",
+      "expected_score_max": 80,
+      "rationale": "same author, different series entirely"
+    },
+    {
+      "book_title": "Hyperion",
+      "book_author": "Dan Simmons",
+      "file_title": "Carrion Comfort",
+      "file_author": "Dan Simmons",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "Old Man and the Sea",
+      "book_author": "Ernest Hemingway",
+      "file_title": "For Whom the Bell Tolls",
+      "file_author": "Ernest Hemingway",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    },
+    {
+      "book_title": "The Catcher in the Rye",
+      "book_author": "J.D. Salinger",
+      "file_title": "Franny and Zooey",
+      "file_author": "J.D. Salinger",
+      "expected_score_max": 80,
+      "rationale": "same author, completely different works"
+    }
+  ]
+}
