@@ -4,10 +4,24 @@ Uses SQLite for storing sync history and book results.
 Schedules are now stored in config.yaml (not in the database).
 """
 
+import json
 import logging
 import os
+from datetime import datetime
+from enum import Enum
 
-from sqlalchemy import create_engine
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    inspect,
+    text,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -44,7 +58,111 @@ def init_db():
     from backend.models import blocklist, book  # noqa: F401 - Import models to register them
 
     Base.metadata.create_all(bind=engine)
+    _apply_pending_column_migrations(engine)
     backfill_missing_status()
+
+
+def _apply_pending_column_migrations(db_engine) -> None:
+    """Add any metadata-defined columns missing from existing SQLite tables."""
+    inspector = inspect(db_engine)
+
+    with db_engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            for table_name, table in Base.metadata.tables.items():
+                existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+
+                for column in table.columns:
+                    if column.name in existing_columns:
+                        continue
+
+                    ddl = _build_add_column_ddl(table_name, column)
+                    logger.info("Applying pending column migration: %s", ddl)
+                    conn.execute(text(ddl))
+                    existing_columns.add(column.name)
+
+            transaction.commit()
+        except Exception:
+            transaction.rollback()
+            raise
+
+
+def _build_add_column_ddl(table_name, column) -> str:
+    column_definition = [
+        _quote_sqlite_identifier(column.name),
+        _sqlite_column_type(column),
+    ]
+
+    if not column.nullable:
+        column_definition.append(f"DEFAULT {_sqlite_default_sql(column)}")
+        column_definition.append("NOT NULL")
+
+    return (
+        f"ALTER TABLE {_quote_sqlite_identifier(table_name)} "
+        f"ADD COLUMN {' '.join(column_definition)}"
+    )
+
+
+def _sqlite_column_type(column) -> str:
+    if isinstance(column.type, Integer):
+        return "INTEGER"
+    if isinstance(column.type, (String, Text, JSON)):
+        return "TEXT"
+    if isinstance(column.type, DateTime):
+        return "DATETIME"
+    if isinstance(column.type, Boolean):
+        return "BOOLEAN"
+    if isinstance(column.type, Float):
+        return "REAL"
+
+    msg = f"Unsupported SQLite migration type for {column.table.name}.{column.name}: {column.type!r}"
+    raise ValueError(msg)
+
+
+def _sqlite_default_sql(column) -> str:
+    default = column.default.arg if column.default is not None else None
+
+    if callable(default):
+        default = None
+
+    if isinstance(default, Enum):
+        default = default.value
+
+    if default is None:
+        return _sqlite_fallback_default_sql(column)
+
+    if isinstance(default, bool):
+        return "1" if default else "0"
+    if isinstance(default, int | float):
+        return str(default)
+    if isinstance(default, datetime):
+        return _quote_sqlite_string(default.isoformat(sep=" "))
+    if isinstance(default, (dict, list)):
+        return _quote_sqlite_string(json.dumps(default))
+    if isinstance(default, str):
+        return _quote_sqlite_string(default)
+
+    return _quote_sqlite_string(str(default))
+
+
+def _sqlite_fallback_default_sql(column) -> str:
+    sqlite_type = _sqlite_column_type(column)
+
+    if sqlite_type in {"INTEGER", "REAL", "BOOLEAN"}:
+        return "0"
+    if sqlite_type == "DATETIME":
+        return _quote_sqlite_string("1970-01-01 00:00:00")
+    return _quote_sqlite_string("")
+
+
+def _quote_sqlite_identifier(identifier: str) -> str:
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def _quote_sqlite_string(value: str) -> str:
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
 
 
 def backfill_missing_status() -> int:
