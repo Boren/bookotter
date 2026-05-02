@@ -29,6 +29,7 @@ dependencies = [
     "paramiko>=4.0.0",
     "python-Levenshtein>=0.27.3",
     "fuzzywuzzy>=0.18.0",
+    "rapidfuzz>=3.0",
     "rich>=15.0.0",
     # Web framework
     "fastapi>=0.136.1",
@@ -55,6 +56,9 @@ bookotter = "backend.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
 
 [dependency-groups]
 dev = [
