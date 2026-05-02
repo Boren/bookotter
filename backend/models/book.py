@@ -145,6 +145,7 @@ class Book(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     failure_reason = Column(String(100), nullable=True)
     retry_count = Column(Integer, default=0, nullable=False)
+    failure_history = Column(JSON, nullable=True, default=None)
     low_confidence = Column(Boolean, default=False, nullable=False)
     kindle_delivery_status = Column(String(20), nullable=True)
     kindle_delivery_attempts = Column(Integer, default=0, nullable=False)
@@ -186,6 +187,7 @@ class Book(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "failure_reason": self.failure_reason,
             "retry_count": self.retry_count,
+            "failure_history": self.failure_history,
             "low_confidence": self.low_confidence,
             "kindle_delivery_status": self.kindle_delivery_status,
             "kindle_delivery_attempts": self.kindle_delivery_attempts,
