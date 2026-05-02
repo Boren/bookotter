@@ -175,6 +175,8 @@ class TestE2EFailureRetrySuccess:
         # Patch time.sleep to no-op so any defensive backoff/rate-limit sleeps
         # (e.g. download_service.POST_ADD_DELAY_SECONDS, hardcover retry delays,
         # backend.utils.retry.retry_with_backoff) cannot push past the 5s budget.
+        # Also patch get_first_real_kindle to return None so Kindle delivery
+        # (which tries a real SSH connection and times out after ~10s) is skipped.
         with (
             patch("time.sleep", lambda *a, **kw: None),
             patch(
@@ -184,6 +186,7 @@ class TestE2EFailureRetrySuccess:
             patch("backend.clients.hardcover_client.HardcoverClient", MagicMock()),
             patch("backend.clients.prowlarr_client.ProwlarrClient", MagicMock()),
             patch("backend.clients.qbittorrent_client.QBittorrentClient", MagicMock()),
+            patch("backend.config.get_first_real_kindle", return_value=None),
         ):
             grabbed = pipeline.process_wanted_books()
             assert grabbed == 1
