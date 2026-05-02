@@ -276,6 +276,7 @@ class EpubService:
         temp_path: Path,
         original_item_count: int,
         expected_metadata: EpubMetadata,
+        expected_item_delta: int = 0,
     ) -> None:
         if not self.validate_epub(temp_path):
             raise EpubValidationError(f"Written EPUB failed basic validation: {temp_path}")
@@ -286,9 +287,10 @@ class EpubService:
             raise EpubValidationError(f"Cannot re-read written EPUB: {e}") from e
 
         written_item_count = len(list(written_book.get_items()))
-        if written_item_count != original_item_count:
+        if written_item_count != original_item_count + expected_item_delta:
             raise EpubValidationError(
-                f"Item count mismatch after write: original={original_item_count}, written={written_item_count}"
+                f"Item count mismatch after write: original={original_item_count}, "
+                f"written={written_item_count}, expected_delta={expected_item_delta}"
             )
 
         written_meta = self._extract_metadata(written_book)

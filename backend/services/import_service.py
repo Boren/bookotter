@@ -3,9 +3,12 @@
 
 import hashlib
 import logging
+import os
 import re
+import tempfile
 from pathlib import Path
 
+from ebooklib import epub
 from sqlalchemy.orm import Session
 
 from backend.constants import MAX_COLLISION_ATTEMPTS, MAX_FILENAME_LENGTH
@@ -15,6 +18,7 @@ from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.atomic import atomic_copy
+from backend.utils.cover import fetch_cover
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
 from backend.utils.text import strip_html
@@ -123,6 +127,7 @@ class ImportService:
                 book.failure_reason = FailureReason.IMPORT_DRM_PROTECTED.value
             else:
                 self.write_metadata(book, dest_path)
+                self._embed_cover(book, dest_path)
 
             relative_path = dest_path.relative_to(root_folder.path)
             book.file_path = str(relative_path)
@@ -258,6 +263,109 @@ class ImportService:
             self.epub_service.write_metadata(epub_path, metadata)
         except Exception as e:
             raise BookImportError(f"Failed to write metadata to {epub_path}: {e}") from e
+
+    def _embed_cover(self, book: Book, epub_path: Path) -> None:
+        """Attempt to embed Hardcover cover image into EPUB.
+
+        Non-critical: any failure is logged and swallowed so import never breaks.
+        Skips silently when book.cover_url is missing; logs INFO when skipping
+        due to DRM or an already-present cover.
+        """
+        try:
+            if self.epub_service.is_drm_protected(epub_path):
+                logger.info("skipping cover embed: DRM-protected (book %s)", book.id)
+                return
+
+            cover_url = book.cover_url
+            if not cover_url:
+                return
+
+            existing_book = epub.read_epub(str(epub_path))
+            if self._has_existing_cover(existing_book):
+                logger.info("skipping cover embed: cover already present (book %s)", book.id)
+                return
+
+            result = fetch_cover(cover_url)
+            if result is None:
+                return
+
+            image_bytes, content_type = result
+
+            ext_map = {
+                "image/jpeg": "cover.jpg",
+                "image/png": "cover.png",
+                "image/webp": "cover.webp",
+                "image/gif": "cover.gif",
+            }
+            filename = ext_map.get(content_type.lower(), "cover.jpg")
+
+            # create_page=False adds exactly +1 manifest item (image only, no cover-html page),
+            # matching expected_item_delta=1 below.
+            original_count = len(list(existing_book.get_items()))
+            existing_book.set_cover(filename, image_bytes, create_page=False)
+            self.epub_service._ensure_toc_uids(existing_book.toc)
+
+            temp_fd, temp_path_str = tempfile.mkstemp(suffix=".epub.tmp", dir=epub_path.parent)
+            os.close(temp_fd)
+            temp_path = Path(temp_path_str)
+
+            try:
+                epub.write_epub(str(temp_path), existing_book, {})
+                self.epub_service._validate_written_epub(
+                    temp_path,
+                    original_count,
+                    EpubMetadata(),
+                    expected_item_delta=1,
+                )
+                os.replace(temp_path, epub_path)
+            except Exception:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
+
+            logger.info(
+                "embedded cover (%d bytes, %s) for book %s",
+                len(image_bytes),
+                content_type,
+                book.id,
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "Cover embed failed for book %s: %s",
+                book.id,
+                exc,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _has_existing_cover(epub_book: epub.EpubBook) -> bool:
+        """Detect an already-embedded cover via any common marker pattern.
+
+        Checks OPF `<meta name="cover">` (EPUB 2), `EpubCover` items
+        (ebooklib marker class), and EPUB 3 `properties="cover-image"`.
+        """
+        for ns_metadata in epub_book.metadata.values():
+            for _value, attrs in ns_metadata.get("meta", []):
+                if attrs.get("name") == "cover":
+                    return True
+
+        for item in epub_book.get_items():
+            if isinstance(item, epub.EpubCover):
+                return True
+            if not item.media_type.startswith("image/"):
+                continue
+            props = getattr(item, "properties", None)
+            if not props:
+                continue
+            if isinstance(props, list) and "cover-image" in props:
+                return True
+            if isinstance(props, str) and "cover-image" in props:
+                return True
+
+        return False
 
     def import_epub(self, book: Book, file_path: str) -> bool:
         """Adapter called by the pipeline orchestrator.
