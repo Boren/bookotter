@@ -15,12 +15,16 @@ class _HTMLStripper(HTMLParser):
         super().__init__()
         self.text_parts: list[str] = []
         self.tag_stack: list[str] = []
+        self.skip_content = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Handle opening tags. Inject newlines for block elements and <br>."""
         tag_lower = tag.lower()
 
-        if tag_lower == "br":
+        if tag_lower in ("script", "style"):
+            self.skip_content = True
+            self.tag_stack.append(tag_lower)
+        elif tag_lower == "br":
             self.text_parts.append("\n")
         elif tag_lower == "p":
             self.text_parts.append("\n\n")
@@ -35,7 +39,11 @@ class _HTMLStripper(HTMLParser):
         """Handle closing tags. Inject newlines for block elements."""
         tag_lower = tag.lower()
 
-        if tag_lower == "p":
+        if tag_lower in ("script", "style"):
+            if self.tag_stack and self.tag_stack[-1] == tag_lower:
+                self.tag_stack.pop()
+            self.skip_content = False
+        elif tag_lower == "p":
             self.text_parts.append("\n\n")
             if self.tag_stack and self.tag_stack[-1] == tag_lower:
                 self.tag_stack.pop()
@@ -49,7 +57,7 @@ class _HTMLStripper(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         """Handle text data. Decode HTML entities."""
-        if data:
+        if not self.skip_content and data:
             decoded = html.unescape(data)
             self.text_parts.append(decoded)
 
@@ -112,7 +120,7 @@ def strip_html(text: str | None) -> str | None:
     # Collapse 3+ consecutive newlines to exactly 2
     result = re.sub(r"\n{3,}", "\n\n", result)
 
-    # Strip leading/trailing whitespace
-    result = result.strip()
+    # Strip leading/trailing whitespace (but preserve non-breaking spaces)
+    result = result.strip(" \t\n\r\f\v")
 
     return result

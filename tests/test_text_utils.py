@@ -1,7 +1,5 @@
 """Tests for backend.utils.text HTML stripping utility."""
 
-import pytest
-
 from backend.utils.text import strip_html
 
 
