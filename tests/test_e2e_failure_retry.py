@@ -172,7 +172,11 @@ class TestE2EFailureRetrySuccess:
             db_session_factory=db_session.session_factory,
         )
 
+        # Patch time.sleep to no-op so any defensive backoff/rate-limit sleeps
+        # (e.g. download_service.POST_ADD_DELAY_SECONDS, hardcover retry delays,
+        # backend.utils.retry.retry_with_backoff) cannot push past the 5s budget.
         with (
+            patch("time.sleep", lambda *a, **kw: None),
             patch(
                 "backend.services.import_service.fetch_cover",
                 return_value=(JPEG_BYTES, "image/jpeg"),
