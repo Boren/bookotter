@@ -135,7 +135,7 @@ class HardcoverSyncService:
                     series_position=hc_book.get("series_position"),
                     status=BookStatus.MISSING,
                     author_id=author.id if author else None,
-                    description=None,
+                    description=hc_book.get("description"),
                     publisher=None,
                     language=None,
                 )

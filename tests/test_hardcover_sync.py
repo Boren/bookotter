@@ -39,6 +39,7 @@ def _make_hc_book(
     title: str = "Dune",
     isbn: str | None = "978-0-441-17271-9",
     authors: list[str] | None = None,
+    description: str | None = None,
 ) -> dict:
     return {
         "hardcover_id": hardcover_id if hardcover_id is not None else "",
@@ -48,6 +49,7 @@ def _make_hc_book(
         "cover_url": None,
         "series_name": None,
         "series_position": None,
+        "description": description,
     }
 
 
@@ -125,6 +127,42 @@ class TestDedup:
         assert result["new_books"] == 2
         assert result["errors"] == 1
         assert db_session.query(Book).count() == 2
+
+    def test_description_populated_from_hardcover_api(self, db_session):
+        """When Hardcover API returns description, Book row has that description."""
+        books = [
+            _make_hc_book(
+                hardcover_id="hc-desc-1",
+                title="Epic Tale",
+                isbn="978-7-777-77777-7",
+                description="An epic tale of testing.",
+            )
+        ]
+        svc = _make_service(books)
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 1
+        book = db_session.query(Book).filter(Book.hardcover_id == "hc-desc-1").first()
+        assert book is not None
+        assert book.description == "An epic tale of testing."
+
+    def test_description_null_when_hardcover_api_returns_null(self, db_session):
+        """When Hardcover API returns description: null, Book row has description IS NULL."""
+        books = [
+            _make_hc_book(
+                hardcover_id="hc-desc-2",
+                title="Mystery Book",
+                isbn="978-8-888-88888-8",
+                description=None,
+            )
+        ]
+        svc = _make_service(books)
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 1
+        book = db_session.query(Book).filter(Book.hardcover_id == "hc-desc-2").first()
+        assert book is not None
+        assert book.description is None
 
 
 class TestGetOrCreateAuthor:

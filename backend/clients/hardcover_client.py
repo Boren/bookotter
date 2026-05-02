@@ -201,41 +201,42 @@ class HardcoverClient:
               status_id
               rating
               date_added
-              book {
-                id
-                title
-                slug
-                subtitle
-                cached_contributors
-                image {
-                  url
-                }
-                book_series {
-                  position
-                  series {
-                    name
-                    slug
-                  }
-                }
-                editions {
-                  id
-                  title
-                  isbn_10
-                  isbn_13
-                  edition_format
-                  pages
-                  release_date
-                  publisher {
-                    name
-                  }
-                }
-                contributions {
-                  author {
-                    id
-                    name
-                  }
-                }
-              }
+               book {
+                 id
+                 title
+                 slug
+                 subtitle
+                 description
+                 cached_contributors
+                 image {
+                   url
+                 }
+                 book_series {
+                   position
+                   series {
+                     name
+                     slug
+                   }
+                 }
+                 editions {
+                   id
+                   title
+                   isbn_10
+                   isbn_13
+                   edition_format
+                   pages
+                   release_date
+                   publisher {
+                     name
+                   }
+                 }
+                 contributions {
+                   author {
+                     id
+                     name
+                   }
+                 }
+               }
             }
           }
         }
