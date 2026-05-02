@@ -10,10 +10,17 @@ Implements all five matching tiers:
 
 All matchers follow the same shape: take a FileMetadata plus a candidate index
 (or list, for fuzzy), and return MatchResult or None.
+
+T14 adds the cascade orchestrator (``cascade_match``) and the candidate prefilter
+(``build_candidate_index``) that pre-buckets candidates so each per-file lookup
+stays O(1) for tiers 9-11/13 and O(bucket_size) for the fuzzy tier.
 """
 
+import logging
 import os
 import re
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 from rapidfuzz.fuzz import WRatio
 
@@ -24,6 +31,8 @@ from backend.services.scanner.types import (
     MatchMethod,
     MatchResult,
 )
+
+logger = logging.getLogger(__name__)
 
 # Filename pattern: "Author - Title.epub" (last-resort tier)
 FILENAME_PATTERN = re.compile(r"^(?P<author>.+?)\s*-\s*(?P<title>.+?)\.epub$", re.IGNORECASE)
@@ -279,3 +288,158 @@ def match_fuzzy(
         score=best_score,
         auto_link=False,
     )
+
+
+FUZZY_BUCKET_KEY_LEN = 3
+
+
+@dataclass(frozen=True)
+class CandidateIndex:
+    """
+    Pre-built lookup tables for the cascade matcher.
+
+    Built once per scan run by ``build_candidate_index`` and consumed by
+    ``cascade_match`` for every file. Already-linked candidates (file_path
+    not None) are excluded — they cannot be re-matched.
+
+    Attributes:
+        by_hardcover_id: ``str(hardcover_id)`` → candidate (T9 lookup).
+        by_isbn: cleaned ISBN (digits + uppercase X only) → candidate (T10).
+        by_normalized_key: ``(norm_title, norm_first_author)`` → candidate
+            (T11 + T13 share this dict).
+        bucketed_for_fuzzy: first ``FUZZY_BUCKET_KEY_LEN`` chars of the
+            normalized title → list of candidates that share that prefix.
+            Caps fuzzy work at O(bucket_size) instead of O(N_total).
+    """
+
+    by_hardcover_id: dict[str, BookCandidate]
+    by_isbn: dict[str, BookCandidate]
+    by_normalized_key: dict[tuple[str, str], BookCandidate]
+    bucketed_for_fuzzy: dict[str, list[BookCandidate]]
+
+
+def _clean_isbn(raw: str | None) -> str:
+    if not raw:
+        return ""
+    return "".join(("X" if c.upper() == "X" else c) for c in raw if c.isdigit() or c.upper() == "X")
+
+
+def build_candidate_index(candidates: Iterable[BookCandidate]) -> CandidateIndex:
+    """
+    Build all lookup tables required by ``cascade_match``.
+
+    Iterates the candidates exactly once. Skips any candidate that is already
+    linked (``file_path is not None``) — such candidates cannot be re-matched.
+    On key collisions for the dict-based tables (``by_hardcover_id``,
+    ``by_isbn``, ``by_normalized_key``) the first candidate wins and a WARNING
+    is logged. The fuzzy bucket is a list and accepts every candidate.
+
+    Args:
+        candidates: Iterable of ``BookCandidate`` from the database.
+
+    Returns:
+        A ``CandidateIndex`` with all four lookup tables populated.
+    """
+    by_hardcover_id: dict[str, BookCandidate] = {}
+    by_isbn: dict[str, BookCandidate] = {}
+    by_normalized_key: dict[tuple[str, str], BookCandidate] = {}
+    bucketed_for_fuzzy: dict[str, list[BookCandidate]] = {}
+
+    for candidate in candidates:
+        if candidate.file_path is not None:
+            continue
+
+        if candidate.hardcover_id is not None:
+            hc_key = str(candidate.hardcover_id)
+            existing = by_hardcover_id.get(hc_key)
+            if existing is not None:
+                logger.warning(
+                    "Duplicate hardcover_id %s in candidate index; first wins (kept book id=%d, dropped book id=%d)",
+                    hc_key,
+                    existing.id,
+                    candidate.id,
+                )
+            else:
+                by_hardcover_id[hc_key] = candidate
+
+        cleaned_isbn = _clean_isbn(candidate.isbn)
+        if cleaned_isbn:
+            existing = by_isbn.get(cleaned_isbn)
+            if existing is not None:
+                logger.warning(
+                    "Duplicate ISBN %s in candidate index; first wins (kept book id=%d, dropped book id=%d)",
+                    cleaned_isbn,
+                    existing.id,
+                    candidate.id,
+                )
+            else:
+                by_isbn[cleaned_isbn] = candidate
+
+        norm_title = normalize(candidate.title)
+        norm_author = normalize(candidate.author_name)
+        if norm_title and norm_author:
+            norm_key = (norm_title, norm_author)
+            existing = by_normalized_key.get(norm_key)
+            if existing is not None:
+                logger.warning(
+                    "Duplicate normalized title+author %r in candidate index; first wins "
+                    "(kept book id=%d, dropped book id=%d)",
+                    norm_key,
+                    existing.id,
+                    candidate.id,
+                )
+            else:
+                by_normalized_key[norm_key] = candidate
+
+        if norm_title:
+            bucket_key = norm_title[:FUZZY_BUCKET_KEY_LEN]
+            bucketed_for_fuzzy.setdefault(bucket_key, []).append(candidate)
+
+    return CandidateIndex(
+        by_hardcover_id=by_hardcover_id,
+        by_isbn=by_isbn,
+        by_normalized_key=by_normalized_key,
+        bucketed_for_fuzzy=bucketed_for_fuzzy,
+    )
+
+
+def cascade_match(file_meta: FileMetadata, index: CandidateIndex) -> MatchResult | None:
+    """
+    Run the 5-tier matcher cascade against ``index`` and return the first hit.
+
+    Tier order is FIXED (priority-decision; not configurable):
+
+    1. ``match_embedded_hardcover_id`` — only auto-link tier (T9)
+    2. ``match_normalized_exact`` — exact normalized title+author (T11)
+    3. ``match_isbn`` — exact ISBN (T10)
+    4. ``match_fuzzy`` — fuzzy title+author against the title-prefix bucket (T12)
+    5. ``match_filename`` — last-resort filename parse (T13)
+
+    The first non-None result wins; subsequent tiers are NOT invoked. Returns
+    ``None`` if no tier matches. The fuzzy tier is restricted to candidates
+    sharing the first ``FUZZY_BUCKET_KEY_LEN`` characters of the file's
+    normalized title; if the file has no title (or the bucket is empty) the
+    fuzzy tier is skipped entirely.
+    """
+    result = match_embedded_hardcover_id(file_meta, index.by_hardcover_id)
+    if result is not None:
+        return result
+
+    result = match_normalized_exact(file_meta, index.by_normalized_key)
+    if result is not None:
+        return result
+
+    result = match_isbn(file_meta, index.by_isbn)
+    if result is not None:
+        return result
+
+    if file_meta.title:
+        bucket_key = normalize(file_meta.title)[:FUZZY_BUCKET_KEY_LEN]
+        if bucket_key:
+            bucket = index.bucketed_for_fuzzy.get(bucket_key, [])
+            if bucket:
+                result = match_fuzzy(file_meta, bucket)
+                if result is not None:
+                    return result
+
+    return match_filename(file_meta, index.by_normalized_key)
