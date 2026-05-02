@@ -1,4 +1,4 @@
-# pyright: reportArgumentType=false, reportGeneralTypeIssues=false
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 
 """
 Core ScannerService: walk a root folder, read EPUBs, dispatch the matcher cascade.
@@ -21,28 +21,35 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import unicodedata
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from sqlalchemy import text
 from sqlalchemy.orm import joinedload
 
+from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book
-from backend.models.scanner import DismissedScanPath
+from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus, Scan, ScanStatus
 from backend.services.scanner.matchers import build_candidate_index, cascade_match
-from backend.services.scanner.types import BookCandidate, FileMetadata, MatchResult
+from backend.services.scanner.types import BookCandidate, FileMetadata, MatchMethod, MatchResult
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from backend.models.book import RootFolder
     from backend.services.epub_service import EpubService
+    from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
 MAX_EPUB_SIZE_BYTES = 100 * 1024 * 1024
+STALE_SCAN_WINDOW = timedelta(hours=2)
+EMBEDDED_HARDCOVER_URN_RE = re.compile(r"^urn:hardcover:(\d+)$")
 
 DbSessionFactory = Callable[[], "Session"]
 ProgressCallback = Callable[["ScanProgress"], None]
@@ -160,10 +167,85 @@ class ScannerService:
         db_session_factory: DbSessionFactory,
         epub_service: EpubService,
         progress_callback: ProgressCallback | None = None,
+        ws_manager: WebSocketManager | None = None,
     ) -> None:
         self._session_factory = db_session_factory
         self._epub_service = epub_service
         self._progress_callback = progress_callback
+        self._ws_manager = ws_manager
+
+    def execute_scan(
+        self,
+        root_folder: RootFolder,
+        *,
+        holder: str = "user",
+    ) -> ScanResult:
+        """Execute a full scan with persistence, WebSocket events, and concurrency guard."""
+        scan_row = self._acquire_scan_lock(root_folder, holder=holder)
+        started_at = scan_row.started_at or datetime.utcnow()
+        self._supersede_pending_proposals(int(root_folder.id))
+        self._broadcast(
+            "scan_started",
+            {
+                "scan_id": scan_row.id,
+                "root_folder_id": int(root_folder.id),
+                "root_folder_path": str(root_folder.path),
+                "started_at": started_at.isoformat(),
+            },
+        )
+
+        original_callback = self._progress_callback
+
+        def progress_handler(progress: ScanProgress) -> None:
+            event = ScanProgress(
+                scan_id=scan_row.id,
+                root_folder_id=progress.root_folder_id,
+                files_seen=progress.files_seen,
+                files_matched=progress.files_matched,
+                files_proposed=progress.files_proposed,
+                files_unmatched=progress.files_unmatched,
+                files_failed=progress.files_failed,
+                current_path=progress.current_path,
+                finished=progress.finished,
+            )
+            self._broadcast("scan_progress", asdict(event))
+            if original_callback is not None:
+                original_callback(event)
+
+        try:
+            self._progress_callback = progress_handler
+            raw_result = self.scan(root_folder)
+            result = self._persist_scan_result(scan_row.id, root_folder, raw_result)
+        except Exception as exc:
+            self._progress_callback = original_callback
+            self._mark_scan_failed(scan_row.id, exc)
+            self._broadcast(
+                "scan_failed",
+                {
+                    "scan_id": scan_row.id,
+                    "root_folder_id": int(root_folder.id),
+                    "error_message": str(exc),
+                },
+            )
+            raise
+        finally:
+            self._progress_callback = original_callback
+
+        duration_ms = int(((datetime.utcnow()) - started_at).total_seconds() * 1000)
+        self._broadcast(
+            "scan_completed",
+            {
+                "scan_id": scan_row.id,
+                "root_folder_id": int(root_folder.id),
+                "files_seen": result.files_seen,
+                "files_matched": result.files_matched,
+                "files_proposed": result.files_proposed,
+                "files_unmatched": result.files_unmatched,
+                "files_failed": result.files_failed,
+                "duration_ms": duration_ms,
+            },
+        )
+        return result
 
     def scan(self, root_folder: RootFolder) -> ScanResult:
         """Execute one synchronous scan run and return its result.
@@ -371,6 +453,243 @@ class ScannerService:
         except OSError as exc:
             logger.warning("Cannot stat %s: %s", filepath, exc)
             return None
+
+    def _acquire_scan_lock(self, root_folder: RootFolder, *, holder: str) -> Scan:
+        root_folder_id = int(root_folder.id)
+        now = datetime.utcnow()
+        stale_before = now - STALE_SCAN_WINDOW
+
+        db = self._session_factory()
+        try:
+            stale_scans = (
+                db.query(Scan)
+                .filter(Scan.root_folder_id == root_folder_id, Scan.status == ScanStatus.RUNNING.value)
+                .filter(Scan.started_at < stale_before)
+                .all()
+            )
+            for stale_scan in stale_scans:
+                stale_scan.status = ScanStatus.FAILED.value
+                stale_scan.finished_at = now
+                stale_scan.error_message = "abandoned (stale)"
+                logger.warning(
+                    "Abandoning stale scan %s for root folder %s (holder=%s)",
+                    stale_scan.id,
+                    root_folder_id,
+                    holder,
+                )
+            if stale_scans:
+                db.commit()
+
+            insert_result = db.execute(
+                text(
+                    """
+                    INSERT INTO scans (
+                        root_folder_id,
+                        status,
+                        started_at,
+                        files_seen,
+                        files_matched,
+                        files_proposed,
+                        files_unmatched,
+                        files_failed,
+                        error_message
+                    )
+                    SELECT
+                        :root_folder_id,
+                        :status,
+                        :started_at,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        NULL
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM scans
+                        WHERE root_folder_id = :root_folder_id
+                          AND status = :status
+                    )
+                    """
+                ),
+                {
+                    "root_folder_id": root_folder_id,
+                    "status": ScanStatus.RUNNING.value,
+                    "started_at": now,
+                },
+            )
+            if insert_result.rowcount == 0:
+                db.rollback()
+                raise PipelineError(
+                    f"Scan already in progress for root folder {root_folder_id}",
+                    FailureReason.PIPELINE_LOCK_HELD,
+                )
+
+            scan_id = insert_result.lastrowid
+            db.commit()
+            scan_row = db.get(Scan, scan_id)
+            if scan_row is None:
+                raise RuntimeError(f"Failed to load persisted scan {scan_id}")
+            db.expunge(scan_row)
+            return scan_row
+        finally:
+            db.close()
+
+    def _supersede_pending_proposals(self, root_folder_id: int) -> None:
+        db = self._session_factory()
+        try:
+            now = datetime.utcnow()
+            (
+                db.query(MatchProposal)
+                .filter(MatchProposal.root_folder_id == root_folder_id)
+                .filter(MatchProposal.status == MatchProposalStatus.PENDING.value)
+                .update(
+                    {
+                        MatchProposal.status: MatchProposalStatus.SUPERSEDED.value,
+                        MatchProposal.decided_at: now,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    def _persist_scan_result(self, scan_id: int, root_folder: RootFolder, result: ScanResult) -> ScanResult:
+        db = self._session_factory()
+        try:
+            files_matched = result.files_matched
+            files_proposed = result.files_proposed
+            files_unmatched = result.files_unmatched
+
+            for draft in result.proposals:
+                match = draft.match_result
+                status = MatchProposalStatus.PENDING.value
+                candidate_book_id: int | None = None
+                match_method: str | None = None
+                score: float | None = None
+
+                if match is None:
+                    linked_book = self._find_linked_embedded_urn_book(db, draft.file_meta.identifier)
+                    if linked_book is not None:
+                        candidate_book_id = int(linked_book.id)
+                        match_method = MatchMethod.EMBEDDED_HARDCOVER_ID.value
+                        score = 100.0
+                        files_unmatched -= 1
+                        files_proposed += 1
+                        logger.warning(
+                            "Auto-link skipped for book %s at %s because the book is already linked",
+                            linked_book.id,
+                            draft.relative_path,
+                        )
+                else:
+                    candidate_book_id = match.candidate_book_id
+                    match_method = match.method.value
+                    score = match.score
+                    if match.auto_link:
+                        status = MatchProposalStatus.AUTO_LINKED.value
+                        updated = (
+                            db.query(Book)
+                            .filter(Book.id == match.candidate_book_id, Book.file_path.is_(None))
+                            .update(
+                                {
+                                    Book.file_path: draft.relative_path,
+                                    Book.root_folder_id: int(root_folder.id),
+                                    Book.source: "scanner",
+                                },
+                                synchronize_session=False,
+                            )
+                        )
+                        if updated == 0:
+                            status = MatchProposalStatus.PENDING.value
+                            files_matched -= 1
+                            files_proposed += 1
+                            logger.warning(
+                                "Auto-link skipped for book %s at %s because the book is already linked",
+                                match.candidate_book_id,
+                                draft.relative_path,
+                            )
+
+                db.add(
+                    MatchProposal(
+                        scan_id=scan_id,
+                        root_folder_id=int(root_folder.id),
+                        relative_path=draft.relative_path,
+                        file_size=draft.file_size,
+                        candidate_book_id=candidate_book_id,
+                        match_method=match_method,
+                        score=score,
+                        status=status,
+                    )
+                )
+
+            finished_at = datetime.utcnow()
+            scan_row = db.get(Scan, scan_id)
+            if scan_row is None:
+                raise RuntimeError(f"Scan {scan_id} disappeared before completion")
+            scan_row.status = ScanStatus.COMPLETED.value
+            scan_row.finished_at = finished_at
+            scan_row.files_seen = result.files_seen
+            scan_row.files_matched = files_matched
+            scan_row.files_proposed = files_proposed
+            scan_row.files_unmatched = files_unmatched
+            scan_row.files_failed = result.files_failed
+            scan_row.error_message = None
+            db.commit()
+
+            return ScanResult(
+                scan_id=str(scan_id),
+                root_folder_id=result.root_folder_id,
+                files_seen=result.files_seen,
+                files_matched=files_matched,
+                files_proposed=files_proposed,
+                files_unmatched=files_unmatched,
+                files_failed=result.files_failed,
+                proposals=result.proposals,
+                dismissed_skipped=result.dismissed_skipped,
+            )
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def _mark_scan_failed(self, scan_id: int, exc: Exception) -> None:
+        db = self._session_factory()
+        try:
+            scan_row = db.get(Scan, scan_id)
+            if scan_row is None:
+                return
+            scan_row.status = ScanStatus.FAILED.value
+            scan_row.finished_at = datetime.utcnow()
+            scan_row.error_message = str(exc)
+            db.commit()
+        except Exception as update_exc:
+            db.rollback()
+            logger.warning("Failed to mark scan %s as failed: %s", scan_id, update_exc)
+        finally:
+            db.close()
+
+    @staticmethod
+    def _find_linked_embedded_urn_book(db: Session, identifier: str | None) -> Book | None:
+        if identifier is None:
+            return None
+        match = EMBEDDED_HARDCOVER_URN_RE.match(identifier)
+        if match is None:
+            return None
+        hardcover_id = match.group(1)
+        book = db.query(Book).filter(Book.hardcover_id == hardcover_id).first()
+        if book is None or book.file_path is None:
+            return None
+        return book
+
+    def _broadcast(self, event: str, data: dict[str, object]) -> None:
+        if self._ws_manager is None:
+            return
+        try:
+            self._ws_manager.broadcast_sync(event, data)
+        except Exception as exc:
+            logger.warning("WebSocket broadcast failed for %s: %s", event, exc)
 
     def _emit(
         self,

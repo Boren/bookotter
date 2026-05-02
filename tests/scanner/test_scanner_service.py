@@ -1,4 +1,4 @@
-# pyright: reportArgumentType=false, reportAttributeAccessIssue=false
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 
 """Integration tests for ScannerService — walk + read + cascade dispatch."""
 
@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import unicodedata
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.models import scanner as _scanner_models  # noqa: F401  (registers tables)
 from backend.models.book import Author, Book, BookStatus, RootFolder
-from backend.models.scanner import DismissedScanPath
+from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus, Scan, ScanStatus
 from backend.services.epub_service import EpubService
 from backend.services.scanner.scanner_service import (
     MAX_EPUB_SIZE_BYTES,
@@ -27,6 +28,14 @@ from backend.services.scanner.scanner_service import (
     _extract_isbn_from_identifier,
 )
 from backend.services.scanner.types import MatchMethod
+
+
+class StubWebSocketManager:
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    def broadcast_sync(self, event: str, data: dict) -> None:
+        self.events.append((event, data))
 
 
 @pytest.fixture
@@ -444,3 +453,179 @@ class TestCandidateExclusion:
         proposal = result.proposals[0]
         assert proposal.match_result is not None
         assert proposal.match_result.candidate_book_id == unlinked.id
+
+
+class TestExecuteScanPersistence:
+    def test_execute_scan_creates_scan_row(self, session_factory, root_folder, tmp_path, db):
+        _write_epub(tmp_path / "book.epub", title="No Match")
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        result = scanner.execute_scan(root_folder)
+
+        scan = db.get(Scan, int(result.scan_id))
+        assert scan is not None
+        assert scan.status == ScanStatus.COMPLETED.value
+        assert scan.finished_at is not None
+        assert scan.files_seen == 1
+
+    def test_execute_scan_persists_proposals(self, session_factory, root_folder, tmp_path, db):
+        _write_epub(tmp_path / "a.epub", title="A")
+        _write_epub(tmp_path / "b.epub", title="B")
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        result = scanner.execute_scan(root_folder)
+
+        proposals = db.query(MatchProposal).filter(MatchProposal.scan_id == int(result.scan_id)).all()
+        assert len(proposals) == 2
+        assert {proposal.relative_path for proposal in proposals} == {"a.epub", "b.epub"}
+
+    def test_execute_scan_auto_link_updates_book(self, session_factory, root_folder, tmp_path, db):
+        _write_epub(
+            tmp_path / "book.epub",
+            title="Foundation",
+            author="Asimov",
+            identifier="urn:hardcover:42",
+        )
+        book = _add_book(db, hardcover_id="42", title="Foundation", author_name="Asimov")
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        scanner.execute_scan(root_folder)
+
+        db.refresh(book)
+        assert book.file_path == "book.epub"
+        assert book.root_folder_id == root_folder.id
+
+    def test_execute_scan_marks_stale_proposals_superseded(self, session_factory, root_folder, tmp_path, db):
+        old_scan = Scan(root_folder_id=root_folder.id, status=ScanStatus.COMPLETED.value, started_at=datetime.utcnow())
+        db.add(old_scan)
+        db.flush()
+        old_proposal = MatchProposal(
+            scan_id=old_scan.id,
+            root_folder_id=root_folder.id,
+            relative_path="old.epub",
+            file_size=123,
+            status=MatchProposalStatus.PENDING.value,
+        )
+        db.add(old_proposal)
+        db.commit()
+
+        _write_epub(tmp_path / "new.epub", title="New")
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        result = scanner.execute_scan(root_folder)
+
+        db.refresh(old_proposal)
+        new_proposals = db.query(MatchProposal).filter(MatchProposal.scan_id == int(result.scan_id)).all()
+        assert old_proposal.status == MatchProposalStatus.SUPERSEDED.value
+        assert old_proposal.decided_at is not None
+        assert len(new_proposals) == 1
+
+    def test_execute_scan_failure_marks_scan_failed(self, session_factory, root_folder, db):
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        def boom(_root_folder):
+            raise RuntimeError("walk exploded")
+
+        scanner.scan = boom  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="walk exploded"):
+            scanner.execute_scan(root_folder)
+
+        failed_scan = db.query(Scan).order_by(Scan.id.desc()).first()
+        assert failed_scan is not None
+        assert failed_scan.status == ScanStatus.FAILED.value
+        assert failed_scan.error_message == "walk exploded"
+        assert failed_scan.finished_at is not None
+
+    def test_execute_scan_does_not_clobber_existing_link(self, session_factory, root_folder, tmp_path, db, caplog):
+        _write_epub(
+            tmp_path / "new.epub",
+            title="Foundation",
+            author="Asimov",
+            identifier="urn:hardcover:42",
+        )
+        book = _add_book(
+            db,
+            hardcover_id="42",
+            title="Foundation",
+            author_name="Asimov",
+            file_path="X/old.epub",
+            root_folder_id=root_folder.id,
+        )
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        with caplog.at_level("WARNING"):
+            result = scanner.execute_scan(root_folder)
+
+        db.refresh(book)
+        proposal = db.query(MatchProposal).filter(MatchProposal.scan_id == int(result.scan_id)).one()
+        assert book.file_path == "X/old.epub"
+        assert proposal.status == MatchProposalStatus.PENDING.value
+        assert proposal.candidate_book_id == book.id
+        assert result.files_matched == 0
+        assert result.files_proposed == 1
+        assert result.files_unmatched == 0
+        assert "Auto-link skipped" in caplog.text
+
+    def test_auto_link_proposal_status_is_auto_linked(self, session_factory, root_folder, tmp_path, db):
+        _write_epub(
+            tmp_path / "book.epub",
+            title="Foundation",
+            author="Asimov",
+            identifier="urn:hardcover:42",
+        )
+        _add_book(db, hardcover_id="42", title="Foundation", author_name="Asimov")
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        result = scanner.execute_scan(root_folder)
+
+        proposal = db.query(MatchProposal).filter(MatchProposal.scan_id == int(result.scan_id)).one()
+        assert proposal.status == MatchProposalStatus.AUTO_LINKED.value
+
+    def test_book_source_set_to_scanner_on_autolink(self, session_factory, root_folder, tmp_path, db):
+        _write_epub(
+            tmp_path / "book.epub",
+            title="Foundation",
+            author="Asimov",
+            identifier="urn:hardcover:42",
+        )
+        book = _add_book(db, hardcover_id="42", title="Foundation", author_name="Asimov")
+        scanner = ScannerService(db_session_factory=session_factory, epub_service=EpubService())
+
+        scanner.execute_scan(root_folder)
+
+        db.refresh(book)
+        assert book.source == "scanner"
+
+    def test_progress_callback_broadcasts_websocket_event(self, session_factory, root_folder, tmp_path):
+        _write_epub(tmp_path / "a.epub", title="A")
+        _write_epub(tmp_path / "b.epub", title="B")
+        ws_manager = StubWebSocketManager()
+        scanner = ScannerService(
+            db_session_factory=session_factory,
+            epub_service=EpubService(),
+            ws_manager=ws_manager,
+        )
+
+        scanner.execute_scan(root_folder)
+
+        progress_events = [data for event, data in ws_manager.events if event == "scan_progress"]
+        assert len(progress_events) == 3
+        assert progress_events[-1]["finished"] is True
+        assert progress_events[-1]["current_path"] is None
+
+    def test_scan_completed_event_has_duration_ms(self, session_factory, root_folder, tmp_path):
+        _write_epub(tmp_path / "book.epub", title="A")
+        ws_manager = StubWebSocketManager()
+        scanner = ScannerService(
+            db_session_factory=session_factory,
+            epub_service=EpubService(),
+            ws_manager=ws_manager,
+        )
+
+        scanner.execute_scan(root_folder)
+
+        completed = [data for event, data in ws_manager.events if event == "scan_completed"]
+        assert len(completed) == 1
+        assert "duration_ms" in completed[0]
+        assert completed[0]["duration_ms"] >= 0
