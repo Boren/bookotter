@@ -294,6 +294,28 @@ class TestWriteMetadata:
         with pytest.raises(BookImportError, match="Failed to write metadata"):
             svc.write_metadata(book, lib_root / "book.epub")
 
+    def test_strips_html_from_description_in_metadata(self, db_session, lib_root: Path) -> None:
+        mock_epub = MagicMock()
+        rf = _make_root_folder(db_session, lib_root)
+        html_desc = "<p>Hello <b>world</b>!</p><br/>&amp; more"
+        book = _make_book(
+            db_session,
+            rf,
+            title="HTML Book",
+            description=html_desc,
+        )
+        svc = ImportService(db_session, epub_service=mock_epub)
+
+        svc.write_metadata(book, lib_root / "book.epub")
+
+        mock_epub.write_metadata.assert_called_once()
+        call_args = mock_epub.write_metadata.call_args
+        meta = call_args[0][1]
+        # Verify HTML is stripped and entities are decoded
+        assert meta.description == "Hello world!\n\n& more"
+        # Verify DB Book.description still has raw HTML
+        assert book.description == html_desc
+
 
 class TestImportBook:
     def test_successful_import_flat(self, db_session, lib_root: Path, source_epub: Path) -> None:

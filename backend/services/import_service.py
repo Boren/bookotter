@@ -16,6 +16,7 @@ from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.atomic import atomic_copy
 from backend.utils.events import log_event
+from backend.utils.text import strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,7 @@ class ImportService:
             authors=[author_name] if author_name else [],
             series=book.series_name,
             series_position=book.series_position,
-            description=book.description,
+            description=strip_html(book.description),
         )
 
         try:
