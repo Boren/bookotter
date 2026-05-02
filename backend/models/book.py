@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -124,8 +125,11 @@ class Book(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(500), nullable=False)
     author_id = Column(Integer, ForeignKey("author.id"), nullable=True, index=True)
-    hardcover_id = Column(String(100), nullable=True, index=True)
+    hardcover_id = Column(String(100), nullable=False, unique=True, index=True)
     isbn = Column(String(20), nullable=True)
+    source = Column(
+        String(50), nullable=True, index=True
+    )  # 'hardcover_sync' | 'scanner' | 'manual' | 'download' | None
     description = Column(Text, nullable=True)
     publisher = Column(String(255), nullable=True)
     language = Column(String(10), nullable=True)
@@ -156,8 +160,11 @@ class Book(Base):
     root_folder = relationship("RootFolder", back_populates="books")
     downloads = relationship("Download", back_populates="book", cascade="all, delete-orphan")
 
-    # Indexes
-    __table_args__ = (Index("ix_book_status_created", "status", "created_at"),)
+    # Indexes and constraints
+    __table_args__ = (
+        Index("ix_book_status_created", "status", "created_at"),
+        UniqueConstraint("root_folder_id", "file_path", name="uq_book_root_path"),
+    )
 
     def to_dict(self):
         """Convert to dictionary for API responses."""
