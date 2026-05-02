@@ -265,9 +265,19 @@ onUnmounted(() => {
         v-for="(book, index) in store.books"
         :key="book.id"
         :to="{ name: 'book-detail', params: { id: book.id } }"
-        class="group animate-fade-in-up block"
+        class="group animate-fade-in-up block relative"
         :style="{ animationDelay: `${Math.min(index, 15) * 30}ms` }"
       >
+        <!-- Failure Badge -->
+        <div
+          v-if="book.status === 'failed' || book.status === 'PERMANENT_FAILED'"
+          data-testid="failure-badge"
+          :title="book.failure_reason || 'Unknown error'"
+          class="absolute -top-2 -right-2 bg-error-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold z-10 shadow-sm"
+        >
+          !
+        </div>
+
         <!-- Cover -->
         <div class="relative aspect-[2/3] rounded-xl overflow-hidden bg-stone-100 shadow-warm transition-all duration-300 group-hover:shadow-warm-lg group-hover:-translate-y-1">
           <img
