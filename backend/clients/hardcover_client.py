@@ -4,6 +4,7 @@ Handles GraphQL queries to fetch the user's book lists with offset-based
 pagination and resilient retry semantics.
 """
 
+import json
 import logging
 import time
 
@@ -367,6 +368,123 @@ class HardcoverClient:
             List of book dictionaries with title, author, and ISBN information
         """
         return self.get_books_by_status([1])
+
+    def search_books(self, query: str, limit: int = 5) -> list[dict]:
+        """Search Hardcover for books matching free-text query.
+
+        Used by the library scanner to bootstrap unmatched EPUBs into the
+        local Book table. Returns up to `limit` matches with id, title,
+        authors, and (when present) ISBN.
+
+        Args:
+            query: Free-text search string (title, author, ISBN, etc.)
+            limit: Max number of results to return (default 5)
+
+        Returns:
+            List of dicts shaped like:
+            [
+                {
+                    "id": <int>,                     # Hardcover book ID
+                    "title": <str>,
+                    "author_names": [<str>, ...],    # may be empty
+                    "isbns": [<str>, ...],           # may be empty
+                },
+                ...
+            ]
+            Empty list if no results.
+
+        Raises:
+            Same exceptions as other HardcoverClient methods on auth/network failure.
+        """
+        gql_query = """
+        query SearchBooks($query: String!, $perPage: Int!) {
+          search(query: $query, query_type: "book", per_page: $perPage, page: 1) {
+            ids
+            results
+            error
+            page
+            per_page
+          }
+        }
+        """
+        variables = {"query": query, "perPage": limit}
+        response = self._make_request(gql_query, variables)
+
+        search_payload = (response.get("data") or {}).get("search") or {}
+        if search_payload.get("error"):
+            logger.warning("Hardcover search returned error: %s", search_payload["error"])
+
+        raw_results = search_payload.get("results")
+        if raw_results is None:
+            return []
+
+        # Hardcover returns `results` as jsonb. It may arrive as a parsed list
+        # or as a JSON-encoded string depending on how the server serializes it.
+        if isinstance(raw_results, str):
+            try:
+                raw_results = json.loads(raw_results)
+            except (ValueError, TypeError) as exc:
+                logger.warning("Failed to parse Hardcover search results JSON: %s", exc)
+                return []
+
+        # Typesense-style payload may wrap entries under "hits" or be a flat list.
+        if isinstance(raw_results, dict):
+            entries = raw_results.get("hits") or raw_results.get("results") or []
+        elif isinstance(raw_results, list):
+            entries = raw_results
+        else:
+            logger.warning("Unexpected Hardcover search results shape: %s", type(raw_results).__name__)
+            return []
+
+        books: list[dict] = []
+        for entry in entries[:limit]:
+            book = self._parse_search_entry(entry)
+            if book is not None:
+                books.append(book)
+
+        return books
+
+    @staticmethod
+    def _parse_search_entry(entry: object) -> dict | None:
+        """Extract a normalized book dict from a single Hardcover search entry.
+
+        Returns None when the entry is malformed (missing id or title) so the
+        caller can skip it gracefully.
+        """
+        if not isinstance(entry, dict):
+            logger.warning("Skipping non-dict Hardcover search entry: %s", type(entry).__name__)
+            return None
+
+        # Typesense responses may nest the actual book under a "document" key.
+        nested = entry.get("document")
+        document: dict = nested if isinstance(nested, dict) else entry
+
+        book_id = document.get("id")
+        title = document.get("title")
+        if book_id is None or not title:
+            logger.warning("Skipping malformed Hardcover search entry (missing id/title)")
+            return None
+
+        try:
+            book_id_int = int(book_id)
+        except (TypeError, ValueError):
+            logger.warning("Skipping Hardcover search entry with non-integer id: %r", book_id)
+            return None
+
+        author_names = document.get("author_names") or []
+        if not isinstance(author_names, list):
+            author_names = []
+
+        isbns = document.get("isbns") or []
+        if not isinstance(isbns, list):
+            isbns = []
+
+        return {
+            "id": book_id_int,
+            "title": str(title),
+            "author_names": [str(a) for a in author_names if a],
+            "isbns": [str(i) for i in isbns if i],
+        }
 
     def test_connection(self) -> ConnectionTestResult:
         """
