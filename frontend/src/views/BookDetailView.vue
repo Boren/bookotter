@@ -51,6 +51,12 @@ const formatFileSize = (bytes: number | null) => {
   return `${Math.round(bytes / 1_000)} KB`
 }
 
+const humanizeReason = (reason: string | null): string => {
+  if (!reason) return ''
+  const spaced = reason.replace(/_/g, ' ')
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
 const enterEditMode = () => {
   if (!book.value) return
   editForm.value = {
@@ -327,6 +333,39 @@ onMounted(() => {
           </button>
         </div>
       </Transition>
+
+      <!-- Failure Card -->
+      <div
+        v-if="book.status === 'failed' || book.status === 'PERMANENT_FAILED'"
+        data-testid="failure-card"
+        class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4"
+      >
+        <div class="flex justify-between items-start">
+          <div>
+            <h3 class="text-red-900 font-semibold">This book failed to process</h3>
+            <p class="text-red-800 mt-1">
+              Reason: <span data-testid="failure-reason" :title="book.failure_reason || undefined">{{ humanizeReason(book.failure_reason) }}</span>
+            </p>
+            <p class="text-red-700 text-sm mt-1">Attempt {{ book.retry_count }} of 3</p>
+            
+            <details v-if="book.failure_history?.length" class="mt-3">
+              <summary class="text-sm text-red-700 cursor-pointer hover:text-red-900 font-medium">Show previous attempts</summary>
+              <ul class="mt-2 space-y-1 text-sm text-red-600 pl-4 list-disc">
+                <li v-for="(entry, index) in book.failure_history" :key="index" :data-testid="'failure-history-item-' + index">
+                  {{ entry.timestamp }} - {{ humanizeReason(entry.reason) }} (attempt {{ entry.attempt }})
+                </li>
+              </ul>
+            </details>
+          </div>
+          <button
+            :data-testid="'retry-button-' + book.id"
+            disabled
+            class="btn btn-secondary bg-white text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
 
       <!-- Main Content Card -->
       <div class="card card-accent animate-fade-in">
