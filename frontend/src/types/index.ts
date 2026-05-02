@@ -16,7 +16,14 @@ export type BookStatus =
   | 'downloading'
   | 'importing'
   | 'in_library'
-  | 'failed';
+  | 'failed'
+  | 'PERMANENT_FAILED';
+
+export interface FailureHistoryEntry {
+  reason: string;
+  timestamp: string;
+  attempt: number;
+}
 
 export interface Book {
   id: number;
@@ -41,6 +48,9 @@ export interface Book {
   last_searched_at: string | null;
   created_at: string;
   updated_at: string;
+  failure_reason: string | null;
+  retry_count: number;
+  failure_history: FailureHistoryEntry[] | null;
 }
 
 export type FolderOrganization = 'flat' | 'author' | 'series' | 'author_series';
