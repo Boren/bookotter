@@ -23,6 +23,7 @@ from backend.clients.kindle_client import KindleClient
 from backend.config import load_config
 from backend.database import SessionLocal
 from backend.models.book import Book, BookStatus
+from backend.utils.failure import _append_failure_history
 
 
 class CLIRunner:
@@ -362,6 +363,9 @@ def force_retry_book(book_id: int, db: Session) -> int:
         return 2
 
     previous = book.status
+    if book.failure_reason:
+        _append_failure_history(book, book.failure_reason)
+    _append_failure_history(book, "MANUAL_RETRY")
     book.status = BookStatus.WANTED.value
     book.retry_count = 0
     book.failure_reason = None

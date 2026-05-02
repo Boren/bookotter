@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
 from backend.models.book import Author, Book, BookStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
+from backend.utils.failure import _append_failure_history
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,9 @@ def force_retry_book(book_id: int, db: Session = Depends(get_db)):
         )
 
     previous_status = book.status
+    if book.failure_reason:
+        _append_failure_history(book, book.failure_reason)
+    _append_failure_history(book, "MANUAL_RETRY")
     book.status = BookStatus.WANTED.value
     book.retry_count = 0
     book.failure_reason = None

@@ -28,6 +28,7 @@ from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.cleanup import cleanup_orphan_tmp_files
 from backend.utils.events import log_event
+from backend.utils.failure import _append_failure_history
 from backend.utils.pipeline_lock import acquire_pipeline_lock
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,7 @@ class PipelineService:
                 retry_count = book.retry_count if isinstance(book.retry_count, int) else 0
 
                 if retry_count >= PIPELINE_AUTO_RETRY_ATTEMPTS:
+                    _append_failure_history(book, FailureReason.RETRY_BUDGET_EXHAUSTED.value)
                     book.status = BookStatus.PERMANENT_FAILED.value
                     book.failure_reason = FailureReason.RETRY_BUDGET_EXHAUSTED.value
                     changed = True
@@ -296,6 +298,8 @@ class PipelineService:
                 if book.updated_at and (now - book.updated_at) < cooldown:
                     continue
 
+                if book.failure_reason:
+                    _append_failure_history(book, book.failure_reason)
                 book.retry_count = retry_count + 1
                 book.status = BookStatus.WANTED.value
                 book.failure_reason = None

@@ -16,6 +16,7 @@ from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.atomic import atomic_copy
 from backend.utils.events import log_event
+from backend.utils.failure import _append_failure_history
 from backend.utils.text import strip_html
 
 logger = logging.getLogger(__name__)
@@ -112,11 +113,13 @@ class ImportService:
             if not is_confident:
                 logger.warning("Low confidence EPUB for book %s: %s", book.id, reason)
                 book.low_confidence = True
+                _append_failure_history(book, FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value)
                 book.failure_reason = FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value
 
             if self.epub_service.is_drm_protected(dest_path):
                 logger.warning("DRM detected for book %s; skipping metadata write", book.id)
                 book.low_confidence = True
+                _append_failure_history(book, FailureReason.IMPORT_DRM_PROTECTED.value)
                 book.failure_reason = FailureReason.IMPORT_DRM_PROTECTED.value
             else:
                 self.write_metadata(book, dest_path)

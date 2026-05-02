@@ -32,6 +32,7 @@ from backend.services.pipeline_states import transition_book, transition_downloa
 from backend.services.torrent_hash import extract_info_hash_from_url
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.events import log_event
+from backend.utils.failure import _append_failure_history
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,7 @@ def reconcile_state(
             book.id,
             book.title,
         )
+        _append_failure_history(book, FailureReason.IMPORT_COPY_FAILED.value)
         book.status = BookStatus.FAILED.value
         book.failure_reason = FailureReason.IMPORT_COPY_FAILED.value
         book.updated_at = now.replace(tzinfo=None)
@@ -172,6 +174,7 @@ def reconcile_state(
                 book.title,
                 download.torrent_hash[:16],
             )
+            _append_failure_history(book, FailureReason.DOWNLOAD_TORRENT_ERROR.value)
             book.status = BookStatus.FAILED.value
             book.failure_reason = FailureReason.DOWNLOAD_TORRENT_ERROR.value
             book.updated_at = now.replace(tzinfo=None)
@@ -194,6 +197,8 @@ def reconcile_state(
                 book.id,
             )
             continue
+        if book.failure_reason:
+            _append_failure_history(book, book.failure_reason)
         book.failure_reason = None
         book.updated_at = now.replace(tzinfo=None)
         counts["searching_orphans"] += 1
@@ -892,6 +897,7 @@ class DownloadService:
 
         book = db.query(Book).filter(Book.id == download.book_id).first()
         if book is not None:
+            _append_failure_history(book, reason.value)
             book.failure_reason = reason.value
             old_status = book.status
             if transition_book(book, BookStatus.FAILED, db):
