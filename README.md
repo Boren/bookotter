@@ -342,6 +342,10 @@ The web server exposes a REST API:
 
 ## Development
 
+### Local Database Setup
+
+After pulling library-scanner changes, delete `data/bookotter.db` to rebuild the schema with the new constraints.
+
 ### Backend Development
 
 ```bash
