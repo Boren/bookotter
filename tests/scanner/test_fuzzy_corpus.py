@@ -40,10 +40,6 @@ def _score(book_title: str, book_author: str, file_title: str, file_author: str)
     return fuzz.WRatio(_query(book_title, book_author), _query(file_title, file_author))
 
 
-@pytest.mark.xfail(
-    reason="depends on T12 FuzzyMatcher implementation; remove marker once compute_fuzzy_score lands",
-    strict=False,
-)
 def test_fuzzy_threshold_corpus_separates_cleanly() -> None:
     try:
         from backend.services.scanner.matchers import compute_fuzzy_score
