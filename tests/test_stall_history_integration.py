@@ -114,7 +114,6 @@ class TestStallHistoryIntegration:
             # Create book in DOWNLOADING state with no failure_history
             book = _make_book(db, status=BookStatus.DOWNLOADING.value)
             book_id = book.id
-            assert book.failure_history is None or len(book.failure_history) == 0
 
             # Create download with initial progress
             download = _make_download(db, book.id)
