@@ -16,6 +16,7 @@ const isDeleting = ref(false)
 const showDeleteConfirm = ref(false)
 const saveSuccess = ref(false)
 const isSearching = ref(false)
+const isRetrying = ref(false)
 
 const editForm = ref({
   title: '',
@@ -148,6 +149,16 @@ const goToInteractiveSearch = () => {
       bookAuthor: book.value.author?.name || ''
     }
   })
+}
+
+const handleRetry = async () => {
+  if (!book.value) return
+  isRetrying.value = true
+  try {
+    await libraryStore.retryBook(book.value.id)
+  } finally {
+    isRetrying.value = false
+  }
 }
 
 watch(
@@ -357,13 +368,18 @@ onMounted(() => {
               </ul>
             </details>
           </div>
-          <button
-            :data-testid="'retry-button-' + book.id"
-            disabled
-            class="btn btn-secondary bg-white text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Retry
-          </button>
+           <button
+             :data-testid="isRetrying ? 'retry-button-loading' : 'retry-button-' + book.id"
+             @click="handleRetry"
+             :disabled="isRetrying"
+             class="btn btn-secondary bg-white text-red-700 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+           >
+             <svg v-if="isRetrying" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+             </svg>
+             {{ isRetrying ? 'Retrying...' : 'Retry' }}
+           </button>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { useToast } from '../composables/useToast';
 import type { Book } from '../types';
 
 export const useLibraryStore = defineStore('library', () => {
@@ -162,6 +163,16 @@ export const useLibraryStore = defineStore('library', () => {
     }
   };
 
+  const retryBook = async (bookId: number): Promise<void> => {
+    const response = await fetch(`/api/library/books/${bookId}/retry`, { method: 'POST' });
+    if (response.ok) {
+      useToast().success('Retry queued — pipeline will pick it up shortly.');
+    } else {
+      const body = await response.json().catch(() => ({}));
+      useToast().error(body.detail || 'Failed to queue retry');
+    }
+  };
+
   // Computed
   const bookCount = computed(() => books.value.length);
   const totalPages = computed(() => Math.ceil(total.value / limit.value));
@@ -204,5 +215,6 @@ export const useLibraryStore = defineStore('library', () => {
     setFilterStatus,
     clearError,
     handleBookEvent,
+    retryBook,
   };
 });

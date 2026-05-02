@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useFailedStore } from '../stores/failed'
+import { useLibraryStore } from '../stores/library'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const store = useFailedStore()
+const libraryStore = useLibraryStore()
+const retryingIds = ref<Set<number>>(new Set())
 
 const humanizeReason = (reason: string | null) => {
   if (!reason) return 'Unknown error'
   const spaced = reason.replace(/_/g, ' ')
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+const handleRetry = async (bookId: number) => {
+  retryingIds.value.add(bookId)
+  try {
+    await libraryStore.retryBook(bookId)
+  } finally {
+    retryingIds.value.delete(bookId)
+  }
 }
 
 onMounted(() => {
@@ -83,17 +95,26 @@ onMounted(() => {
                   <span class="text-stone-400">Retries: {{ book.retry_count || 0 }}</span>
                 </div>
               </div>
-              <div class="shrink-0">
-                <button :data-testid="'retry-button-' + book.id" disabled class="btn btn-secondary opacity-50 cursor-not-allowed">
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+               <div class="shrink-0">
+                 <button
+                   :data-testid="retryingIds.has(book.id) ? 'retry-button-loading' : 'retry-button-' + book.id"
+                   @click="handleRetry(book.id)"
+                   :disabled="retryingIds.has(book.id)"
+                   class="btn btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                   <svg v-if="retryingIds.has(book.id)" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                   </svg>
+                   {{ retryingIds.has(book.id) ? 'Retrying...' : 'Retry' }}
+                 </button>
+               </div>
+             </div>
+           </div>
+         </div>
+       </div>
 
-      <div v-if="store.recent_failures.length > 0" class="space-y-4">
+       <div v-if="store.recent_failures.length > 0" class="space-y-4">
         <h2 class="text-lg font-semibold text-stone-900">Recent failures</h2>
         <div class="card overflow-hidden">
           <div class="divide-y divide-stone-100">
@@ -117,15 +138,24 @@ onMounted(() => {
                   <span class="text-stone-400">Retries: {{ book.retry_count || 0 }}</span>
                 </div>
               </div>
-              <div class="shrink-0">
-                <button :data-testid="'retry-button-' + book.id" disabled class="btn btn-secondary opacity-50 cursor-not-allowed">
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
+               <div class="shrink-0">
+                 <button
+                   :data-testid="retryingIds.has(book.id) ? 'retry-button-loading' : 'retry-button-' + book.id"
+                   @click="handleRetry(book.id)"
+                   :disabled="retryingIds.has(book.id)"
+                   class="btn btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                   <svg v-if="retryingIds.has(book.id)" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                   </svg>
+                   {{ retryingIds.has(book.id) ? 'Retrying...' : 'Retry' }}
+                 </button>
+               </div>
+             </div>
+           </div>
+         </div>
+       </div>
+     </div>
+   </div>
+ </template>

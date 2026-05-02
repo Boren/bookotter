@@ -4,6 +4,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useSyncStore } from './stores/sync'
 import { useWantedStore } from './stores/wanted'
 import { useFailedStore } from './stores/failed'
+import Toast from './components/Toast.vue'
 
 const route = useRoute()
 const syncStore = useSyncStore()
@@ -283,5 +284,8 @@ onUnmounted(() => {
         </div>
       </div>
     </main>
+
+    <!-- Toast Container -->
+    <Toast />
   </div>
 </template>
