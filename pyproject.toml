@@ -39,7 +39,7 @@ dependencies = [
     "apscheduler>=3.11.2",
     # File handling
     "aiofiles>=25.1.0",
-    "python-multipart>=0.0.26",
+    "python-multipart>=0.0.27",
     # EPUB handling
     "ebooklib>=0.20",
 ]
