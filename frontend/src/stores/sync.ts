@@ -5,6 +5,7 @@ import { useDownloadStore } from './download';
 import { useFailedStore } from './failed';
 import { useLibraryStore } from './library';
 import { useRssStore } from './rss';
+import { useScannerStore } from './scanner';
 
 export const useSyncStore = defineStore('sync', () => {
   const isRunning = ref(false);
@@ -89,6 +90,11 @@ export const useSyncStore = defineStore('sync', () => {
 
     if (message.event.startsWith('rss_')) {
       rssStore.handleWebSocketEvent(message.event, message.data);
+      return;
+    }
+
+    if (message.event.startsWith('scan_')) {
+      useScannerStore().handleWebSocketEvent(message.event, message.data);
       return;
     }
 

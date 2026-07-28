@@ -33,7 +33,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import joinedload
 
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Book
+from backend.models.book import Book, BookStatus
 from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus, Scan, ScanStatus
 from backend.services.scanner.matchers import build_candidate_index, cascade_match
 from backend.services.scanner.types import BookCandidate, FileMetadata, MatchMethod, MatchResult
@@ -594,8 +594,10 @@ class ScannerService:
                             .update(
                                 {
                                     Book.file_path: draft.relative_path,
+                                    Book.file_size: draft.file_size,
                                     Book.root_folder_id: int(root_folder.id),
                                     Book.source: "scanner",
+                                    Book.status: BookStatus.IN_LIBRARY.value,
                                 },
                                 synchronize_session=False,
                             )

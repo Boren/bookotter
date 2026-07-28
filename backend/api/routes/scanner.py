@@ -82,6 +82,25 @@ class LinkUnmatchedRequest(BaseModel):
     hardcover_id: int
 
 
+class LinkBookRequest(BaseModel):
+    proposal_id: int
+    book_id: int
+
+
+class BulkApproveRequest(BaseModel):
+    proposal_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+class BulkApproveSkipped(BaseModel):
+    proposal_id: int
+    reason: str
+
+
+class BulkApproveResponse(BaseModel):
+    approved: int
+    skipped: list[BulkApproveSkipped]
+
+
 class DismissProposalRequest(BaseModel):
     proposal_id: int
     add_to_dismissed_paths: bool = False
@@ -285,6 +304,18 @@ def _ensure_proposal_id_matches(path_proposal_id: int, body_proposal_id: int) ->
         raise HTTPException(status_code=400, detail="Proposal ID mismatch between path and body")
 
 
+def _link_book_to_proposal(proposal: MatchProposal, book: Book) -> None:
+    """Link a book to a proposal's file and mark both sides accordingly."""
+    now = datetime.utcnow()
+    book.file_path = proposal.relative_path
+    book.file_size = proposal.file_size
+    book.source = "scanner"
+    book.root_folder_id = proposal.root_folder_id
+    book.status = BookStatus.IN_LIBRARY.value
+    proposal.status = MatchProposalStatus.APPROVED.value
+    proposal.decided_at = now
+
+
 @router.post("/scans", status_code=status.HTTP_202_ACCEPTED)
 def trigger_scan(body: ScanRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     root_folder = db.get(RootFolder, body.root_folder_id)
@@ -348,6 +379,7 @@ def list_proposals(
     root_folder_id: int | None = Query(default=None),
     scan_id: int | None = Query(default=None),
     status: str | None = Query(default=None),
+    has_candidate: bool | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -359,6 +391,11 @@ def list_proposals(
         query = query.filter(MatchProposal.scan_id == scan_id)
     if status is not None:
         query = query.filter(MatchProposal.status == status)
+    if has_candidate is not None:
+        if has_candidate:
+            query = query.filter(MatchProposal.candidate_book_id.isnot(None))
+        else:
+            query = query.filter(MatchProposal.candidate_book_id.is_(None))
 
     rows = query.order_by(MatchProposal.created_at.desc()).offset(offset).limit(limit).all()
     return [_proposal_to_response(proposal, book, author) for proposal, book, author in rows]
@@ -376,12 +413,60 @@ def approve_proposal(proposal_id: int, db: Session = Depends(get_db)):
     if book.file_path:
         raise HTTPException(status_code=409, detail="Candidate book is already linked to a file")
 
-    now = datetime.utcnow()
-    book.file_path = proposal.relative_path
-    book.source = "scanner"
-    book.root_folder_id = proposal.root_folder_id
-    proposal.status = MatchProposalStatus.APPROVED.value
-    proposal.decided_at = now
+    _link_book_to_proposal(proposal, book)
+
+    db.commit()
+    return _get_proposal_response(db, proposal_id)
+
+
+@router.post("/proposals/bulk-approve", response_model=BulkApproveResponse)
+def bulk_approve_proposals(body: BulkApproveRequest, db: Session = Depends(get_db)):
+    approved = 0
+    skipped: list[BulkApproveSkipped] = []
+
+    for proposal_id in body.proposal_ids:
+        proposal = db.get(MatchProposal, proposal_id)
+        if proposal is None:
+            skipped.append(BulkApproveSkipped(proposal_id=proposal_id, reason="not found"))
+            continue
+        if proposal.status != MatchProposalStatus.PENDING.value:
+            skipped.append(BulkApproveSkipped(proposal_id=proposal_id, reason="already decided"))
+            continue
+        if proposal.candidate_book_id is None:
+            skipped.append(BulkApproveSkipped(proposal_id=proposal_id, reason="no candidate book"))
+            continue
+
+        book = db.get(Book, proposal.candidate_book_id)
+        if book is None:
+            skipped.append(BulkApproveSkipped(proposal_id=proposal_id, reason="candidate book not found"))
+            continue
+        if book.file_path:
+            skipped.append(BulkApproveSkipped(proposal_id=proposal_id, reason="book already linked to a file"))
+            continue
+
+        _link_book_to_proposal(proposal, book)
+        approved += 1
+
+    db.commit()
+    return BulkApproveResponse(approved=approved, skipped=skipped)
+
+
+@router.post("/proposals/{proposal_id}/link-book", response_model=MatchProposalResponse)
+def link_book(proposal_id: int, body: LinkBookRequest, db: Session = Depends(get_db)):
+    """Manually link a proposal's file to an existing library book (overrides any suggested candidate)."""
+    _ensure_proposal_id_matches(proposal_id, body.proposal_id)
+
+    proposal = _get_pending_proposal(db, proposal_id)
+    book = db.get(Book, body.book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"Book {body.book_id} not found")
+    if book.file_path:
+        raise HTTPException(status_code=409, detail="Book is already linked to a file")
+
+    proposal.candidate_book_id = book.id
+    proposal.match_method = "manual"
+    proposal.score = None
+    _link_book_to_proposal(proposal, book)
 
     db.commit()
     return _get_proposal_response(db, proposal_id)
@@ -497,6 +582,7 @@ def link_hardcover(proposal_id: int, body: LinkUnmatchedRequest, db: Session = D
         source="scanner",
         root_folder_id=proposal.root_folder_id,
         file_path=proposal.relative_path,
+        file_size=proposal.file_size,
         status=BookStatus.IN_LIBRARY.value,
     )
     db.add(book)

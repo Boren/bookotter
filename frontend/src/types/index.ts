@@ -296,6 +296,66 @@ export type WebSocketMessage =
   | { event: 'import_started'; data: ImportStartedEvent }
   | { event: 'import_completed'; data: ImportCompletedEvent };
 
+// Scanner / Library Import Types
+export type ScanStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface ScanSummary {
+  id: number;
+  root_folder_id: number;
+  status: ScanStatus;
+  started_at: string;
+  finished_at: string | null;
+  files_seen: number;
+  files_matched: number;
+  files_proposed: number;
+  files_unmatched: number;
+  files_failed: number;
+  error_message: string | null;
+}
+
+export interface ScanProgressEvent {
+  scan_id: number;
+  root_folder_id: number;
+  files_seen: number;
+  files_matched: number;
+  files_proposed: number;
+  files_unmatched: number;
+  files_failed: number;
+  current_path: string | null;
+  finished: boolean;
+}
+
+export type MatchProposalStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'auto_linked'
+  | 'superseded';
+
+export interface MatchProposal {
+  id: number;
+  scan_id: number;
+  root_folder_id: number;
+  relative_path: string;
+  file_size: number;
+  candidate_book_id: number | null;
+  match_method: string | null;
+  score: number | null;
+  status: MatchProposalStatus;
+  created_at: string;
+  decided_at: string | null;
+  candidate_title: string | null;
+  candidate_author: string | null;
+  candidate_hardcover_id: string | null;
+}
+
+export interface HardcoverSearchResult {
+  hardcover_id: number;
+  title: string;
+  author_names: string[];
+  isbns: string[];
+}
+
 export interface BrowseEntry {
   name: string;
   type: 'dir' | 'file' | 'broken_symlink';
