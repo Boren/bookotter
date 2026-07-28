@@ -10,6 +10,7 @@ Self-hosted book management platform — automatically search, download, and man
 
 - **Full Book Pipeline**: Hardcover sync → Prowlarr search → qBittorrent download → EPUB import with metadata → Kindle sync
 - **Library Browser**: Browse your book collection with cover images, filtering, and sorting
+- **Library Import**: Scan an existing books folder and match files to your library — auto-matching by embedded ID, ISBN, and title/author, with a review queue for fuzzy and unmatched files
 - **Search Page**: Search for books via Prowlarr indexers and grab results for download
 - **Download Queue**: Real-time download progress tracking via qBittorrent
 - **Book Detail & Metadata Editor**: Edit title, author, series, and other metadata per book
