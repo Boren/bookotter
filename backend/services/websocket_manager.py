@@ -16,6 +16,11 @@ class WebSocketManager:
 
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Record the server's event loop so worker threads can broadcast."""
+        self._loop = loop
 
     async def connect(self, websocket: WebSocket):
         """Accept a new WebSocket connection."""
@@ -43,12 +48,26 @@ class WebSocketManager:
             self.disconnect(conn)
 
     def broadcast_sync(self, event: str, data: Any) -> None:
-        """Schedule async broadcast from sync code. Safe outside event loop."""
+        """Schedule async broadcast from sync code. Safe outside event loop.
+
+        Works both on the event-loop thread (create_task) and from worker
+        threads such as FastAPI background tasks or the scheduler
+        (run_coroutine_threadsafe via the loop recorded by ``set_loop``).
+        """
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self.broadcast(event, data))
         except RuntimeError:
-            logger.debug(f"No running event loop; skipping broadcast of '{event}'")
+            loop = None
+
+        if loop is not None:
+            loop.create_task(self.broadcast(event, data))
+            return
+
+        if self._loop is not None and not self._loop.is_closed():
+            asyncio.run_coroutine_threadsafe(self.broadcast(event, data), self._loop)
+            return
+
+        logger.debug(f"No running event loop; skipping broadcast of '{event}'")
 
     async def send_to(self, websocket: WebSocket, event: str, data: Any):
         """Send an event to a specific client."""

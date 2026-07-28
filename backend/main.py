@@ -4,6 +4,7 @@ BookOtter Web API - FastAPI application entry point.
 Provides REST API and WebSocket endpoints for the BookOtter web interface.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
@@ -140,6 +141,8 @@ async def lifespan(app: FastAPI):
     log_file = setup_logging()
     logger.info("Initializing BookOtter...")
     logger.info(f"Logging initialized, writing to {log_file}")
+
+    ws_manager.set_loop(asyncio.get_running_loop())
 
     init_db()
     logger.info("Database initialized")
