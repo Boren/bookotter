@@ -562,8 +562,6 @@ def link_hardcover(proposal_id: int, body: LinkUnmatchedRequest, db: Session = D
     _ensure_proposal_id_matches(proposal_id, body.proposal_id)
 
     proposal = _get_pending_proposal(db, proposal_id)
-    if proposal.candidate_book_id is not None:
-        raise HTTPException(status_code=400, detail="Proposal already has a candidate book; use approve instead")
 
     existing = db.query(Book).filter(Book.hardcover_id == str(body.hardcover_id)).first()
     if existing is not None:

@@ -531,14 +531,31 @@ def test_post_link_book_returns_409_for_already_linked_book(client, db_session, 
     assert response.status_code == 409
 
 
-def test_post_link_hardcover_returns_400_for_already_linked_proposal(client, db_session, root_folder):
-    candidate = create_test_book(db_session, title="Candidate", author_name="Author")
+def test_post_link_hardcover_overrides_wrong_candidate(client, db_session, root_folder, monkeypatch):
+    """A matched proposal can be re-linked to a Hardcover book, replacing the wrong candidate."""
+    candidate = create_test_book(db_session, title="Wrong Candidate", author_name="Author W")
     scan = create_scan(db_session, root_folder.id)
     proposal = create_proposal(db_session, scan.id, root_folder.id, candidate_book_id=candidate.id)
+    mock_client = MagicMock()
+    mock_client.get_book_by_id.return_value = {
+        "id": 888,
+        "title": "Right Book",
+        "author_names": ["Author R"],
+        "isbns": [],
+    }
+    monkeypatch.setattr("backend.api.routes.scanner._get_hardcover_client", lambda: mock_client)
 
     response = client.post(
         f"/api/scanner/proposals/{proposal.id}/link-hardcover",
-        json={"proposal_id": proposal.id, "hardcover_id": 777},
+        json={"proposal_id": proposal.id, "hardcover_id": 888},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    payload = response.json()
+    new_book = db_session.get(Book, payload["book_id"])
+    db_session.refresh(proposal)
+    db_session.refresh(candidate)
+    assert new_book.title == "Right Book"
+    assert proposal.candidate_book_id == new_book.id
+    assert proposal.status == MatchProposalStatus.APPROVED.value
+    assert candidate.file_path is None
