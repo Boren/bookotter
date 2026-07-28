@@ -279,6 +279,8 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
 
     existing = db.query(Download).filter(Download.torrent_hash == torrent_hash).first()
     if existing:
+        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
+        db.commit()
         return {
             "success": False,
             "message": f"Download already exists (id={existing.id})",

@@ -207,3 +207,43 @@ class TestGrabRouteHashValidation:
 
         assert exc_info.value.status_code == 422
         assert "magnet" in exc_info.value.detail.lower() or "hash" in exc_info.value.detail.lower()
+
+
+class TestAutoSearchExistingDownload:
+    def test_existing_download_does_not_leave_book_searching(self, db_session):
+        import hashlib
+
+        from backend.models.book import Book, BookStatus, Download, DownloadStatus
+
+        book = create_test_book(db_session, title="Great Book", author_name="Author")
+        db_session.commit()
+        hash_hex = hashlib.sha1(b"dupe").hexdigest()
+        download = Download(
+            book_id=book.id,
+            torrent_hash=hash_hex,
+            torrent_name="Great Book EPUB",
+            indexer_name="TestIndexer",
+            download_url="https://example.com/download/dupe",
+            size=1000,
+            seeders=5,
+            status=DownloadStatus.COMPLETED.value,
+        )
+        db_session.add(download)
+        db_session.commit()
+        book_id = book.id
+
+        prowlarr = MagicMock()
+        prowlarr.search_book.return_value = [make_result(title="Great Book EPUB", guid="dupe")]
+        qbt = MagicMock()
+
+        with (
+            patch("backend.api.routes.search._get_prowlarr_client", return_value=prowlarr),
+            patch("backend.api.routes.search._get_qbittorrent_client", return_value=qbt),
+            patch("backend.api.routes.search.load_config", return_value={"qbittorrent": {"category": "books"}}),
+        ):
+            result = asyncio.run(search_routes.auto_search_and_grab(book_id, db_session))
+
+        assert result["success"] is False
+        assert "already exists" in result["message"]
+        db_session.expire_all()
+        assert db_session.get(Book, book_id).status != BookStatus.SEARCHING.value
