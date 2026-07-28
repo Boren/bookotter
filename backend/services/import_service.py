@@ -91,7 +91,11 @@ class ImportService:
             raise ImportStateError(f"Book {book_id} not found")
 
         if book.root_folder_id is None:
-            raise ImportStateError(f"Book {book_id} has no root folder assigned")
+            fallback = self.db.query(RootFolder).order_by(RootFolder.id).first()
+            if fallback is None:
+                raise ImportStateError(f"Book {book_id} has no root folder assigned and no root folders exist")
+            logger.info("Book %s has no root folder assigned; falling back to %r", book_id, fallback.name)
+            book.root_folder_id = fallback.id
 
         root_folder = self.db.get(RootFolder, book.root_folder_id)
         if root_folder is None:

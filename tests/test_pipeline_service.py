@@ -792,3 +792,50 @@ class TestConcurrentProcessing:
         statuses = {get_book(db_session, id1).status, get_book(db_session, id2).status}
         assert BookStatus.GRABBED in statuses
         assert BookStatus.FAILED in statuses
+
+
+class TestSearchSingleBook:
+    def test_no_search_service_returns_zero(self, db_session):
+        book = create_test_book(db_session, title="Single Solo", status=BookStatus.WANTED.value)
+        db_session.commit()
+        service = make_service(db_session)
+        assert service.search_single_book(book.id) == 0
+
+    def test_unknown_book_id_returns_zero(self, db_session):
+        search_service = MagicMock()
+        service = make_service(db_session, search_service=search_service)
+        assert service.search_single_book(99999) == 0
+        search_service.search_book.assert_not_called()
+
+    def test_searches_wanted_book_and_returns_to_wanted_on_no_results(self, db_session):
+        book = create_test_book(db_session, title="Single Wanted", status=BookStatus.WANTED.value)
+        db_session.commit()
+        book_id = book.id
+        search_service = MagicMock()
+        search_service.search_book.return_value = []
+        service = make_service(db_session, search_service=search_service)
+
+        assert service.search_single_book(book_id) == 0
+
+        search_service.search_book.assert_called_once()
+        assert get_book(db_session, book_id).status == BookStatus.WANTED.value
+
+    def test_searches_missing_book(self, db_session):
+        book = create_test_book(db_session, title="Single Missing", status=BookStatus.MISSING.value)
+        db_session.commit()
+        search_service = MagicMock()
+        search_service.search_book.return_value = []
+        service = make_service(db_session, search_service=search_service)
+
+        service.search_single_book(book.id)
+
+        search_service.search_book.assert_called_once()
+
+    def test_skips_book_in_non_searchable_status(self, db_session):
+        book = create_test_book(db_session, title="Single In Library", status=BookStatus.IN_LIBRARY.value)
+        db_session.commit()
+        search_service = MagicMock()
+        service = make_service(db_session, search_service=search_service)
+
+        assert service.search_single_book(book.id) == 0
+        search_service.search_book.assert_not_called()

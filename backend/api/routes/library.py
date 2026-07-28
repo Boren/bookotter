@@ -6,12 +6,14 @@ Handles book CRUD operations and browsing with filtering/pagination.
 import logging
 import os
 from datetime import datetime
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from backend.config import load_config
 from backend.database import get_db
 from backend.models.book import Author, Book, BookStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
@@ -177,7 +179,12 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/books", status_code=201)
-async def create_book(body: BookCreateRequest, db: Session = Depends(get_db)):
+async def create_book(
+    body: BookCreateRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     if body.status and body.status not in [s.value for s in BookStatus]:
         raise HTTPException(status_code=422, detail=f"Invalid status: {body.status}")
 
@@ -186,7 +193,8 @@ async def create_book(body: BookCreateRequest, db: Session = Depends(get_db)):
     book = Book(
         title=body.title,
         author_id=author.id if author else None,
-        hardcover_id=body.hardcover_id,
+        hardcover_id=body.hardcover_id or f"manual-{uuid4().hex}",
+        source="manual",
         isbn=body.isbn,
         description=body.description,
         publisher=body.publisher,
@@ -200,6 +208,14 @@ async def create_book(body: BookCreateRequest, db: Session = Depends(get_db)):
     db.add(book)
     db.commit()
     db.refresh(book)
+
+    if book.status in {BookStatus.WANTED.value, BookStatus.MISSING.value}:
+        search_on_add = load_config().get("pipeline", {}).get("search_on_add", True)
+        pipeline = getattr(request.app.state, "pipeline", None)
+        if search_on_add and pipeline is not None:
+            background_tasks.add_task(pipeline.search_single_book, book.id)
+        elif search_on_add:
+            logger.warning("search_on_add=true but pipeline service is not initialized — skipping auto-search")
 
     return book.to_dict()
 

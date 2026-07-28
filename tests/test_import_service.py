@@ -475,3 +475,57 @@ class TestImportBook:
         svc.import_book(book.id, source_epub)
 
         assert source_epub.exists()
+
+
+class TestImportRootFolderFallback:
+    def _make_book_without_root_folder(self, db, title: str = "No Folder Book") -> Book:
+        global _book_counter
+        _book_counter += 1
+        author = Author(name=f"Fallback Author {_book_counter}", created_at=datetime.utcnow())
+        db.add(author)
+        db.flush()
+        book = Book(
+            title=title,
+            hardcover_id=f"test-fallback-{_book_counter}",
+            author_id=author.id,
+            status=BookStatus.DOWNLOADING.value,
+            root_folder_id=None,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(book)
+        db.flush()
+        return book
+
+    def test_falls_back_to_first_root_folder(self, db_session, lib_root: Path, source_epub: Path) -> None:
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = self._make_book_without_root_folder(db_session)
+        svc = ImportService(db_session)
+
+        result = svc.import_book(book.id, source_epub)
+
+        assert result.status == BookStatus.IN_LIBRARY.value
+        assert result.root_folder_id == rf.id
+        assert (lib_root / "No Folder Book.epub").exists()
+
+    def test_uses_lowest_id_root_folder_when_multiple(self, db_session, tmp_path: Path, source_epub: Path) -> None:
+        first_root = tmp_path / "first"
+        second_root = tmp_path / "second"
+        first_root.mkdir()
+        second_root.mkdir()
+        rf_first = _make_root_folder(db_session, first_root, FolderOrganization.FLAT.value)
+        _make_root_folder(db_session, second_root, FolderOrganization.FLAT.value)
+        book = self._make_book_without_root_folder(db_session, title="Ordered Book")
+        svc = ImportService(db_session)
+
+        result = svc.import_book(book.id, source_epub)
+
+        assert result.root_folder_id == rf_first.id
+        assert (first_root / "Ordered Book.epub").exists()
+
+    def test_raises_when_no_root_folders_exist(self, db_session, source_epub: Path) -> None:
+        book = self._make_book_without_root_folder(db_session, title="Truly Homeless")
+        svc = ImportService(db_session)
+
+        with pytest.raises(ImportStateError, match="no root folder"):
+            svc.import_book(book.id, source_epub)

@@ -87,6 +87,30 @@ class PipelineService:
         finally:
             db.close()
 
+    def search_single_book(self, book_id: int) -> int:
+        """Search and grab one WANTED/MISSING book (used by search-on-add for manual adds)."""
+        if self.search_service is None:
+            logger.warning("search_single_book: no search_service configured, skipping")
+            return 0
+
+        db = self._session_factory()
+        try:
+            book = db.get(Book, book_id)
+            if book is None:
+                logger.warning(f"search_single_book: book {book_id} not found")
+                return 0
+            if book.status not in {BookStatus.WANTED, BookStatus.MISSING}:
+                logger.debug(f"search_single_book: book {book_id} in status {book.status!r}, skipping")
+                return 0
+            try:
+                return self._search_and_grab(book, db)
+            except Exception as exc:
+                logger.error(f"Unexpected error searching book '{book.title}': {exc}")
+                self._fail_book(book, db, str(exc))
+                return 0
+        finally:
+            db.close()
+
     def process_searching_books(self) -> int:
         if self.search_service is None:
             logger.warning("process_searching_books: no search_service configured, skipping")
