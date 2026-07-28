@@ -399,3 +399,40 @@ class TestAddTorrentFile:
         with patch.object(client._session, "request", side_effect=requests.exceptions.ConnectionError("fail")):
             result = client.add_torrent_file(b"torrentbytes")
         assert result is False
+
+
+class TestAddTorrentQbit51JsonResponse:
+    """qBittorrent >= 5.1 returns JSON from /torrents/add instead of 'Ok.'."""
+
+    def _client_with_response(self, client, body: str):
+        client._authenticated = True
+        client._auth_time = 9999999999.0
+        return patch.object(client._session, "request", return_value=_mock_response(200, body))
+
+    def test_add_torrent_pending_is_success(self, client):
+        body = '{"added_torrent_ids":[],"failure_count":0,"pending_count":1,"success_count":0}'
+        with self._client_with_response(client, body):
+            assert client.add_torrent("http://prowlarr.example/download?id=1") is True
+
+    def test_add_torrent_success_count_is_success(self, client):
+        body = '{"added_torrent_ids":["abc"],"failure_count":0,"pending_count":0,"success_count":1}'
+        with self._client_with_response(client, body):
+            assert client.add_torrent("magnet:?xt=urn:btih:" + "a" * 40) is True
+
+    def test_add_torrent_failure_count_is_failure(self, client):
+        body = '{"added_torrent_ids":[],"failure_count":1,"pending_count":0,"success_count":0}'
+        with self._client_with_response(client, body):
+            assert client.add_torrent("magnet:?xt=urn:btih:" + "a" * 40) is False
+
+    def test_add_torrent_file_json_success(self, client):
+        body = '{"added_torrent_ids":["abc"],"failure_count":0,"pending_count":0,"success_count":1}'
+        with self._client_with_response(client, body):
+            assert client.add_torrent_file(b"torrentbytes") is True
+
+    def test_legacy_ok_still_success(self, client):
+        with self._client_with_response(client, "Ok."):
+            assert client.add_torrent("magnet:?xt=urn:btih:" + "a" * 40) is True
+
+    def test_legacy_fails_still_failure(self, client):
+        with self._client_with_response(client, "Fails."):
+            assert client.add_torrent("magnet:?xt=urn:btih:" + "a" * 40) is False

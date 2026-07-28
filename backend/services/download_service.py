@@ -770,17 +770,27 @@ class DownloadService:
         Returns:
             True if the torrent was added successfully, False otherwise.
         """
+        added = False
         spooled = spooled_torrent_path(download.torrent_hash)
         if spooled is not None:
             try:
-                return self.qbit.add_torrent_file(spooled.read_bytes(), category=self.category)
+                added = self.qbit.add_torrent_file(spooled.read_bytes(), category=self.category)
             except OSError as exc:
                 logger.warning("Could not read spooled torrent for download %d: %s", download.id, exc)
-
-        if not download.download_url:
+        elif download.download_url:
+            added = self.qbit.add_torrent(torrent_url=download.download_url, category=self.category)
+        else:
             logger.error("Download %d has no URL — cannot add to qBittorrent", download.id)
             return False
-        return self.qbit.add_torrent(torrent_url=download.download_url, category=self.category)
+
+        if not added and download.torrent_hash:
+            # A rejected duplicate still means the torrent is in the client.
+            if self.qbit.get_torrent_properties(download.torrent_hash) is not None:
+                logger.info(
+                    "Torrent %s already present in qBittorrent — treating add as success", download.torrent_hash
+                )
+                return True
+        return added
 
     def get_completed_file_path(self, download: "Download") -> str | None:
         """Check if a torrent download is complete and return the EPUB file path.

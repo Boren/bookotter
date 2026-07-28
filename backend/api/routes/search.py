@@ -18,7 +18,30 @@ from backend.database import get_db
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book
 from backend.services.search_service import SearchService
-from backend.services.torrent_hash import extract_info_hash_from_url, fetch_and_hash_torrent
+from backend.services.torrent_hash import (
+    extract_info_hash_from_url,
+    fetch_and_hash_torrent,
+    spooled_torrent_path,
+)
+
+
+def _add_torrent_to_qbit(qbt, torrent_hash: str, download_url: str, category: str) -> bool:
+    """Add a torrent to qBittorrent, preferring the spooled .torrent file bytes."""
+    added = False
+    spooled = spooled_torrent_path(torrent_hash)
+    if spooled is not None:
+        try:
+            added = qbt.add_torrent_file(spooled.read_bytes(), category=category)
+        except OSError as exc:
+            logger.warning("Could not read spooled torrent %s: %s", torrent_hash, exc)
+    else:
+        added = qbt.add_torrent(torrent_url=download_url, category=category)
+
+    if not added and qbt.get_torrent_properties(torrent_hash) is not None:
+        logger.info("Torrent %s already present in qBittorrent — treating add as success", torrent_hash)
+        return True
+    return added
+
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +172,7 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
         category = get_qbit_category(config)
 
         qbt.ensure_category_exists(category)
-        success = qbt.add_torrent(torrent_url=download_url, category=category)
+        success = _add_torrent_to_qbit(qbt, torrent_hash, download_url, category)
         if not success:
             raise HTTPException(status_code=502, detail="Failed to add torrent to qBittorrent")
 
@@ -269,7 +292,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         category = get_qbit_category(config)
         qbt.ensure_category_exists(category)
 
-        success = qbt.add_torrent(torrent_url=download_url, category=category)
+        success = _add_torrent_to_qbit(qbt, torrent_hash, download_url, category)
         if not success:
             _require_transition(
                 book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted"

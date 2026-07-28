@@ -3,6 +3,7 @@ qBittorrent API Client
 Handles cookie-based auth and torrent management via the qBittorrent Web API v2.
 """
 
+import json
 import logging
 import time
 from enum import StrEnum
@@ -46,6 +47,27 @@ DOWNLOAD_COMPLETE_STATES = {
     TorrentState.STALLED_UP,
     TorrentState.PAUSED_UP,
 }
+
+
+def _parse_add_response(text: str) -> bool:
+    """Interpret a /torrents/add response across qBittorrent versions.
+
+    qBittorrent < 5.1 returns the literal 'Ok.' / 'Fails.'; >= 5.1 returns JSON
+    like {"added_torrent_ids": [...], "failure_count": 0, "pending_count": 1,
+    "success_count": 0}. A pending add (qBittorrent still fetching the URL or
+    torrent metadata) counts as success.
+    """
+    stripped = text.strip()
+    if stripped == "Ok.":
+        return True
+    try:
+        payload = json.loads(stripped)
+    except ValueError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    success = (payload.get("success_count") or 0) + (payload.get("pending_count") or 0)
+    return success > 0 or bool(payload.get("added_torrent_ids"))
 
 
 class QBittorrentClient:
@@ -226,7 +248,7 @@ class QBittorrentClient:
                 data["tags"] = ",".join(tags)
 
             response = self._make_request("/api/v2/torrents/add", method="POST", data=data)
-            success = response.text.strip() == "Ok."
+            success = _parse_add_response(response.text)
             if success:
                 logger.info(f"Torrent added successfully: {torrent_url[:80]}")
             else:
@@ -274,7 +296,7 @@ class QBittorrentClient:
                 data=data,
                 files={"torrents": ("upload.torrent", torrent_bytes, "application/x-bittorrent")},
             )
-            success = response.text.strip() == "Ok."
+            success = _parse_add_response(response.text)
             if success:
                 logger.info("Torrent file uploaded successfully (%d bytes)", len(torrent_bytes))
             else:

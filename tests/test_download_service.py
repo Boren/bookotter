@@ -517,3 +517,32 @@ class TestAddTorrentPrefersSpooledFile:
         qbit.add_torrent.assert_called_once_with(
             torrent_url="http://prowlarr.example/1/download?file=x", category="test-books"
         )
+
+
+class TestAddTorrentAlreadyInClient:
+    def _download(self):
+        return Download(
+            id=2,
+            book_id=1,
+            torrent_hash="e" * 40,
+            torrent_name="Existing Torrent",
+            indexer_name="TestIndexer",
+            download_url="http://prowlarr.example/2/download",
+            size=1000,
+            seeders=5,
+            status=DownloadStatus.QUEUED.value,
+        )
+
+    def test_failed_add_but_torrent_present_is_success(self, service, qbit, monkeypatch):
+        monkeypatch.setattr("backend.services.download_service.spooled_torrent_path", lambda h: None)
+        qbit.add_torrent.return_value = False
+        qbit.get_torrent_properties.return_value = {"hash": "e" * 40}
+
+        assert service.add_torrent(self._download()) is True
+
+    def test_failed_add_and_torrent_absent_is_failure(self, service, qbit, monkeypatch):
+        monkeypatch.setattr("backend.services.download_service.spooled_torrent_path", lambda h: None)
+        qbit.add_torrent.return_value = False
+        qbit.get_torrent_properties.return_value = None
+
+        assert service.add_torrent(self._download()) is False
