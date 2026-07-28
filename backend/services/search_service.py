@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from backend.clients.prowlarr_client import ProwlarrClient
 from backend.constants import EPUB_TITLE_SIMILARITY_THRESHOLD
 from backend.services.blocklist_service import BlocklistService
-from backend.utils.similarity import author_surname_match, title_similarity
+from backend.utils.similarity import author_surname_match, parse_release_title, title_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -157,9 +157,16 @@ class SearchService:
         title_sim = 1.0
         author_match = False
         if query_title:
-            title_sim = title_similarity(query_title, result_title)
+            # Release names are typically 'Title by Author [tags]' — compare against
+            # both the raw name and the parsed title part so tags/author noise
+            # doesn't sink an exact title match.
+            parsed_title, parsed_author = parse_release_title(result_title)
+            title_sim = max(
+                title_similarity(query_title, result_title),
+                title_similarity(query_title, parsed_title),
+            )
             authors_a = [query_author] if query_author else []
-            authors_b = [result_author] if result_author else []
+            authors_b = [author for author in (result_author, parsed_author) if author]
             author_match = author_surname_match(authors_a, authors_b)
             # Reject if title similarity below threshold AND no author match — protects
             # against Prowlarr returning unrelated books that happen to share keywords.

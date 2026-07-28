@@ -191,3 +191,45 @@ class TestSimilarityRanking:
         assert results[0].guid == "with-author"
         assert results[0].author_match is True
         assert results[1].author_match is False
+
+
+class TestConventionalReleaseNames:
+    """Releases named 'Title by Author [tags]' must match a title+author query."""
+
+    def test_title_by_author_epub_release_is_approved(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [
+            make_result(title="The Name of the Wind by Patrick Rothfuss [ENG / EPUB]")
+        ]
+
+        results = service.search_book("The Name of the Wind", author="Patrick Rothfuss")
+
+        assert results[0].approved is True, results[0].rejections
+        assert results[0].author_match is True
+        assert results[0].title_similarity >= 0.75
+
+    def test_title_by_author_without_query_author_is_approved(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [
+            make_result(title="The Name of the Wind by Patrick Rothfuss [ENG / EPUB]")
+        ]
+
+        results = service.search_book("The Name of the Wind")
+
+        assert results[0].approved is True, results[0].rejections
+
+    def test_bundle_release_with_matching_author_is_approved(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [
+            make_result(title="The Name of the Wind and The Wise Man's Fear by Patrick Rothfuss [ENG / EPUB]")
+        ]
+
+        results = service.search_book("The Name of the Wind", author="Patrick Rothfuss")
+
+        assert results[0].approved is True, results[0].rejections
+        assert results[0].author_match is True
+
+    def test_unrelated_book_same_naming_style_is_rejected(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [make_result(title="Empire of Grass by Tad Williams [ENG / EPUB]")]
+
+        results = service.search_book("The Name of the Wind", author="Patrick Rothfuss")
+
+        assert results[0].approved is False
+        assert "No candidate matches title" in results[0].rejections

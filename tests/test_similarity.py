@@ -1,6 +1,11 @@
 """Tests for backend.utils.similarity."""
 
-from backend.utils.similarity import author_surname_match, normalize_for_match, title_similarity
+from backend.utils.similarity import (
+    author_surname_match,
+    normalize_for_match,
+    parse_release_title,
+    title_similarity,
+)
 
 
 class TestNormalizeForMatch:
@@ -53,3 +58,25 @@ class TestAuthorSurnameMatch:
     def test_empty_lists(self):
         assert author_surname_match([], ["Herbert"]) is False
         assert author_surname_match(["Herbert"], []) is False
+
+
+class TestParseReleaseTitle:
+    def test_splits_title_author_and_strips_tags(self):
+        title, author = parse_release_title("The Name of the Wind by Patrick Rothfuss [ENG / EPUB]")
+        assert title == "The Name of the Wind"
+        assert author == "Patrick Rothfuss"
+
+    def test_uses_last_by_separator(self):
+        title, author = parse_release_title("Death by Water by Kenzaburo Oe")
+        assert title == "Death by Water"
+        assert author == "Kenzaburo Oe"
+
+    def test_no_author_part_returns_empty_author(self):
+        title, author = parse_release_title("Standalone Title [EPUB]")
+        assert title == "Standalone Title"
+        assert author == ""
+
+    def test_parenthesized_tags_stripped(self):
+        title, author = parse_release_title("Dune by Frank Herbert (retail) (epub)")
+        assert title == "Dune"
+        assert author == "Frank Herbert"

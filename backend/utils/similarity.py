@@ -34,6 +34,24 @@ def title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, na, nb).ratio()
 
 
+_RELEASE_TAG_RE = re.compile(r"[\[(][^\])]*[\])]")
+
+
+def parse_release_title(release_title: str) -> tuple[str, str]:
+    """Split a release name like 'Title by Author [tags]' into (title, author).
+
+    Strips bracketed/parenthesized tags, then splits on the last ' by ' so
+    titles that themselves contain ' by ' stay intact. Returns an empty author
+    when no separator is present.
+    """
+    cleaned = _RELEASE_TAG_RE.sub(" ", release_title)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if " by " in cleaned:
+        title_part, author_part = cleaned.rsplit(" by ", 1)
+        return title_part.strip(), author_part.strip()
+    return cleaned, ""
+
+
 def _extract_surname(full_name: str) -> str:
     """Extract surname from 'First Last' or 'Last, First' format."""
     name = full_name.strip()
