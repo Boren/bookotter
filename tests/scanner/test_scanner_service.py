@@ -245,6 +245,47 @@ class TestDismissedPaths:
         assert result.dismissed_skipped == 1
 
 
+class TestAlreadyLinkedPaths:
+    def test_scan_counts_linked_files_as_matched_without_proposal(self, scanner, root_folder, tmp_path, db):
+        _write_epub(tmp_path / "linked.epub", title="Linked", author="X")
+        _write_epub(tmp_path / "new.epub", title="New", author="Y")
+        _add_book(
+            db,
+            hardcover_id="hc-linked",
+            title="Linked",
+            author_name="X",
+            file_path="linked.epub",
+            root_folder_id=root_folder.id,
+        )
+
+        result = scanner.scan(root_folder)
+
+        assert result.files_seen == 2
+        assert result.files_matched == 1
+        assert result.files_unmatched == 1
+        assert [p.relative_path for p in result.proposals] == ["new.epub"]
+
+    def test_scan_ignores_links_from_other_root_folders(self, scanner, root_folder, tmp_path, db):
+        _write_epub(tmp_path / "same_name.epub", title="Same Name", author="X")
+        other_folder = RootFolder(name="Other", path=str(tmp_path / "other"))
+        db.add(other_folder)
+        db.commit()
+        _add_book(
+            db,
+            hardcover_id="hc-other",
+            title="Same Name",
+            author_name="X",
+            file_path="same_name.epub",
+            root_folder_id=other_folder.id,
+        )
+
+        result = scanner.scan(root_folder)
+
+        assert result.files_matched == 0
+        assert result.files_seen == 1
+        assert len(result.proposals) == 1
+
+
 class TestCascadeIntegration:
     def test_scan_with_no_book_candidates_returns_all_unmatched(self, scanner, root_folder, tmp_path):
         _write_epub(tmp_path / "a.epub", title="A", author="X")

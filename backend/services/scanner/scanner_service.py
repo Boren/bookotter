@@ -264,7 +264,7 @@ class ScannerService:
         root_folder_id = int(root_folder.id)
         root_path = str(root_folder.path)
 
-        candidates, dismissed_set = self._load_index_inputs(root_folder_id)
+        candidates, dismissed_set, linked_paths = self._load_index_inputs(root_folder_id)
         index = build_candidate_index(candidates)
 
         files_seen = 0
@@ -289,6 +289,23 @@ class ScannerService:
                     continue
 
                 files_seen += 1
+
+                if relative_path in linked_paths:
+                    # File is already linked to a library book (e.g. imported by a
+                    # previous scan) — no proposal needed, count it as matched.
+                    files_matched += 1
+                    self._emit(
+                        scan_id,
+                        root_folder_id,
+                        files_seen,
+                        files_matched,
+                        files_proposed,
+                        files_unmatched,
+                        files_failed,
+                        relative_path,
+                        finished=False,
+                    )
+                    continue
 
                 size_bytes = self._safe_getsize(filepath)
                 if size_bytes is None:
@@ -410,8 +427,8 @@ class ScannerService:
             dismissed_skipped=dismissed_skipped,
         )
 
-    def _load_index_inputs(self, root_folder_id: int) -> tuple[list[BookCandidate], set[str]]:
-        """Load candidates + dismissed paths in one short-lived DB session.
+    def _load_index_inputs(self, root_folder_id: int) -> tuple[list[BookCandidate], set[str], set[str]]:
+        """Load candidates + dismissed paths + already-linked paths in one short-lived DB session.
 
         We deliberately avoid holding the session for the entire scan: the
         candidate index is a pure in-memory snapshot once built, and the walk
@@ -419,9 +436,14 @@ class ScannerService:
         excluded inside ``build_candidate_index`` so the warning logs there
         stay accurate); filtering them out here would silently mask
         duplicate-ID collisions.
+
+        ``linked_paths`` holds the file paths of books already linked in this
+        root folder, so rescans can count those files as matched instead of
+        re-proposing them as unmatched.
         """
         candidates: list[BookCandidate] = []
         dismissed_set: set[str] = set()
+        linked_paths: set[str] = set()
 
         db = self._session_factory()
         try:
@@ -430,6 +452,8 @@ class ScannerService:
 
             books = db.query(Book).options(joinedload(Book.author)).all()
             for book in books:
+                if book.file_path and book.root_folder_id == root_folder_id:
+                    linked_paths.add(_nfc(str(book.file_path)))
                 candidates.append(
                     BookCandidate(
                         id=int(book.id),
@@ -443,7 +467,7 @@ class ScannerService:
         finally:
             db.close()
 
-        return candidates, dismissed_set
+        return candidates, dismissed_set, linked_paths
 
     @staticmethod
     def _safe_getsize(filepath: str) -> int | None:
