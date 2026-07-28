@@ -121,6 +121,7 @@ class QBittorrentClient:
         method: str = "GET",
         params: dict | None = None,
         data: dict | None = None,
+        files: dict | None = None,
         retry_on_auth_fail: bool = True,
     ) -> requests.Response:
         """
@@ -159,6 +160,7 @@ class QBittorrentClient:
                 url=url,
                 params=params,
                 data=data,
+                files=files,
                 timeout=QBIT_TIMEOUT,
             )
 
@@ -172,6 +174,7 @@ class QBittorrentClient:
                     url=url,
                     params=params,
                     data=data,
+                    files=files,
                     timeout=QBIT_TIMEOUT,
                 )
 
@@ -232,6 +235,54 @@ class QBittorrentClient:
 
         except Exception as e:
             logger.error(f"Error adding torrent: {e}")
+            return False
+
+    def add_torrent_file(
+        self,
+        torrent_bytes: bytes,
+        save_path: str | None = None,
+        category: str | None = None,
+        tags: list[str] | None = None,
+    ) -> bool:
+        """
+        Add a torrent by uploading the .torrent file contents.
+
+        Used for private trackers where the file was already fetched to derive
+        the info hash — uploading the same bytes avoids a second indexer hit.
+
+        Args:
+            torrent_bytes: Raw contents of a .torrent file
+            save_path: Optional download directory override
+            category: Optional category label
+            tags: Optional list of tags
+
+        Returns:
+            True if added successfully, False otherwise
+        """
+        try:
+            data: dict = {}
+            if save_path:
+                data["savepath"] = save_path
+            if category:
+                data["category"] = category
+            if tags:
+                data["tags"] = ",".join(tags)
+
+            response = self._make_request(
+                "/api/v2/torrents/add",
+                method="POST",
+                data=data,
+                files={"torrents": ("upload.torrent", torrent_bytes, "application/x-bittorrent")},
+            )
+            success = response.text.strip() == "Ok."
+            if success:
+                logger.info("Torrent file uploaded successfully (%d bytes)", len(torrent_bytes))
+            else:
+                logger.warning(f"Unexpected response when uploading torrent file: {response.text!r}")
+            return success
+
+        except Exception as e:
+            logger.error(f"Error uploading torrent file: {e}")
             return False
 
     def get_torrents(

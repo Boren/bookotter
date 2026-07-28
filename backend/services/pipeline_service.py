@@ -24,7 +24,7 @@ from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus, Download, DownloadStatus, KindleDeliveryStatus, RootFolder
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.search_service import ScoredResult
-from backend.services.torrent_hash import extract_info_hash_from_url
+from backend.services.torrent_hash import extract_info_hash_from_url, fetch_and_hash_torrent
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.cleanup import cleanup_orphan_tmp_files
 from backend.utils.events import log_event
@@ -719,6 +719,10 @@ class PipelineService:
         torrent_hash = extract_info_hash_from_url(scored_result.magnet_url) or extract_info_hash_from_url(
             scored_result.download_url
         )
+        if not torrent_hash:
+            # Private trackers serve .torrent files instead of magnets — fetch the
+            # file to compute the real info hash (and spool it for qBittorrent).
+            torrent_hash = fetch_and_hash_torrent(scored_result.download_url)
         if not torrent_hash:
             logger.error(
                 "Could not derive info hash for '%s' from magnet=%r or url=%r — leaving WANTED",

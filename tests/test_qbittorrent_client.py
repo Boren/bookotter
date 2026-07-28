@@ -372,3 +372,30 @@ class TestTorrentStateEnum:
         assert TorrentState.PAUSED_UP in DOWNLOAD_COMPLETE_STATES
         assert TorrentState.DOWNLOADING not in DOWNLOAD_COMPLETE_STATES
         assert TorrentState.ERROR not in DOWNLOAD_COMPLETE_STATES
+
+
+class TestAddTorrentFile:
+    def test_returns_true_on_ok(self, client):
+        client._authenticated = True
+        client._auth_time = 9999999999.0
+        ok_resp = _mock_response(200, "Ok.")
+        with patch.object(client._session, "request", return_value=ok_resp):
+            result = client.add_torrent_file(b"d4:infod4:name1:xee", category="books")
+        assert result is True
+
+    def test_uploads_bytes_and_category(self, client):
+        client._authenticated = True
+        client._auth_time = 9999999999.0
+        ok_resp = _mock_response(200, "Ok.")
+        with patch.object(client._session, "request", return_value=ok_resp) as mock_req:
+            client.add_torrent_file(b"torrentbytes", category="books")
+        _, kwargs = mock_req.call_args
+        assert kwargs["data"]["category"] == "books"
+        assert kwargs["files"]["torrents"][1] == b"torrentbytes"
+
+    def test_returns_false_on_exception(self, client):
+        client._authenticated = True
+        client._auth_time = 9999999999.0
+        with patch.object(client._session, "request", side_effect=requests.exceptions.ConnectionError("fail")):
+            result = client.add_torrent_file(b"torrentbytes")
+        assert result is False

@@ -839,3 +839,61 @@ class TestSearchSingleBook:
 
         assert service.search_single_book(book.id) == 0
         search_service.search_book.assert_not_called()
+
+
+class TestGrabTorrentFileResult:
+    """Results without magnets (private trackers) must fall back to fetching the .torrent."""
+
+    def test_grabs_url_only_result_via_torrent_fetch(self, db_session, monkeypatch):
+        book = create_test_book(db_session, title="Private Tracker Book")
+        db_session.commit()
+        book_id = book.id
+
+        fetched_hash = "f" * 40
+        monkeypatch.setattr(
+            "backend.services.pipeline_service.fetch_and_hash_torrent",
+            MagicMock(return_value=fetched_hash),
+        )
+        mock_search = MagicMock()
+        mock_search.search_book.return_value = [make_search_result(magnet_url=None)]
+        service = make_service(db_session, search_service=mock_search)
+
+        grabbed = service.process_wanted_books()
+
+        assert grabbed == 1
+        assert get_book(db_session, book_id).status == BookStatus.GRABBED
+        download = db_session.query(Download).filter(Download.book_id == book_id).first()
+        assert download.torrent_hash == fetched_hash
+
+    def test_fetch_failure_returns_book_to_wanted(self, db_session, monkeypatch):
+        book = create_test_book(db_session, title="Unfetchable Book")
+        db_session.commit()
+        book_id = book.id
+
+        monkeypatch.setattr(
+            "backend.services.pipeline_service.fetch_and_hash_torrent",
+            MagicMock(return_value=None),
+        )
+        mock_search = MagicMock()
+        mock_search.search_book.return_value = [make_search_result(magnet_url=None)]
+        service = make_service(db_session, search_service=mock_search)
+
+        grabbed = service.process_wanted_books()
+
+        assert grabbed == 0
+        assert get_book(db_session, book_id).status == BookStatus.WANTED
+
+    def test_magnet_result_does_not_fetch(self, db_session, monkeypatch):
+        create_test_book(db_session, title="Magnet Book")
+        db_session.commit()
+
+        fetch_mock = MagicMock(return_value=None)
+        monkeypatch.setattr("backend.services.pipeline_service.fetch_and_hash_torrent", fetch_mock)
+        mock_search = MagicMock()
+        mock_search.search_book.return_value = [make_search_result()]
+        service = make_service(db_session, search_service=mock_search)
+
+        grabbed = service.process_wanted_books()
+
+        assert grabbed == 1
+        fetch_mock.assert_not_called()

@@ -476,3 +476,44 @@ class TestReconcileOnStartup:
         counts = service.reconcile_on_startup()
         assert counts == {"reconciled": 0, "failed": 0, "completed": 0}
         qbit.get_torrents.assert_not_called()
+
+
+class TestAddTorrentPrefersSpooledFile:
+    def _download(self):
+        return Download(
+            id=1,
+            book_id=1,
+            torrent_hash="a" * 40,
+            torrent_name="Spooled Book",
+            indexer_name="TestIndexer",
+            download_url="http://prowlarr.example/1/download?file=x",
+            size=1000,
+            seeders=5,
+            status=DownloadStatus.QUEUED.value,
+        )
+
+    def test_uses_spooled_file_when_present(self, service, qbit, tmp_path, monkeypatch):
+        spooled = tmp_path / ("a" * 40 + ".torrent")
+        spooled.write_bytes(b"spooled-torrent-bytes")
+        monkeypatch.setattr(
+            "backend.services.download_service.spooled_torrent_path",
+            lambda torrent_hash: spooled if torrent_hash == "a" * 40 else None,
+        )
+        qbit.add_torrent_file.return_value = True
+
+        assert service.add_torrent(self._download()) is True
+
+        qbit.add_torrent_file.assert_called_once_with(b"spooled-torrent-bytes", category="test-books")
+        qbit.add_torrent.assert_not_called()
+
+    def test_falls_back_to_url_when_not_spooled(self, service, qbit, monkeypatch):
+        monkeypatch.setattr(
+            "backend.services.download_service.spooled_torrent_path",
+            lambda torrent_hash: None,
+        )
+
+        assert service.add_torrent(self._download()) is True
+
+        qbit.add_torrent.assert_called_once_with(
+            torrent_url="http://prowlarr.example/1/download?file=x", category="test-books"
+        )

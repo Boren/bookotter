@@ -18,7 +18,7 @@ from backend.database import get_db
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book
 from backend.services.search_service import SearchService
-from backend.services.torrent_hash import extract_info_hash_from_url
+from backend.services.torrent_hash import extract_info_hash_from_url, fetch_and_hash_torrent
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,11 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
     if not download_url:
         raise HTTPException(status_code=422, detail="Result has no download_url or magnet_url")
 
-    torrent_hash = extract_info_hash_from_url(result.magnet_url) or extract_info_hash_from_url(download_url)
+    torrent_hash = (
+        extract_info_hash_from_url(result.magnet_url)
+        or extract_info_hash_from_url(download_url)
+        or fetch_and_hash_torrent(result.download_url)
+    )
     if not torrent_hash:
         raise HTTPException(
             status_code=422,
@@ -236,7 +240,11 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"success": False, "message": "Best result has no download URL", "book_id": book_id}
 
-    torrent_hash = extract_info_hash_from_url(best.magnet_url) or extract_info_hash_from_url(download_url)
+    torrent_hash = (
+        extract_info_hash_from_url(best.magnet_url)
+        or extract_info_hash_from_url(download_url)
+        or fetch_and_hash_torrent(best.download_url)
+    )
     if not torrent_hash:
         _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
         db.commit()

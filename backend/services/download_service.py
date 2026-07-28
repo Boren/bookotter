@@ -29,7 +29,7 @@ from backend.constants import DOWNLOAD_STALL_THRESHOLD_MIN, DOWNLOAD_TOTAL_TIMEO
 from backend.errors import FailureReason
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.pipeline_states import transition_book, transition_download
-from backend.services.torrent_hash import extract_info_hash_from_url
+from backend.services.torrent_hash import extract_info_hash_from_url, spooled_torrent_path
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
@@ -770,6 +770,13 @@ class DownloadService:
         Returns:
             True if the torrent was added successfully, False otherwise.
         """
+        spooled = spooled_torrent_path(download.torrent_hash)
+        if spooled is not None:
+            try:
+                return self.qbit.add_torrent_file(spooled.read_bytes(), category=self.category)
+            except OSError as exc:
+                logger.warning("Could not read spooled torrent for download %d: %s", download.id, exc)
+
         if not download.download_url:
             logger.error("Download %d has no URL — cannot add to qBittorrent", download.id)
             return False
