@@ -25,6 +25,7 @@ from backend.api.routes import (
     logs,
     root_folders,
     rss,
+    scanner,
     schedules,
     search,
     services,
@@ -342,6 +343,7 @@ app.include_router(wanted.router, prefix="/api/wanted", tags=["wanted"])
 app.include_router(blocklist.router, prefix="/api/blocklist", tags=["blocklist"])
 app.include_router(rss.router, prefix="/api/rss", tags=["rss"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
+app.include_router(scanner.router)
 
 
 @app.get("/api/health")

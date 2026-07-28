@@ -318,7 +318,9 @@ class TestPipelineServiceDedup:
 
     def test_pipeline_concurrent_grab_no_duplicate(self, file_SessionLocal):
         setup_db = file_SessionLocal()
-        book = Book(title="Pipeline Concurrent", hardcover_id="test-pipeline-concurrent", status=BookStatus.WANTED.value)
+        book = Book(
+            title="Pipeline Concurrent", hardcover_id="test-pipeline-concurrent", status=BookStatus.WANTED.value
+        )
         setup_db.add(book)
         setup_db.commit()
         book_id = book.id
