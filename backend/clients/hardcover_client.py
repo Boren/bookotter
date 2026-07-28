@@ -444,6 +444,59 @@ class HardcoverClient:
 
         return books
 
+    def get_book_by_id(self, book_id: int) -> dict | None:
+        """Fetch a single Hardcover book by its ID.
+
+        Returns the same shape as `search_books` entries
+        ({"id", "title", "author_names", "isbns"}), or None when the book
+        does not exist.
+
+        Raises:
+            Same exceptions as other HardcoverClient methods on auth/network failure.
+        """
+        gql_query = """
+        query GetBookById($id: Int!) {
+          books_by_pk(id: $id) {
+            id
+            title
+            contributions {
+              author {
+                name
+              }
+            }
+            editions {
+              isbn_10
+              isbn_13
+            }
+          }
+        }
+        """
+        response = self._make_request(gql_query, {"id": book_id})
+
+        book = (response.get("data") or {}).get("books_by_pk")
+        if not isinstance(book, dict) or book.get("id") is None or not book.get("title"):
+            return None
+
+        author_names = [
+            str(contribution["author"]["name"])
+            for contribution in book.get("contributions") or []
+            if isinstance(contribution, dict) and (contribution.get("author") or {}).get("name")
+        ]
+        isbns = [
+            str(isbn)
+            for edition in book.get("editions") or []
+            if isinstance(edition, dict)
+            for isbn in (edition.get("isbn_13"), edition.get("isbn_10"))
+            if isbn
+        ]
+
+        return {
+            "id": int(book["id"]),
+            "title": str(book["title"]),
+            "author_names": author_names,
+            "isbns": isbns,
+        }
+
     @staticmethod
     def _parse_search_entry(entry: object) -> dict | None:
         """Extract a normalized book dict from a single Hardcover search entry.

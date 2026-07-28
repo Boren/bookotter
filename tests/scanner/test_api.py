@@ -389,14 +389,12 @@ def test_post_link_hardcover_creates_new_book_and_approves_proposal(client, db_s
         score=None,
     )
     mock_client = MagicMock()
-    mock_client.search_books.return_value = [
-        {
-            "id": 777,
-            "title": "Bootstrap Book",
-            "author_names": ["Bootstrap Author"],
-            "isbns": ["9780000000001"],
-        }
-    ]
+    mock_client.get_book_by_id.return_value = {
+        "id": 777,
+        "title": "Bootstrap Book",
+        "author_names": ["Bootstrap Author"],
+        "isbns": ["9780000000001"],
+    }
     monkeypatch.setattr("backend.api.routes.scanner._get_hardcover_client", lambda: mock_client)
 
     response = client.post(
@@ -438,6 +436,96 @@ def test_post_link_hardcover_returns_409_for_duplicate_hardcover_id(client, db_s
     response = client.post(
         f"/api/scanner/proposals/{proposal.id}/link-hardcover",
         json={"proposal_id": proposal.id, "hardcover_id": 777},
+    )
+
+    assert response.status_code == 409
+
+
+def test_post_approve_marks_book_in_library(client, db_session, root_folder):
+    candidate = create_test_book(db_session, title="Approve Me", author_name="Author A")
+    scan = create_scan(db_session, root_folder.id)
+    proposal = create_proposal(db_session, scan.id, root_folder.id, candidate_book_id=candidate.id)
+
+    response = client.post(f"/api/scanner/proposals/{proposal.id}/approve")
+
+    assert response.status_code == 200
+    db_session.refresh(candidate)
+    assert candidate.status == BookStatus.IN_LIBRARY.value
+    assert candidate.file_path == proposal.relative_path
+    assert candidate.file_size == proposal.file_size
+    assert candidate.root_folder_id == root_folder.id
+    assert candidate.source == "scanner"
+
+
+def test_post_bulk_approve_mixes_success_and_skips(client, db_session, root_folder):
+    linked = create_test_book(db_session, title="Already Linked", author_name="Author L", file_path="linked.epub")
+    fresh = create_test_book(db_session, title="Fresh", author_name="Author F")
+    scan = create_scan(db_session, root_folder.id)
+    good = create_proposal(db_session, scan.id, root_folder.id, candidate_book_id=fresh.id, relative_path="fresh.epub")
+    conflicting = create_proposal(
+        db_session, scan.id, root_folder.id, candidate_book_id=linked.id, relative_path="dupe.epub"
+    )
+    unmatched = create_proposal(
+        db_session, scan.id, root_folder.id, candidate_book_id=None, relative_path="nomatch.epub"
+    )
+
+    response = client.post(
+        "/api/scanner/proposals/bulk-approve",
+        json={"proposal_ids": [good.id, conflicting.id, unmatched.id, 99999]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["approved"] == 1
+    skipped_reasons = {entry["proposal_id"]: entry["reason"] for entry in payload["skipped"]}
+    assert skipped_reasons == {
+        conflicting.id: "book already linked to a file",
+        unmatched.id: "no candidate book",
+        99999: "not found",
+    }
+    db_session.refresh(fresh)
+    db_session.refresh(good)
+    assert fresh.status == BookStatus.IN_LIBRARY.value
+    assert fresh.file_path == "fresh.epub"
+    assert good.status == MatchProposalStatus.APPROVED.value
+
+
+def test_post_link_book_links_existing_book(client, db_session, root_folder):
+    book = create_test_book(db_session, title="Manual Target", author_name="Author M")
+    scan = create_scan(db_session, root_folder.id)
+    proposal = create_proposal(
+        db_session,
+        scan.id,
+        root_folder.id,
+        candidate_book_id=None,
+        relative_path="manual.epub",
+        match_method=None,
+        score=None,
+    )
+
+    response = client.post(
+        f"/api/scanner/proposals/{proposal.id}/link-book",
+        json={"proposal_id": proposal.id, "book_id": book.id},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == MatchProposalStatus.APPROVED.value
+    assert payload["match_method"] == "manual"
+    assert payload["candidate_book_id"] == book.id
+    db_session.refresh(book)
+    assert book.status == BookStatus.IN_LIBRARY.value
+    assert book.file_path == "manual.epub"
+
+
+def test_post_link_book_returns_409_for_already_linked_book(client, db_session, root_folder):
+    book = create_test_book(db_session, title="Taken", author_name="Author T", file_path="taken.epub")
+    scan = create_scan(db_session, root_folder.id)
+    proposal = create_proposal(db_session, scan.id, root_folder.id, candidate_book_id=None)
+
+    response = client.post(
+        f"/api/scanner/proposals/{proposal.id}/link-book",
+        json={"proposal_id": proposal.id, "book_id": book.id},
     )
 
     assert response.status_code == 409

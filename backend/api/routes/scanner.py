@@ -289,14 +289,13 @@ def _translate_hardcover_error(exc: Exception) -> None:
 def _lookup_hardcover_book(hardcover_id: int) -> dict:
     client = _get_hardcover_client()
     try:
-        results = client.search_books(str(hardcover_id), limit=20)
+        result = client.get_book_by_id(hardcover_id)
     except Exception as exc:
         _translate_hardcover_error(exc)
 
-    for result in results:
-        if result.get("id") == hardcover_id:
-            return result
-    raise HTTPException(status_code=404, detail=f"Hardcover book {hardcover_id} not found")
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Hardcover book {hardcover_id} not found")
+    return result
 
 
 def _ensure_proposal_id_matches(path_proposal_id: int, body_proposal_id: int) -> None:
