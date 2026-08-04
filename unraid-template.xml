@@ -27,7 +27,9 @@
   <Requires>Hardcover account with API token, Prowlarr instance, qBittorrent instance, Kindle device accessible via SSH (Tailscale recommended)</Requires>
   <Config Name="Web UI Port" Target="6887" Default="6887" Mode="tcp" Description="Port for the web interface" Type="Port" Display="always" Required="true" Mask="false">6887</Config>
   <Config Name="Data Directory" Target="/app/data" Default="/mnt/user/appdata/bookotter" Mode="rw" Description="Configuration, database, and log files" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bookotter</Config>
-  <Config Name="Books Library" Target="/books" Default="/mnt/user/media/books" Mode="ro" Description="Path to your book library (read-only)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/books</Config>
+  <Config Name="Books Library" Target="/data" Default="/mnt/user/media" Mode="rw" Description="Path to your media library. Must be writable and map the same host path as qBittorrent so torrent content paths align" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media</Config>
   <Config Name="SSH Keys" Target="/root/.ssh" Default="/mnt/user/appdata/bookotter/.ssh" Mode="ro" Description="SSH keys for Kindle access - only needed if using key-based authentication instead of password" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/bookotter/.ssh</Config>
   <Config Name="Timezone" Target="TZ" Default="America/New_York" Mode="" Description="Container timezone (e.g., America/New_York, Europe/London)" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID the app runs as. Files in the data directory are owned by this user" Type="Variable" Display="always" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID the app runs as" Type="Variable" Display="always" Required="false" Mask="false">100</Config>
 </Container>

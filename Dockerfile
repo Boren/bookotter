@@ -33,6 +33,7 @@ WORKDIR /app
 # Install system dependencies (gcc needed for some Python packages)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -62,8 +63,12 @@ EXPOSE 6887
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:6887/api/health')" || exit 1
 
-# Switch to non-root user
-USER bookotter
+# Entrypoint remaps the bookotter user to PUID/PGID (default 99:100,
+# unraid's nobody:users) and drops privileges before starting the app
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Run the application
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "6887"]
