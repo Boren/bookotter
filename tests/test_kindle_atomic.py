@@ -128,6 +128,51 @@ class TestAtomicTransfer:
         assert _mv_calls(mock_ssh) == []
 
 
+class TestTransferTimeout:
+    def test_channel_timeout_set_before_put(self, tmp_path):
+        """The SFTP channel gets KINDLE_TRANSFER_TIMEOUT applied before the upload starts."""
+        from backend.constants import KINDLE_TRANSFER_TIMEOUT
+
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"X" * 1024)
+
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0), (b"", 0)])
+        mock_stat = MagicMock()
+        mock_stat.st_size = 1024
+        mock_sftp.stat.return_value = mock_stat
+
+        calls: list[str] = []
+        mock_sftp.get_channel.return_value.settimeout.side_effect = lambda t: calls.append(("settimeout", t))
+        mock_sftp.put.side_effect = lambda *a, **k: calls.append(("put",))
+
+        client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+
+        with patch.object(client, "_create_ssh_client", return_value=mock_ssh):
+            client.transfer_file(str(src), skip_existing=True, folder_organization="flat")
+
+        assert calls[0] == ("settimeout", KINDLE_TRANSFER_TIMEOUT)
+        assert ("put",) in calls
+
+    def test_put_socket_timeout_cleans_tmp(self, tmp_path):
+        """A stalled upload (socket.timeout) fails softly and attempts .tmp cleanup."""
+
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"X" * 1024)
+
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0)])
+        mock_sftp.put.side_effect = TimeoutError("timed out")
+
+        client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+
+        with patch.object(client, "_create_ssh_client", return_value=mock_ssh):
+            result = client.transfer_file(str(src), skip_existing=True, folder_organization="flat")
+
+        assert result["success"] is False
+        assert result["status"] == "failed"
+        mock_sftp.remove.assert_called_with("/mnt/us/books/book.epub.tmp")
+        assert _mv_calls(mock_ssh) == []
+
+
 class TestCleanupTmpFiles:
     def test_old_tmp_cleaned_by_cleanup_pass(self):
         """cleanup_kindle_tmp_files runs `find -delete -print` and returns the deletion count."""

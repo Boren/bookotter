@@ -173,6 +173,17 @@ export const useLibraryStore = defineStore('library', () => {
     }
   };
 
+  const requeueKindle = async (bookId: number): Promise<void> => {
+    const response = await fetch(`/api/library/books/${bookId}/kindle-requeue`, { method: 'POST' });
+    if (response.ok) {
+      useToast().success('Queued for Kindle delivery — sent automatically once the Kindle is on.');
+      await fetchBook(bookId);
+    } else {
+      const body = await response.json().catch(() => ({}));
+      useToast().error(body.detail || 'Failed to queue Kindle delivery');
+    }
+  };
+
   // Computed
   const bookCount = computed(() => books.value.length);
   const totalPages = computed(() => Math.ceil(total.value / limit.value));
@@ -216,5 +227,6 @@ export const useLibraryStore = defineStore('library', () => {
     clearError,
     handleBookEvent,
     retryBook,
+    requeueKindle,
   };
 });

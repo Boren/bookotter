@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.config import load_config
 from backend.database import get_db
-from backend.models.book import Author, Book, BookStatus, RootFolder
+from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.utils.failure import _append_failure_history
 
@@ -144,9 +144,16 @@ async def get_library_stats(db: Session = Depends(get_db)):
         or 0
     )
 
+    kindle_counts = {}
+    for kstatus in KindleDeliveryStatus:
+        kindle_counts[kstatus.value] = (
+            db.query(Book).filter(Book.kindle_delivery_status == kstatus.value).count()
+        )
+
     return {
         "total_books": total_books,
         "by_status": status_counts,
+        "by_kindle_delivery_status": kindle_counts,
         "author_count": author_count,
         "total_size_bytes": total_size,
     }
@@ -315,6 +322,56 @@ def force_retry_book(book_id: int, db: Session = Depends(get_db)):
         "book_id": book_id,
         "previous_status": previous_status,
         "new_status": BookStatus.WANTED.value,
+    }
+
+
+@router.post("/books/{book_id}/kindle-requeue", status_code=202)
+def requeue_kindle_delivery(book_id: int, db: Session = Depends(get_db)):
+    """Re-queue a book for Kindle delivery.
+
+    Allowed from SKIPPED (gave up after the delivery window) or DELIVERED
+    (send again, e.g. after deleting it from the device). Resets the delivery
+    state to PENDING so the next pipeline tick delivers it once the Kindle is
+    reachable.
+    """
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    requeueable = {KindleDeliveryStatus.SKIPPED.value, KindleDeliveryStatus.DELIVERED.value}
+    if book.kindle_delivery_status not in requeueable:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Book is not re-queueable for Kindle delivery, current status: {book.kindle_delivery_status}",
+        )
+    if not book.file_path or book.root_folder_id is None:
+        raise HTTPException(status_code=400, detail="Book has no library file to deliver")
+
+    previous_status = book.kindle_delivery_status
+    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+    book.kindle_first_pending_at = datetime.utcnow()
+    book.kindle_delivery_attempts = 0
+    book.updated_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        from backend.services.websocket_manager import manager as ws_manager
+
+        ws_manager.broadcast_sync(
+            "kindle_delivery_requeued",
+            {
+                "book_id": book_id,
+                "previous_status": previous_status,
+                "new_status": KindleDeliveryStatus.PENDING.value,
+            },
+        )
+    except Exception as e:
+        logger.debug("WS broadcast failed for kindle-requeue(%s): %s", book_id, e)
+
+    return {
+        "book_id": book_id,
+        "previous_status": previous_status,
+        "new_status": KindleDeliveryStatus.PENDING.value,
     }
 
 

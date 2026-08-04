@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useLibraryStore } from '../stores/library'
 import type { BookStatus } from '../types'
+import KindleDeliveryBadge from '../components/KindleDeliveryBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const store = useLibraryStore()
@@ -276,6 +277,11 @@ onUnmounted(() => {
           class="absolute -top-2 -right-2 bg-error-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold z-10 shadow-sm"
         >
           !
+        </div>
+
+        <!-- Kindle Delivery Indicator -->
+        <div class="absolute -top-2 -left-2 z-10">
+          <KindleDeliveryBadge :status="book.kindle_delivery_status" compact />
         </div>
 
         <!-- Cover -->

@@ -14,7 +14,13 @@ from pathlib import PurePosixPath
 import paramiko
 
 from backend.clients import ConnectionTestResult, classify_ssh_error
-from backend.constants import KINDLE_RETRY_ATTEMPTS, KINDLE_SSH_TIMEOUT, TMP_FILE_MAX_AGE_HOURS
+from backend.constants import (
+    KINDLE_PROBE_TIMEOUT,
+    KINDLE_RETRY_ATTEMPTS,
+    KINDLE_SSH_TIMEOUT,
+    KINDLE_TRANSFER_TIMEOUT,
+    TMP_FILE_MAX_AGE_HOURS,
+)
 from backend.errors import FailureReason, PipelineError
 from backend.utils.retry import retry_with_backoff
 
@@ -185,6 +191,20 @@ class KindleClient:
             self.close()
         except Exception:
             pass
+
+    def is_reachable(self, timeout: float = KINDLE_PROBE_TIMEOUT) -> bool:
+        """Cheap TCP probe — is the Kindle awake and accepting connections on the SSH port?
+
+        No SSH handshake: the only question is whether the device is on and
+        listening. OSError covers refused connections, timeouts, and DNS
+        failures (an unresolvable Tailscale hostname counts as "off").
+        """
+        try:
+            with socket.create_connection((self.hostname, self.port), timeout=timeout):
+                return True
+        except OSError:
+            logger.debug("Kindle %s:%s unreachable: TCP probe failed", self.hostname, self.port)
+            return False
 
     def test_connection(self) -> ConnectionTestResult:
         """
@@ -364,6 +384,12 @@ class KindleClient:
             ssh = self._create_ssh_client()
             sftp = ssh.open_sftp()
 
+            # Bound every SFTP I/O op so a Kindle sleeping mid-transfer raises
+            # socket.timeout instead of hanging the pipeline job forever.
+            channel = sftp.get_channel()
+            if channel is not None:
+                channel.settimeout(KINDLE_TRANSFER_TIMEOUT)
+
             # Check if file already exists
             if skip_existing and self._file_exists_sftp(ssh, remote_path):
                 logger.info(f"File already exists on Kindle, skipping: {filename}")
@@ -386,7 +412,7 @@ class KindleClient:
             # Free-space check BEFORE transfer (df reports 1K-blocks on Kindle/POSIX)
             df_target = dir_path or self.destination_path.rstrip("/") or "/mnt/us"
             df_cmd = f"df {shlex.quote(df_target)} | tail -1 | awk '{{print $4}}'"
-            _, df_stdout, _ = ssh.exec_command(df_cmd)
+            _, df_stdout, _ = ssh.exec_command(df_cmd, timeout=KINDLE_SSH_TIMEOUT)
             df_output = df_stdout.read().decode().strip()
             try:
                 available_kb = int(df_output) if df_output else 0
@@ -438,7 +464,7 @@ class KindleClient:
 
             # mv is atomic on Kindle ext4 (verified via docs/probes/kindle-rename.md)
             mv_cmd = f"mv {shlex.quote(remote_tmp)} {shlex.quote(remote_path)}"
-            _, mv_stdout, mv_stderr = ssh.exec_command(mv_cmd)
+            _, mv_stdout, mv_stderr = ssh.exec_command(mv_cmd, timeout=KINDLE_SSH_TIMEOUT)
             exit_status = mv_stdout.channel.recv_exit_status()
             if exit_status != 0:
                 err = mv_stderr.read().decode().strip()

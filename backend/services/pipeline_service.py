@@ -368,17 +368,24 @@ class PipelineService:
     def process_kindle_delivery_books(self) -> int:
         """Drive the Kindle delivery state machine.
 
-        PENDING:
+        Bookkeeping (always runs, pure DB — works while the Kindle is off):
             - Stamp kindle_first_pending_at if missing.
             - If now - first_pending_at > KINDLE_DELIVERY_TIMEOUT_DAYS → SKIPPED.
-            - Otherwise resolve absolute path and attempt SFTP transfer:
+
+        Reachability gate: one cheap TCP probe per cycle, only when there is
+        deliverable or re-armable work. Unreachable → skip all SSH work this
+        cycle without touching per-book attempt counters (the Kindle is off
+        most of the time; hammering it with per-book connections is pointless).
+
+        PENDING (Kindle reachable):
+            - Resolve absolute path and attempt SFTP transfer:
                 result["success"] is True → DELIVERED (kindle_delivery_attempts++)
                 result["success"] is False → stays PENDING (attempts++)
                 exception → stays PENDING (attempts++)
 
-        SKIPPED:
-            - Ping Kindle (_get_or_create_ssh). If reachable → re-arm as
-              PENDING with a fresh kindle_first_pending_at (auto-recover).
+        SKIPPED (Kindle reachable):
+            - Re-arm as PENDING with a fresh kindle_first_pending_at
+              (auto-recover; the probe already proved reachability).
 
         Returns:
             Number of PENDING books that reached a terminal state
@@ -416,6 +423,9 @@ class PipelineService:
                 db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value).all()
             )
 
+            # Bookkeeping pass: pure DB work that must keep ticking while the
+            # Kindle is off (waiting-since stamps and the 14-day timeout).
+            deliverable: list[tuple[Book, str]] = []
             for book in pending_books:
                 if book.kindle_first_pending_at is None:
                     book.kindle_first_pending_at = now
@@ -423,6 +433,7 @@ class PipelineService:
                 if (now - book.kindle_first_pending_at) > timeout:
                     book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
                     logger.info("Kindle delivery timed out for book %s — marking SKIPPED", book.id)
+                    self._broadcast("kindle_delivery_skipped", {"book_id": book.id})
                     processed += 1
                     continue
 
@@ -440,7 +451,19 @@ class PipelineService:
                         abs_path,
                     )
                     continue
+                deliverable.append((book, abs_path))
 
+            # Single reachability probe per cycle; skip it entirely on idle
+            # cycles so a configured-but-off Kindle costs zero network traffic.
+            if not deliverable and not skipped_books:
+                db.commit()
+                return processed
+            if not kindle_client.is_reachable():
+                logger.debug("Kindle unreachable — skipping delivery stage this cycle")
+                db.commit()
+                return processed
+
+            for book, abs_path in deliverable:
                 book.kindle_delivery_status = KindleDeliveryStatus.IN_PROGRESS.value
                 book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
                 db.commit()
@@ -478,6 +501,10 @@ class PipelineService:
                         duration_ms=duration_ms,
                         size_bytes=result.get("file_size", 0),
                     )
+                    self._broadcast(
+                        "kindle_delivered",
+                        {"book_id": book.id, "status": result.get("status", "transferred")},
+                    )
                     processed += 1
                 else:
                     logger.warning(
@@ -488,13 +515,12 @@ class PipelineService:
                     book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
                 db.commit()
 
+            # The probe above already proved reachability — re-arm without
+            # opening any further SSH connections.
             for book in skipped_books:
-                try:
-                    kindle_client._get_or_create_ssh(kindle_config)
-                except Exception:
-                    continue
                 book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
                 book.kindle_first_pending_at = now
+                self._broadcast("kindle_delivery_requeued", {"book_id": book.id})
             db.commit()
             return processed
         finally:

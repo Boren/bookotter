@@ -1,11 +1,16 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { useToast } from '../composables/useToast';
 import type { Book } from '../types';
 import { useDownloadStore } from './download';
 import { useFailedStore } from './failed';
 import { useLibraryStore } from './library';
 import { useRssStore } from './rss';
 import { useScannerStore } from './scanner';
+
+// Safety net: release the syncing state if the WebSocket completion event
+// never arrives (e.g. connection dropped mid-sync).
+const KINDLE_SYNC_FALLBACK_MS = 15 * 60 * 1000;
 
 export const useSyncStore = defineStore('sync', () => {
   const isRunning = ref(false);
@@ -14,13 +19,17 @@ export const useSyncStore = defineStore('sync', () => {
 
   // Pipeline state
   const pipelineStats = ref<{
-    total: number;
+    total_books: number;
     by_status: Record<string, number>;
-    total_size: number;
+    by_kindle_delivery_status?: Record<string, number>;
+    author_count: number;
+    total_size_bytes: number;
   } | null>(null);
   const recentBooks = ref<Book[]>([]);
   const hardcoverSyncing = ref(false);
   const kindleSyncing = ref(false);
+  const kindleSyncProgress = ref<{ book_title: string; percentage: number } | null>(null);
+  let kindleSyncTimeout: number | null = null;
 
   const setError = (message: string) => {
     error.value = message;
@@ -146,8 +155,51 @@ export const useSyncStore = defineStore('sync', () => {
         fetchRecentBooks();
         break;
 
+      case 'kindle_sync_started':
+        // Also covers syncs triggered from another tab or a schedule
+        kindleSyncing.value = true;
+        break;
+
+      case 'transfer_progress':
+        kindleSyncProgress.value = message.data as { book_title: string; percentage: number };
+        break;
+
+      case 'kindle_sync_completed': {
+        const d = message.data as { transferred: number; skipped: number; failed: number };
+        finishKindleSync();
+        const toast = useToast();
+        const summary = `${d.transferred} sent, ${d.skipped} already on device`;
+        if (d.failed > 0) {
+          toast.error(`Kindle sync: ${summary}, ${d.failed} failed`);
+        } else {
+          toast.success(`Kindle sync complete: ${summary}`);
+        }
+        fetchPipelineStats();
+        break;
+      }
+
+      case 'kindle_sync_failed':
+        finishKindleSync();
+        useToast().error(`Kindle sync failed: ${(message.data as { error: string }).error}`);
+        break;
+
+      case 'kindle_delivered':
+      case 'kindle_delivery_skipped':
+      case 'kindle_delivery_requeued':
+        fetchPipelineStats();
+        break;
+
       case 'pong':
         break;
+    }
+  };
+
+  const finishKindleSync = () => {
+    kindleSyncing.value = false;
+    kindleSyncProgress.value = null;
+    if (kindleSyncTimeout) {
+      clearTimeout(kindleSyncTimeout);
+      kindleSyncTimeout = null;
     }
   };
 
@@ -193,7 +245,9 @@ export const useSyncStore = defineStore('sync', () => {
   };
 
   const triggerKindleSync = async (kindle_device: string) => {
+    const toast = useToast();
     kindleSyncing.value = true;
+    kindleSyncProgress.value = null;
     try {
       const response = await fetch('/api/sync/kindle', {
         method: 'POST',
@@ -202,15 +256,19 @@ export const useSyncStore = defineStore('sync', () => {
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Kindle sync failed');
+        // FastAPI nests structured details: {"detail": {"error", "message"}}
+        const msg = errorData.detail?.message || errorData.detail || 'Kindle sync failed';
+        throw new Error(msg);
       }
+      // The sync now runs in the background; stay in "Syncing…" until the
+      // kindle_sync_completed/failed WebSocket event arrives.
+      kindleSyncTimeout = window.setTimeout(() => finishKindleSync(), KINDLE_SYNC_FALLBACK_MS);
       return await response.json();
     } catch (e) {
+      finishKindleSync();
       const errorMsg = e instanceof Error ? e.message : 'Kindle sync failed';
-      setError(errorMsg);
+      toast.error(errorMsg);
       throw e;
-    } finally {
-      kindleSyncing.value = false;
     }
   };
 
@@ -222,6 +280,7 @@ export const useSyncStore = defineStore('sync', () => {
     recentBooks,
     hardcoverSyncing,
     kindleSyncing,
+    kindleSyncProgress,
 
     connectWebSocket,
     disconnectWebSocket,

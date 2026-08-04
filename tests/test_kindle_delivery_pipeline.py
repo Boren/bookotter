@@ -414,6 +414,9 @@ class TestLazyKindleClient:
             def __init__(self, **kwargs):
                 captured_configs.append(kwargs)
 
+            def is_reachable(self, timeout=None):
+                return True
+
             def transfer_file(self, **kwargs):
                 return {"success": True, "status": "transferred", "file_size": 1}
 
@@ -457,3 +460,148 @@ class TestRunPipelineIntegration:
         refreshed = verify_db.get(Book, book_id)
         assert refreshed.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
         verify_db.close()
+
+
+class TestReachabilityGate:
+    def test_offline_skips_transfers_and_attempts(self, file_db_factory, root_folder_with_file):
+        """Kindle unreachable → no transfer attempted, attempts unchanged, stays PENDING."""
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        book_id = _make_pending_book(db, rf_id, file_rel)
+        db.close()
+
+        kindle_client = MagicMock()
+        kindle_client.is_reachable.return_value = False
+        service = _make_service(file_db_factory, kindle_client=kindle_client)
+
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+
+        kindle_client.transfer_file.assert_not_called()
+
+        verify_db = file_db_factory()
+        from backend.models.book import Book
+
+        refreshed = verify_db.get(Book, book_id)
+        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
+        assert refreshed.kindle_delivery_attempts == 0
+        verify_db.close()
+
+    def test_offline_still_stamps_first_pending_at(self, file_db_factory, root_folder_with_file):
+        """Bookkeeping runs while offline: a missing first_pending_at gets stamped."""
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        book_id = _make_pending_book(db, rf_id, file_rel)
+        from backend.models.book import Book
+
+        db.get(Book, book_id).kindle_first_pending_at = None
+        db.commit()
+        db.close()
+
+        kindle_client = MagicMock()
+        kindle_client.is_reachable.return_value = False
+        service = _make_service(file_db_factory, kindle_client=kindle_client)
+
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+
+        verify_db = file_db_factory()
+        refreshed = verify_db.get(Book, book_id)
+        assert refreshed.kindle_first_pending_at is not None
+        verify_db.close()
+
+    def test_offline_still_applies_delivery_timeout(self, file_db_factory, root_folder_with_file):
+        """Bookkeeping runs while offline: 14-day timeout still transitions PENDING → SKIPPED."""
+        from datetime import timedelta
+
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        book_id = _make_pending_book(db, rf_id, file_rel)
+        from backend.models.book import Book
+
+        db.get(Book, book_id).kindle_first_pending_at = datetime.utcnow() - timedelta(days=15)
+        db.commit()
+        db.close()
+
+        kindle_client = MagicMock()
+        kindle_client.is_reachable.return_value = False
+        service = _make_service(file_db_factory, kindle_client=kindle_client)
+
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+
+        verify_db = file_db_factory()
+        refreshed = verify_db.get(Book, book_id)
+        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value
+        verify_db.close()
+
+    def test_no_work_no_probe(self, file_db_factory):
+        """No PENDING and no SKIPPED books → the probe is never fired."""
+        kindle_client = MagicMock()
+        service = _make_service(file_db_factory, kindle_client=kindle_client)
+
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+
+        kindle_client.is_reachable.assert_not_called()
+        kindle_client.transfer_file.assert_not_called()
+
+    def test_probe_fires_once_for_mixed_workload(self, file_db_factory, root_folder_with_file):
+        """Multiple PENDING + SKIPPED books → exactly one probe per cycle."""
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        rf_path = Path(db.get(RootFolder, rf_id).path)
+        extra_rels = []
+        for name in ("gate-two.epub", "gate-three.epub"):
+            (rf_path / name).write_bytes(b"PK\x03\x04dummy epub content")
+            extra_rels.append(name)
+        _make_pending_book(db, rf_id, file_rel, title="Gate Book One")
+        _make_pending_book(db, rf_id, extra_rels[0], title="Gate Book Two")
+        skipped_id = _make_pending_book(db, rf_id, extra_rels[1], title="Gate Book Three")
+        from backend.models.book import Book
+
+        db.get(Book, skipped_id).kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
+        db.commit()
+        db.close()
+
+        kindle_client = MagicMock()
+        kindle_client.is_reachable.return_value = True
+        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
+        service = _make_service(file_db_factory, kindle_client=kindle_client)
+
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+
+        assert kindle_client.is_reachable.call_count == 1
+        assert kindle_client.transfer_file.call_count == 2
+
+    def test_ws_events_emitted_for_delivery_lifecycle(self, file_db_factory, root_folder_with_file):
+        """kindle_delivered on success; nothing emitted on an offline cycle."""
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        book_id = _make_pending_book(db, rf_id, file_rel)
+        db.close()
+
+        kindle_client = MagicMock()
+        kindle_client.is_reachable.return_value = False
+        ws_manager = MagicMock()
+        service = PipelineService(
+            db_session_factory=file_db_factory,
+            kindle_client=kindle_client,
+            ws_manager=ws_manager,
+        )
+        service._load_config_for_delivery = lambda: {"transfer": {"folder_organization": "flat"}}
+
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+        ws_manager.broadcast_sync.assert_not_called()
+
+        kindle_client.is_reachable.return_value = True
+        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
+        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+            service.process_kindle_delivery_books()
+
+        events = [c[0][0] for c in ws_manager.broadcast_sync.call_args_list]
+        assert "kindle_delivered" in events
+        delivered_payload = next(c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "kindle_delivered")
+        assert delivered_payload["book_id"] == book_id

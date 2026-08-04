@@ -178,6 +178,12 @@ class HardcoverSyncService:
 
         logger.info(f"Kindle sync: found {len(books)} IN_LIBRARY book(s) with files")
 
+        if self.emit_callback:
+            self.emit_callback(
+                "kindle_sync_started",
+                {"kindle_id": kindle_device_id, "total_books": len(books)},
+            )
+
         folder_org = self.config.get("transfer", {}).get("folder_organization", "flat")
 
         transferred = 0
@@ -220,6 +226,8 @@ class HardcoverSyncService:
                 if result["success"]:
                     if result["status"] == "skipped":
                         skipped += 1
+                        # File is already on the device — record that fact
+                        book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
                     else:
                         transferred += 1
                         book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
@@ -239,10 +247,14 @@ class HardcoverSyncService:
                 logger.error(f"Error transferring '{book.title}' to Kindle: {e}")
                 failed += 1
 
-        if transferred > 0:
-            db.commit()
+        db.commit()
 
         logger.info(f"Kindle sync complete: {transferred} transferred, {skipped} skipped, {failed} failed")
+        if self.emit_callback:
+            self.emit_callback(
+                "kindle_sync_completed",
+                {"transferred": transferred, "skipped": skipped, "failed": failed},
+            )
         return {"transferred": transferred, "skipped": skipped, "failed": failed}
 
     def _make_progress_callback(self, book_title: str, file_path: str) -> Callable[[int, int], None]:

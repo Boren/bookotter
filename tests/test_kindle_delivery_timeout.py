@@ -37,14 +37,14 @@ class TestKindleDeliveryTimeout:
         assert refreshed.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value
 
     def test_auto_retry_on_reconnect(self, db_session):
-        """SKIPPED book transitions back to PENDING when Kindle becomes reachable."""
+        """SKIPPED book transitions back to PENDING when the reachability probe succeeds."""
         book = create_test_book(db_session, status=BookStatus.IN_LIBRARY)
         book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
         db_session.commit()
         book_id = book.id
 
         service = _make_service(db_session)
-        service.kindle_client._get_or_create_ssh.return_value = MagicMock()
+        service.kindle_client.is_reachable.return_value = True
 
         service.process_kindle_delivery_books()
 
@@ -52,3 +52,23 @@ class TestKindleDeliveryTimeout:
         refreshed = db_session.get(type(book), book_id)
         assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
         assert refreshed.kindle_first_pending_at is not None
+        # Re-arm relies on the single probe — no per-book SSH connections
+        service.kindle_client._get_or_create_ssh.assert_not_called()
+
+    def test_no_retry_while_unreachable(self, db_session):
+        """SKIPPED book stays SKIPPED when the probe fails; no SSH is attempted."""
+        book = create_test_book(db_session, status=BookStatus.IN_LIBRARY)
+        book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
+        db_session.commit()
+        book_id = book.id
+
+        service = _make_service(db_session)
+        service.kindle_client.is_reachable.return_value = False
+
+        service.process_kindle_delivery_books()
+
+        db_session.expire_all()
+        refreshed = db_session.get(type(book), book_id)
+        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value
+        service.kindle_client._get_or_create_ssh.assert_not_called()
+        service.kindle_client.transfer_file.assert_not_called()

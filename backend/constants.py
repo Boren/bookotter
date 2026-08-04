@@ -23,6 +23,7 @@ QBIT_TIMEOUT: Final[int] = 30  # seconds
 # ─── Kindle / SSH ──────────────────────────────────────────────────────────────
 KINDLE_RETRY_ATTEMPTS: Final[int] = 3
 KINDLE_SSH_TIMEOUT: Final[int] = 10  # seconds — connection timeout
+KINDLE_PROBE_TIMEOUT: Final[int] = 3  # seconds — cheap TCP reachability probe
 KINDLE_TRANSFER_TIMEOUT: Final[int] = 300  # seconds — 5 min for large EPUBs
 KINDLE_DELIVERY_TIMEOUT_DAYS: Final[int] = 14  # days before marking SKIPPED
 

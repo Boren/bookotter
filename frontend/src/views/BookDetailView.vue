@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
 import { useSearchStore } from '../stores/search'
+import KindleDeliveryBadge from '../components/KindleDeliveryBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const route = useRoute()
@@ -17,6 +18,7 @@ const showDeleteConfirm = ref(false)
 const saveSuccess = ref(false)
 const isSearching = ref(false)
 const isRetrying = ref(false)
+const isRequeueingKindle = ref(false)
 
 const editForm = ref({
   title: '',
@@ -160,6 +162,22 @@ const handleRetry = async () => {
     isRetrying.value = false
   }
 }
+
+const handleKindleRequeue = async () => {
+  if (!book.value) return
+  isRequeueingKindle.value = true
+  try {
+    await libraryStore.requeueKindle(book.value.id)
+  } finally {
+    isRequeueingKindle.value = false
+  }
+}
+
+const canRequeueKindle = computed(
+  () =>
+    book.value?.kindle_delivery_status === 'SKIPPED' ||
+    book.value?.kindle_delivery_status === 'DELIVERED'
+)
 
 watch(
   () => route.params.id,
@@ -412,6 +430,14 @@ onMounted(() => {
               <!-- Status Badge -->
               <div class="absolute -top-2 -right-2 shadow-warm-sm rounded-full bg-white">
                 <StatusBadge :status="book.status" />
+              </div>
+
+              <!-- Kindle Delivery Badge -->
+              <div
+                v-if="book.kindle_delivery_status"
+                class="absolute -bottom-2 -right-2 shadow-warm-sm rounded-full bg-white"
+              >
+                <KindleDeliveryBadge :status="book.kindle_delivery_status" />
               </div>
             </div>
           </div>
@@ -769,6 +795,58 @@ onMounted(() => {
             <p class="text-sm text-stone-800">{{ book.root_folder_id ?? '—' }}</p>
           </div>
         </div>
+      </div>
+
+      <!-- Kindle Delivery Card -->
+      <div v-if="book.kindle_delivery_status" class="card animate-fade-in-up stagger-3">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="icon-container">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h2 class="text-lg font-display font-semibold text-stone-900">Kindle Delivery</h2>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-8 gap-y-4">
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1.5">Status</p>
+            <KindleDeliveryBadge :status="book.kindle_delivery_status" />
+          </div>
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Attempts</p>
+            <p class="text-sm text-stone-800">{{ book.kindle_delivery_attempts ?? 0 }}</p>
+          </div>
+          <div v-if="(book.kindle_delivery_status === 'PENDING' || book.kindle_delivery_status === 'SKIPPED') && book.kindle_first_pending_at">
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Waiting Since</p>
+            <p class="text-sm text-stone-800">{{ formatDate(book.kindle_first_pending_at) }}</p>
+          </div>
+          <div v-if="canRequeueKindle" class="ml-auto">
+            <button
+              @click="handleKindleRequeue"
+              :disabled="isRequeueingKindle"
+              class="btn btn-secondary"
+              data-testid="kindle-requeue-button"
+            >
+              <svg v-if="isRequeueingKindle" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+              </svg>
+              Send to Kindle
+            </button>
+          </div>
+        </div>
+
+        <p v-if="book.kindle_delivery_status === 'SKIPPED'" class="text-sm text-amber-700 mt-4">
+          Delivery gave up after the waiting period. It re-queues automatically the next time the
+          Kindle is reachable, or press "Send to Kindle" to re-queue now.
+        </p>
+        <p v-else-if="book.kindle_delivery_status === 'PENDING'" class="text-sm text-stone-500 mt-4">
+          Will be sent automatically once the Kindle is turned on and connected.
+        </p>
       </div>
     </template>
 

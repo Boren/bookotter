@@ -102,7 +102,7 @@ onMounted(() => {
         <h2 class="text-lg font-display font-semibold text-stone-900">Pipeline Status</h2>
       </div>
 
-      <div v-if="syncStore.pipelineStats" class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div v-if="syncStore.pipelineStats" class="grid grid-cols-2 md:grid-cols-6 gap-4">
         <div class="text-center p-3 rounded-lg bg-amber-50 border border-amber-200">
           <p class="text-2xl font-semibold text-amber-700">{{ syncStore.pipelineStats.by_status?.wanted || 0 }}</p>
           <p class="text-xs font-medium uppercase tracking-wider text-amber-600 mt-1">Wanted</p>
@@ -122,6 +122,13 @@ onMounted(() => {
         <div class="text-center p-3 rounded-lg bg-red-50 border border-red-200">
           <p class="text-2xl font-semibold text-red-700">{{ syncStore.pipelineStats.by_status?.failed || 0 }}</p>
           <p class="text-xs font-medium uppercase tracking-wider text-red-600 mt-1">Failed</p>
+        </div>
+        <div class="text-center p-3 rounded-lg bg-kindle-50 border border-kindle-200">
+          <p class="text-2xl font-semibold text-kindle-700">{{ syncStore.pipelineStats.by_kindle_delivery_status?.PENDING || 0 }}</p>
+          <p class="text-xs font-medium uppercase tracking-wider text-kindle-600 mt-1">Awaiting Kindle</p>
+          <p v-if="syncStore.pipelineStats.by_kindle_delivery_status?.SKIPPED" class="text-[10px] text-amber-600 mt-0.5">
+            {{ syncStore.pipelineStats.by_kindle_delivery_status.SKIPPED }} skipped
+          </p>
         </div>
       </div>
 
@@ -179,6 +186,9 @@ onMounted(() => {
           </button>
         </div>
       </div>
+      <p v-if="syncStore.kindleSyncProgress" class="text-xs text-stone-500 mt-2 truncate">
+        {{ syncStore.kindleSyncProgress.book_title }} — {{ Math.round(syncStore.kindleSyncProgress.percentage) }}%
+      </p>
     </div>
 
     <!-- RSS Activity Card -->

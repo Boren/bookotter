@@ -51,7 +51,12 @@ export interface Book {
   failure_reason: string | null;
   retry_count: number;
   failure_history: FailureHistoryEntry[] | null;
+  kindle_delivery_status: KindleDeliveryStatus | null;
+  kindle_delivery_attempts: number;
+  kindle_first_pending_at: string | null;
 }
+
+export type KindleDeliveryStatus = 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'SKIPPED';
 
 export type FolderOrganization = 'flat' | 'author' | 'series' | 'author_series';
 
