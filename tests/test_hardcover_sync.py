@@ -165,6 +165,59 @@ class TestDedup:
         assert book.description is None
 
 
+class TestNewBookIds:
+    def test_result_contains_ids_of_created_books(self, db_session):
+        books = [
+            _make_hc_book(hardcover_id="hc-201", title="Book A", isbn="978-9-999-99999-1"),
+            _make_hc_book(hardcover_id="hc-202", title="Book B", isbn="978-9-999-99999-2"),
+        ]
+        svc = _make_service(books)
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 2
+        created_ids = [b.id for b in db_session.query(Book).order_by(Book.id).all()]
+        assert result["new_book_ids"] == created_ids
+
+    def test_existing_books_not_in_new_book_ids(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-300", isbn="978-9-999-99999-3")])
+        svc.sync_hardcover_lists(db_session)
+
+        svc2 = _make_service(
+            [
+                _make_hc_book(hardcover_id="hc-300", isbn="978-9-999-99999-3"),
+                _make_hc_book(hardcover_id="hc-301", title="New One", isbn="978-9-999-99999-4"),
+            ]
+        )
+        result = svc2.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 1
+        new_id = db_session.query(Book).filter(Book.hardcover_id == "hc-301").one().id
+        assert result["new_book_ids"] == [new_id]
+
+    def test_empty_when_no_statuses_enabled(self, db_session):
+        config = {
+            "sync": {
+                "include_statuses": {
+                    "currently_reading": False,
+                    "want_to_read": False,
+                    "read": False,
+                }
+            }
+        }
+        svc = _make_service([], config=config)
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_book_ids"] == []
+
+    def test_empty_when_fetch_fails(self, db_session):
+        svc = _make_service([])
+        svc.hardcover_client.get_books_by_status.side_effect = RuntimeError("boom")
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["errors"] == 1
+        assert result["new_book_ids"] == []
+
+
 class TestGetOrCreateAuthor:
     def test_creates_author_when_missing(self, db_session):
         author = _get_or_create_author(db_session, "Frank Herbert")

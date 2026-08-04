@@ -2,7 +2,7 @@
 
 """Tests for auto-search wiring after Hardcover sync (Fix 1)."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from fastapi import FastAPI
 
@@ -20,8 +20,15 @@ def _make_config(search_on_add: bool = True, with_token: bool = True) -> dict:
     }
 
 
-def _make_sync_result(new_books: int = 0) -> dict:
-    return {"new_books": new_books, "existing_skipped": 0, "errors": 0}
+def _make_sync_result(new_books: int = 0, new_book_ids: list[int] | None = None) -> dict:
+    if new_book_ids is None:
+        new_book_ids = list(range(1, new_books + 1))
+    return {
+        "new_books": new_books,
+        "new_book_ids": new_book_ids,
+        "existing_skipped": 0,
+        "errors": 0,
+    }
 
 
 def _apply_patches(monkeypatch, *, config: dict, sync_result: dict):
@@ -39,26 +46,33 @@ def _apply_patches(monkeypatch, *, config: dict, sync_result: dict):
     return mock_service
 
 
-def _make_app_with_pipeline(grabbed_count: int = 0, raises: bool = False) -> FastAPI:
+def _make_app_with_pipeline(
+    grabs_per_search: list[int] | None = None, raises: bool = False
+) -> FastAPI:
     app = FastAPI()
     pipeline = MagicMock()
     if raises:
-        pipeline.process_wanted_books.side_effect = RuntimeError("Prowlarr down")
+        pipeline.search_single_book.side_effect = RuntimeError("Prowlarr down")
     else:
-        pipeline.process_wanted_books.return_value = grabbed_count
+        pipeline.search_single_book.side_effect = grabs_per_search or []
     app.state.pipeline = pipeline
     return app
 
 
 class TestSearchOnAdd:
-    def test_triggers_pipeline_when_enabled_and_new_books(self, monkeypatch):
+    def test_searches_only_new_books_when_enabled(self, monkeypatch):
         config = _make_config(search_on_add=True)
-        _apply_patches(monkeypatch, config=config, sync_result=_make_sync_result(new_books=2))
-        app = _make_app_with_pipeline(grabbed_count=1)
+        _apply_patches(
+            monkeypatch,
+            config=config,
+            sync_result=_make_sync_result(new_books=2, new_book_ids=[7, 9]),
+        )
+        app = _make_app_with_pipeline(grabs_per_search=[1, 0])
 
         result = _run_hardcover_sync_background(app=app)
 
-        app.state.pipeline.process_wanted_books.assert_called_once_with()
+        assert app.state.pipeline.search_single_book.call_args_list == [call(7), call(9)]
+        app.state.pipeline.process_wanted_books.assert_not_called()
         assert result["new_books"] == 2
         assert result["auto_searched"] == 1
 
@@ -69,6 +83,7 @@ class TestSearchOnAdd:
 
         result = _run_hardcover_sync_background(app=app)
 
+        app.state.pipeline.search_single_book.assert_not_called()
         app.state.pipeline.process_wanted_books.assert_not_called()
         assert "auto_searched" not in result
         assert "auto_search_error" not in result
@@ -80,6 +95,7 @@ class TestSearchOnAdd:
 
         result = _run_hardcover_sync_background(app=app)
 
+        app.state.pipeline.search_single_book.assert_not_called()
         app.state.pipeline.process_wanted_books.assert_not_called()
         assert "auto_searched" not in result
 
@@ -96,7 +112,7 @@ class TestSearchOnAdd:
         assert "auto_search_error" not in result
         assert any("pipeline service is not initialized" in record.message for record in caplog.records)
 
-    def test_records_error_when_pipeline_raises(self, monkeypatch, caplog):
+    def test_records_error_when_search_raises(self, monkeypatch, caplog):
         config = _make_config(search_on_add=True)
         _apply_patches(monkeypatch, config=config, sync_result=_make_sync_result(new_books=2))
         app = _make_app_with_pipeline(raises=True)
@@ -124,5 +140,26 @@ class TestSearchOnAdd:
 
         result = _run_hardcover_sync_background(app=app)
 
+        app.state.pipeline.search_single_book.assert_not_called()
         app.state.pipeline.process_wanted_books.assert_not_called()
         assert result == {"error": "Hardcover API token not configured"}
+
+
+class TestScheduledPollerDelegation:
+    def test_scheduled_sync_delegates_to_shared_helper(self, monkeypatch):
+        """The scheduled poller must run the exact same code path as the manual
+        sync endpoint, so the two triggers cannot drift apart again."""
+        from backend import main as main_module
+
+        calls: list = []
+
+        def fake_helper(app):
+            calls.append(app)
+            return {"new_books": 0, "new_book_ids": [], "existing_skipped": 0, "errors": 0}
+
+        monkeypatch.setattr(main_module, "_run_hardcover_sync_background", fake_helper)
+
+        app = MagicMock()
+        main_module._scheduled_hardcover_sync(app)
+
+        assert calls == [app]

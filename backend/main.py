@@ -33,6 +33,7 @@ from backend.api.routes import (
     sync,
     wanted,
 )
+from backend.api.routes.sync import _run_hardcover_sync_background
 from backend.config import DATA_DIR, load_config
 from backend.database import init_db
 from backend.services.scheduler_service import scheduler
@@ -87,6 +88,12 @@ def validate_config(cfg: dict) -> list[str]:
             logger.warning(f"kindles[{i}] has empty hostname — Kindle sync will fail for this device")
 
     return errors
+
+
+def _scheduled_hardcover_sync(app: FastAPI) -> None:
+    """Scheduled poller entry point — delegates to the same helper as the manual sync endpoint."""
+    result = _run_hardcover_sync_background(app=app)
+    logger.info(f"Scheduled Hardcover sync result: {result}")
 
 
 def setup_logging():
@@ -256,43 +263,12 @@ async def lifespan(app: FastAPI):
     try:
         hc_config = app_config.get("hardcover", {})
         if hc_config.get("api_token"):
+            from functools import partial
+
             from apscheduler.triggers.interval import IntervalTrigger
 
-            from backend.clients.hardcover_client import HardcoverClient
-            from backend.database import SessionLocal
-            from backend.services.hardcover_sync_service import HardcoverSyncService
-
-            def _scheduled_hardcover_sync():
-                config = load_config()
-                client = HardcoverClient(
-                    api_token=config["hardcover"]["api_token"],
-                    api_url=config["hardcover"].get("api_url", "https://api.hardcover.app/v1/graphql"),
-                )
-                service = HardcoverSyncService(hardcover_client=client, config=config)
-                db = SessionLocal()
-                try:
-                    result = service.sync_hardcover_lists(db)
-                    logger.info(f"Scheduled Hardcover sync result: {result}")
-                finally:
-                    db.close()
-
-                pipeline_config = config.get("pipeline", {})
-                search_on_add = pipeline_config.get("search_on_add", True)
-                new_books = result.get("new_books", 0)
-                pipeline_svc = getattr(app.state, "pipeline", None)
-                if search_on_add and new_books > 0 and pipeline_svc is not None:
-                    try:
-                        grabbed = pipeline_svc.process_wanted_books()
-                        logger.info(
-                            "Auto-search after scheduled Hardcover sync: grabbed %d/%d new books",
-                            grabbed,
-                            new_books,
-                        )
-                    except Exception as exc:
-                        logger.error("Auto-search after scheduled Hardcover sync failed: %s", exc)
-
             scheduler.scheduler.add_job(
-                _scheduled_hardcover_sync,
+                partial(_scheduled_hardcover_sync, app),
                 trigger=IntervalTrigger(minutes=30),
                 id="hardcover_poller",
                 name="Hardcover list poller",

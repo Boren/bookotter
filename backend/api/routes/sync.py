@@ -66,7 +66,9 @@ def _run_hardcover_sync_background(app: FastAPI | None = None) -> dict:
         pipeline = getattr(app.state, "pipeline", None)
         if pipeline is not None:
             try:
-                grabbed = pipeline.process_wanted_books()
+                grabbed = 0
+                for book_id in result.get("new_book_ids", []):
+                    grabbed += pipeline.search_single_book(book_id)
                 logger.info(
                     "Auto-search after Hardcover sync: grabbed %d/%d new books",
                     grabbed,

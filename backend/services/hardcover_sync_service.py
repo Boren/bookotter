@@ -80,7 +80,7 @@ class HardcoverSyncService:
 
         if not status_ids:
             logger.info("No Hardcover statuses enabled in sync.include_statuses, skipping sync")
-            return {"new_books": 0, "existing_skipped": 0, "errors": 0}
+            return {"new_books": 0, "new_book_ids": [], "existing_skipped": 0, "errors": 0}
 
         logger.info(f"Syncing Hardcover lists for status IDs: {status_ids}")
 
@@ -88,8 +88,9 @@ class HardcoverSyncService:
             hc_books = self.hardcover_client.get_books_by_status(status_ids)
         except Exception as e:
             logger.error(f"Failed to fetch books from Hardcover: {e}")
-            return {"new_books": 0, "existing_skipped": 0, "errors": 1}
+            return {"new_books": 0, "new_book_ids": [], "existing_skipped": 0, "errors": 1}
 
+        new_book_ids: list[int] = []
         new_books = 0
         existing_skipped = 0
         errors = 0
@@ -143,6 +144,7 @@ class HardcoverSyncService:
                 db.commit()
 
                 new_books += 1
+                new_book_ids.append(book.id)
                 logger.info(f"Added new book from Hardcover: '{book.title}' (hc_id={hardcover_id})")
 
             except Exception as e:
@@ -151,7 +153,12 @@ class HardcoverSyncService:
                 errors += 1
 
         logger.info(f"Hardcover sync complete: {new_books} new, {existing_skipped} skipped, {errors} errors")
-        return {"new_books": new_books, "existing_skipped": existing_skipped, "errors": errors}
+        return {
+            "new_books": new_books,
+            "new_book_ids": new_book_ids,
+            "existing_skipped": existing_skipped,
+            "errors": errors,
+        }
 
     def run_kindle_sync(self, kindle_device_id: str, db: Session) -> dict:
         """Transfer IN_LIBRARY books with files to a Kindle device."""

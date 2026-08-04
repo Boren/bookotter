@@ -122,6 +122,6 @@ class TestPipelineIdempotency:
         first = service.sync_hardcover_lists(db_session)
         second = service.sync_hardcover_lists(db_session)
 
-        assert first == {"new_books": 2, "existing_skipped": 0, "errors": 0}
-        assert second == {"new_books": 0, "existing_skipped": 2, "errors": 0}
+        assert first == {"new_books": 2, "new_book_ids": [1, 2], "existing_skipped": 0, "errors": 0}
+        assert second == {"new_books": 0, "new_book_ids": [], "existing_skipped": 2, "errors": 0}
         assert db_session.query(Book).count() == 2
