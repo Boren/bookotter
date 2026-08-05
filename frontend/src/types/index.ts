@@ -216,6 +216,31 @@ export interface LibraryConfig {
     folder_organization: FolderOrganization;
   }>;
   download_path: string;
+  naming_template: string;
+}
+
+export interface RenamePreviewItem {
+  book_id: number;
+  title: string;
+  root_folder_id: number;
+  old_path: string;
+  new_path: string;
+  changed: boolean;
+  error: string | null;
+}
+
+export interface RenamePreviewResult {
+  total: number;
+  changed_count: number;
+  items: RenamePreviewItem[];
+}
+
+export interface RenameApplyResult {
+  total: number;
+  renamed: number;
+  skipped: number;
+  failed: number;
+  items: Array<RenamePreviewItem & { status: 'renamed' | 'skipped' | 'failed' }>;
 }
 
 export interface Kindle {
@@ -273,6 +298,7 @@ export interface Config {
     cleanup_sdr_folders: boolean;
     cleanup_protected_paths: string[];
   };
+  library: LibraryConfig;
   logging: {
     log_file: string;
     log_level: string;

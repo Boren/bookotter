@@ -58,6 +58,51 @@ def atomic_write(dest: Path, mode: str = "wb") -> Generator[IO]:
         raise
 
 
+def atomic_move(source: Path, dest: Path) -> None:
+    """
+    Move source to dest without ever overwriting a different file.
+
+    - dest exists and is NOT the same inode as source: raises FileExistsError
+      (callers pre-resolve collisions; same-inode permits case-only renames
+      on case-insensitive filesystems).
+    - Same filesystem: os.replace, then fsync dest parent dir.
+    - Cross-device (EXDEV): atomic_copy then unlink source.
+    - On OSError ENOSPC: raises PipelineError(IMPORT_DISK_FULL).
+    """
+    source = Path(source)
+    dest = Path(dest)
+
+    if dest.exists() and not dest.samefile(source):
+        raise FileExistsError(f"Destination already exists: {dest}")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        os.replace(source, dest)
+    except OSError as exc:
+        if exc.errno == errno.ENOSPC:
+            raise PipelineError("No space left on device", FailureReason.IMPORT_DISK_FULL) from exc
+        if exc.errno != errno.EXDEV:
+            raise
+        # Different filesystem: copy atomically, then remove the source.
+        atomic_copy(source, dest)
+        source.unlink()
+        return
+
+    # POSIX quirk: renaming one hard link of a file onto another link of the
+    # same file is a no-op, leaving the source entry behind. Check the literal
+    # directory listing (not Path.exists(), which would also match the new
+    # name case-insensitively) and remove the leftover link.
+    if source != dest and source.name in os.listdir(source.parent):
+        source.unlink()
+
+    dir_fd = os.open(str(dest.parent), os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
 def atomic_copy(source: Path, dest: Path) -> None:
     """
     Atomically copy source to dest.

@@ -19,6 +19,16 @@ from tests.helpers import create_test_epub
 from tests.test_import_service import _make_book, _make_root_folder
 
 
+@pytest.fixture(autouse=True)
+def _title_only_template(monkeypatch):
+    """Pin the naming template to bare {Title}; these tests cover collision and
+    durability mechanics, not template rendering (see tests/test_naming.py)."""
+    monkeypatch.setattr(
+        "backend.services.import_service.load_config",
+        lambda: {"library": {"naming_template": "{Title}"}},
+    )
+
+
 def _copy_worker(src_str: str, dest_str: str) -> None:
     """Subprocess target: import_atomic copy that we will SIGKILL mid-flight."""
     from pathlib import Path

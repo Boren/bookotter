@@ -16,8 +16,10 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.config import load_config
 from backend.database import get_db
+from backend.errors import FailureReason, PipelineError
 from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
+from backend.services.rename_service import RenameService
 from backend.utils.clock import naive_utcnow
 from backend.utils.failure import _append_failure_history
 
@@ -440,6 +442,32 @@ def requeue_kindle_delivery(
         "already_queued": False,
         "kicked": pipeline is not None,
     }
+
+
+class RenameApplyRequest(BaseModel):
+    book_ids: list[int] | None = None
+
+
+@router.get("/rename/preview")
+async def rename_preview(db: Session = Depends(get_db)):
+    """Radarr-style preview: old -> new path for every in-library book."""
+    items = RenameService(db).preview()
+    return {
+        "total": len(items),
+        "changed_count": sum(1 for item in items if item.changed),
+        "items": [item.to_dict() for item in items],
+    }
+
+
+@router.post("/rename")
+async def rename_apply(body: RenameApplyRequest, db: Session = Depends(get_db)):
+    """Apply the naming template to library files, optionally limited to book_ids."""
+    try:
+        return RenameService(db).apply(book_ids=body.book_ids)
+    except PipelineError as exc:
+        if exc.reason == FailureReason.PIPELINE_LOCK_HELD:
+            raise HTTPException(status_code=409, detail=str(exc))
+        raise
 
 
 @router.delete("/books/{book_id}/kindle-pin")

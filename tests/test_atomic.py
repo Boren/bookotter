@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from backend.errors import FailureReason, PipelineError
-from backend.utils.atomic import atomic_copy, atomic_write
+from backend.utils.atomic import atomic_copy, atomic_move, atomic_write
 
 
 class TestAtomicWrite:
@@ -92,6 +92,89 @@ class TestAtomicCopy:
 
         assert exc_info.value.errno == errno.EIO
         assert not isinstance(exc_info.value, PipelineError)
+        assert not dest.exists()
+
+
+class TestAtomicMove:
+    def test_moves_file(self, tmp_path):
+        src = tmp_path / "old name.epub"
+        src.write_bytes(b"epub content")
+        dest = tmp_path / "New Name.epub"
+
+        atomic_move(src, dest)
+
+        assert dest.read_bytes() == b"epub content"
+        assert not src.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_creates_parent_dir(self, tmp_path):
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"data")
+        dest = tmp_path / "Author" / "Series" / "book.epub"
+
+        atomic_move(src, dest)
+
+        assert dest.read_bytes() == b"data"
+        assert not src.exists()
+
+    def test_dest_exists_raises(self, tmp_path):
+        src = tmp_path / "a.epub"
+        src.write_bytes(b"aaa")
+        dest = tmp_path / "b.epub"
+        dest.write_bytes(b"bbb")
+
+        with pytest.raises(FileExistsError):
+            atomic_move(src, dest)
+
+        assert src.read_bytes() == b"aaa"
+        assert dest.read_bytes() == b"bbb"
+
+    def test_same_inode_dest_allowed(self, tmp_path):
+        # Proxy for case-only renames on case-insensitive filesystems (APFS):
+        # dest "exists" but is the same file as source.
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"data")
+        dest = tmp_path / "Book (2).epub"
+        os.link(src, dest)
+
+        atomic_move(src, dest)
+
+        assert dest.read_bytes() == b"data"
+        assert not src.exists()
+
+    def test_exdev_falls_back_to_copy(self, tmp_path):
+        src = tmp_path / "src.epub"
+        src.write_bytes(b"cross-device content")
+        dest = tmp_path / "dest.epub"
+
+        real_replace = os.replace
+
+        def fake_replace(a, b):
+            if str(a) == str(src):
+                raise OSError(errno.EXDEV, "Invalid cross-device link")
+            return real_replace(a, b)
+
+        with patch("backend.utils.atomic.os.replace", side_effect=fake_replace):
+            atomic_move(src, dest)
+
+        assert dest.read_bytes() == b"cross-device content"
+        assert not src.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_enospc_during_fallback_raises_disk_full(self, tmp_path):
+        src = tmp_path / "src.epub"
+        src.write_bytes(b"data")
+        dest = tmp_path / "dest.epub"
+
+        exdev = OSError(errno.EXDEV, "Invalid cross-device link")
+        enospc = OSError(errno.ENOSPC, "No space left on device")
+        with patch("backend.utils.atomic.os.replace", side_effect=exdev):
+            with patch("backend.utils.atomic.shutil.copyfileobj", side_effect=enospc):
+                with pytest.raises(PipelineError) as exc_info:
+                    atomic_move(src, dest)
+
+        assert exc_info.value.reason == FailureReason.IMPORT_DISK_FULL
+        assert src.exists()  # source untouched on failure
         assert not dest.exists()
 
 
