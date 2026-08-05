@@ -195,6 +195,8 @@ const canSendToKindle = computed(
     book.value?.kindle_delivery_status !== 'IN_PROGRESS'
 )
 
+const canDownload = computed(() => !!book.value?.file_path)
+
 const showKindleCard = computed(
   () =>
     !!book.value?.kindle_delivery_status ||
@@ -561,6 +563,18 @@ onMounted(() => {
                   </svg>
                   {{ book.kindle_delivery_status === 'DELIVERED' ? 'Send Again' : 'Send to Kindle' }}
                 </button>
+                <a
+                  v-if="canDownload"
+                  :href="`/api/library/books/${book.id}/download`"
+                  download
+                  class="btn btn-secondary"
+                  data-testid="download-book-button"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                  </svg>
+                  Download
+                </a>
                 <button @click="enterEditMode" class="btn btn-primary">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
