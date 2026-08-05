@@ -35,6 +35,9 @@ jobs:
       - name: Check ruff formatting
         run: uv run ruff format --check .
 
+      - name: Run mypy
+        run: uv run mypy backend/
+
       - name: Run pytest
         run: uv run pytest tests/ -v --tb=short
 
