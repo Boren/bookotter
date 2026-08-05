@@ -72,6 +72,8 @@ class TestKindleRequeue:
         assert book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
         assert book.kindle_delivery_attempts == 0
         assert book.kindle_first_pending_at is not None
+        # Manual send pins the book so mirror cleanup keeps it on the device
+        assert book.kindle_pinned is True
 
     def test_requeue_pending_is_idempotent(self, client, db_session):
         book = _make_library_book(db_session, KindleDeliveryStatus.PENDING.value)
@@ -116,6 +118,34 @@ class TestKindleRequeue:
 
     def test_requeue_unknown_book_404(self, client):
         response = client.post("/api/library/books/999999/kindle-requeue")
+        assert response.status_code == 404
+
+
+class TestKindleUnpin:
+    def test_unpin_clears_pin(self, client, db_session):
+        book = _make_library_book(db_session, KindleDeliveryStatus.DELIVERED.value)
+        book.kindle_pinned = True
+        db_session.commit()
+
+        response = client.delete(f"/api/library/books/{book.id}/kindle-pin")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["was_pinned"] is True
+        assert data["kindle_pinned"] is False
+        db_session.refresh(book)
+        assert book.kindle_pinned is False
+
+    def test_unpin_unpinned_book_is_noop(self, client, db_session):
+        book = _make_library_book(db_session, None)
+
+        response = client.delete(f"/api/library/books/{book.id}/kindle-pin")
+
+        assert response.status_code == 200
+        assert response.json()["was_pinned"] is False
+
+    def test_unpin_unknown_book_404(self, client):
+        response = client.delete("/api/library/books/999999/kindle-pin")
         assert response.status_code == 404
 
 

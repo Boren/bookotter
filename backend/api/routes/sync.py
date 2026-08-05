@@ -38,6 +38,7 @@ def is_kindle_sync_running() -> bool:
 
 class KindleSyncRequest(BaseModel):
     kindle_device: str
+    dry_run: bool = False
 
 
 @router.get("/status")
@@ -106,11 +107,8 @@ def _run_kindle_sync_background(
     # Plain def, NOT async: Starlette runs sync background tasks in the
     # threadpool, keeping the event loop free during long SFTP transfers.
     # broadcast_sync handles the worker-thread case via run_coroutine_threadsafe.
-    # dry_run/trigger_type are passed by the scheduler (add_sync_job kwargs);
-    # dry_run is not implemented — a scheduled dry run performs a real sync.
+    # dry_run/trigger_type are passed by the scheduler (add_sync_job kwargs).
     global _kindle_sync_running
-    if dry_run:
-        logger.warning("Kindle sync dry_run requested but not implemented — running a real sync")
     try:
         config = load_config()
         hc_config = config.get("hardcover", {})
@@ -126,7 +124,14 @@ def _run_kindle_sync_background(
 
         db = SessionLocal()
         try:
-            return service.run_kindle_sync(kindle_device, db)
+            # Refresh shelf statuses first so the mirror set reflects current
+            # Hardcover state (matters for the nightly cron, which otherwise
+            # mirrors whenever the last Hardcover sync happened to run). A
+            # failed refresh leaves statuses untouched, which fails safe.
+            hc_result = service.sync_hardcover_lists(db)
+            if hc_result.get("errors"):
+                logger.warning("Hardcover refresh before Kindle sync had errors: %s", hc_result)
+            return service.run_kindle_sync(kindle_device, db, dry_run=dry_run)
         finally:
             db.close()
     except Exception as exc:
@@ -192,6 +197,13 @@ async def trigger_kindle_sync(body: KindleSyncRequest, background_tasks: Backgro
     except BaseException:
         _kindle_sync_running = False
         raise
+
+    dry_run = body.dry_run or load_config().get("transfer", {}).get("dry_run", False)
+    if dry_run:
+        # No transfers or deletions happen, so a dry run finishes in seconds —
+        # run it synchronously and hand the caller the preview payload directly.
+        result = await asyncio.to_thread(_run_kindle_sync_background, kindle_device=body.kindle_device, dry_run=True)
+        return {"success": "error" not in result, **result}
 
     background_tasks.add_task(_run_kindle_sync_background, kindle_device=body.kindle_device)
     return {"success": True, "message": f"Kindle sync started for device '{body.kindle_device}'"}

@@ -102,7 +102,13 @@ class TestImportingMarksPending:
         """T2.1: process_importing_books marks IN_LIBRARY books as PENDING when a real Kindle is configured."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
-        book = create_test_book(db, status=BookStatus.IMPORTING.value, root_folder_id=rf_id, file_path=file_rel)
+        book = create_test_book(
+            db,
+            status=BookStatus.IMPORTING.value,
+            root_folder_id=rf_id,
+            file_path=file_rel,
+            hardcover_status="want_to_read",
+        )
         download = Download(
             book_id=book.id,
             torrent_hash="hash" + "0" * 36,
@@ -124,7 +130,11 @@ class TestImportingMarksPending:
         service = PipelineService(import_service=mock_imp, db_session_factory=file_db_factory)
         with patch(
             "backend.config.load_config",
-            return_value={"kindles": [_real_kindle_config()], "pipeline": {"kindle_sync_on_import": True}},
+            return_value={
+                "kindles": [_real_kindle_config()],
+                "pipeline": {"kindle_sync_on_import": True},
+                "transfer": {"sync_shelves": {"want_to_read": True}},
+            },
         ):
             service.process_importing_books()
         db.close()
@@ -135,6 +145,96 @@ class TestImportingMarksPending:
         refreshed = verify_db.get(Book, book_id)
         assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
         assert refreshed.kindle_first_pending_at is not None
+        verify_db.close()
+
+    def test_no_pending_marking_for_book_outside_sync_shelves(self, file_db_factory, root_folder_with_file):
+        """A book with no Hardcover shelf (scanner/manual import) is never auto-queued."""
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        book = create_test_book(db, status=BookStatus.IMPORTING.value, root_folder_id=rf_id, file_path=file_rel)
+        download = Download(
+            book_id=book.id,
+            torrent_hash="hash" + "7" * 36,
+            torrent_name="x",
+            indexer_name="x",
+            download_url="https://x",
+            size=1,
+            seeders=1,
+            status=DownloadStatus.COMPLETED.value,
+            file_path="/dl/x.epub",
+        )
+        db.add(download)
+        db.commit()
+        book_id = book.id
+
+        mock_imp = MagicMock()
+        mock_imp.import_epub.side_effect = _import_side_effect
+
+        service = PipelineService(import_service=mock_imp, db_session_factory=file_db_factory)
+        with patch(
+            "backend.config.load_config",
+            return_value={
+                "kindles": [_real_kindle_config()],
+                "pipeline": {"kindle_sync_on_import": True},
+                "transfer": {"sync_shelves": {"want_to_read": True}},
+            },
+        ):
+            service.process_importing_books()
+        db.close()
+
+        verify_db = file_db_factory()
+        from backend.models.book import Book
+
+        refreshed = verify_db.get(Book, book_id)
+        assert refreshed.kindle_delivery_status is None
+        verify_db.close()
+
+    def test_pending_marking_for_pinned_book_without_shelf(self, file_db_factory, root_folder_with_file):
+        """A pinned book auto-queues even with no Hardcover shelf."""
+        rf_id, file_rel = root_folder_with_file
+        db = file_db_factory()
+        book = create_test_book(
+            db,
+            status=BookStatus.IMPORTING.value,
+            root_folder_id=rf_id,
+            file_path=file_rel,
+            kindle_pinned=True,
+        )
+        download = Download(
+            book_id=book.id,
+            torrent_hash="hash" + "8" * 36,
+            torrent_name="x",
+            indexer_name="x",
+            download_url="https://x",
+            size=1,
+            seeders=1,
+            status=DownloadStatus.COMPLETED.value,
+            file_path="/dl/x.epub",
+        )
+        db.add(download)
+        db.commit()
+        book_id = book.id
+
+        mock_imp = MagicMock()
+        mock_imp.import_epub.side_effect = _import_side_effect
+
+        service = PipelineService(import_service=mock_imp, db_session_factory=file_db_factory)
+        with patch(
+            "backend.config.load_config",
+            return_value={
+                "kindles": [_real_kindle_config()],
+                "pipeline": {"kindle_sync_on_import": True},
+                "transfer": {"sync_shelves": {"want_to_read": True}},
+            },
+        ):
+            service.process_importing_books()
+        db.close()
+
+        verify_db = file_db_factory()
+        from backend.models.book import Book
+
+        refreshed = verify_db.get(Book, book_id)
+        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
         verify_db.close()
 
     def test_no_pending_marking_when_disabled(self, file_db_factory, root_folder_with_file):

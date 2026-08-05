@@ -769,6 +769,7 @@ class KindleClient:
         self,
         filepath: str,
         delete_sdr: bool = True,
+        ssh: Any | None = None,
     ) -> bool:
         """
         Delete a book file and optionally its .sdr folder.
@@ -776,12 +777,16 @@ class KindleClient:
         Args:
             filepath: Full path to the book file
             delete_sdr: Also delete the .sdr folder for this book
+            ssh: Existing SSH client to reuse; when given it is NOT closed here,
+                 so bulk callers can hold one connection across many deletions
 
         Returns:
             True if deletion was successful
         """
+        own_ssh = ssh is None
         try:
-            ssh = self._create_ssh_client()
+            if ssh is None:
+                ssh = self._create_ssh_client()
 
             # Delete the book file
             stdin, stdout, stderr = ssh.exec_command(f'rm -f "{filepath}"')
@@ -790,7 +795,6 @@ class KindleClient:
             if exit_status != 0:
                 error = stderr.read().decode().strip()
                 logger.error(f"Failed to delete {filepath}: {error}")
-                ssh.close()
                 return False
 
             logger.info(f"Deleted: {filepath}")
@@ -806,12 +810,14 @@ class KindleClient:
                 ssh.exec_command(f'rm -rf "{sdr_path}"')
                 logger.debug(f"Removed sdr folder: {sdr_path}")
 
-            ssh.close()
             return True
 
         except Exception as e:
             logger.error(f"Error deleting book: {e}")
-            return False
+            raise
+        finally:
+            if own_ssh and ssh is not None:
+                ssh.close()
 
     def cleanup_orphaned_books(
         self,
@@ -821,6 +827,9 @@ class KindleClient:
     ) -> dict:
         """
         Remove all books not in the expected list.
+
+        Holds a single SSH connection for the whole batch (reconnecting once if
+        it drops mid-loop) instead of one connection per file.
 
         Args:
             expected_filenames: Filenames that should remain
@@ -834,11 +843,30 @@ class KindleClient:
 
         deleted = 0
         failed = 0
-        for filepath in orphans:
-            if self.delete_book_with_sdr(filepath, delete_sdr):
-                deleted += 1
-            else:
-                failed += 1
+        ssh = None
+        try:
+            if orphans:
+                ssh = self._create_ssh_client()
+            for filepath in orphans:
+                try:
+                    ok = self.delete_book_with_sdr(filepath, delete_sdr, ssh=ssh)
+                except Exception:
+                    # Connection likely dropped — reconnect once and retry this file
+                    try:
+                        if ssh is not None:
+                            ssh.close()
+                        ssh = self._create_ssh_client()
+                        ok = self.delete_book_with_sdr(filepath, delete_sdr, ssh=ssh)
+                    except Exception as e:
+                        logger.error(f"Error deleting book after reconnect: {e}")
+                        ok = False
+                if ok:
+                    deleted += 1
+                else:
+                    failed += 1
+        finally:
+            if ssh is not None:
+                ssh.close()
 
         logger.info(f"Cleanup complete: {deleted} deleted, {failed} failed")
         return {

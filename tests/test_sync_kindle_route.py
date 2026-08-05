@@ -62,12 +62,64 @@ class TestTriggerKindleSync:
             patch.object(sync_routes, "get_kindle_by_id", return_value=KINDLE_CONFIG),
             patch.object(sync_routes.KindleClient, "is_reachable", return_value=True),
             patch.object(sync_routes, "_run_kindle_sync_background", background),
+            patch.object(sync_routes, "load_config", return_value={}),
         ):
             response = client.post("/api/sync/kindle", json={"kindle_device": "abc123"})
 
         assert response.status_code == 200
         assert response.json()["success"] is True
         background.assert_called_once_with(kindle_device="abc123")
+
+    def test_dry_run_flag_returns_synchronous_report(self, client):
+        report = {
+            "transferred": 0,
+            "skipped": 0,
+            "failed": 0,
+            "cleanup": None,
+            "dry_run": True,
+            "would_send": [{"book_id": 1, "title": "Dune", "remote_path": "/mnt/us/books/dune.epub"}],
+            "would_delete": ["/mnt/us/books/orphan.epub"],
+        }
+        background = MagicMock(return_value=report)
+        with (
+            patch.object(sync_routes, "get_kindle_by_id", return_value=KINDLE_CONFIG),
+            patch.object(sync_routes.KindleClient, "is_reachable", return_value=True),
+            patch.object(sync_routes, "_run_kindle_sync_background", background),
+            patch.object(sync_routes, "load_config", return_value={}),
+        ):
+            response = client.post("/api/sync/kindle", json={"kindle_device": "abc123", "dry_run": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert body["dry_run"] is True
+        assert body["would_send"][0]["title"] == "Dune"
+        assert body["would_delete"] == ["/mnt/us/books/orphan.epub"]
+        background.assert_called_once_with(kindle_device="abc123", dry_run=True)
+
+    def test_config_dry_run_default_forces_dry_run(self, client):
+        """transfer.dry_run=true in config turns every manual sync into a preview."""
+        report = {
+            "transferred": 0,
+            "skipped": 0,
+            "failed": 0,
+            "cleanup": None,
+            "dry_run": True,
+            "would_send": [],
+            "would_delete": [],
+        }
+        background = MagicMock(return_value=report)
+        with (
+            patch.object(sync_routes, "get_kindle_by_id", return_value=KINDLE_CONFIG),
+            patch.object(sync_routes.KindleClient, "is_reachable", return_value=True),
+            patch.object(sync_routes, "_run_kindle_sync_background", background),
+            patch.object(sync_routes, "load_config", return_value={"transfer": {"dry_run": True}}),
+        ):
+            response = client.post("/api/sync/kindle", json={"kindle_device": "abc123"})
+
+        assert response.status_code == 200
+        assert response.json()["dry_run"] is True
+        background.assert_called_once_with(kindle_device="abc123", dry_run=True)
 
     def test_concurrent_sync_returns_409(self, client):
         sync_routes._kindle_sync_running = True

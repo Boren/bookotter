@@ -42,10 +42,36 @@ const pathBrowserInitialPath = ref('/')
 const pathBrowserTitle = ref('Browse')
 const pathBrowserTarget = ref<'rootFolder' | 'kindleSshKey' | 'kindleDestination' | null>(null)
 
+// Drop stale keys from older configs and fill in defaults for new ones so
+// saving never sends removed fields and loading never hits missing ones.
+const normalizeConfig = (raw: Config): Config => ({
+  ...raw,
+  pipeline: {
+    ...raw.pipeline,
+    status_actions: {
+      want_to_read: { download: raw.pipeline.status_actions.want_to_read.download },
+      currently_reading: { download: raw.pipeline.status_actions.currently_reading.download },
+      read: { download: raw.pipeline.status_actions.read.download },
+    },
+  },
+  transfer: {
+    dry_run: raw.transfer.dry_run,
+    sync_shelves: raw.transfer.sync_shelves ?? {
+      want_to_read: true,
+      currently_reading: true,
+      read: false,
+    },
+    folder_organization: raw.transfer.folder_organization,
+    cleanup_enabled: raw.transfer.cleanup_enabled ?? true,
+    cleanup_sdr_folders: raw.transfer.cleanup_sdr_folders,
+    cleanup_protected_paths: raw.transfer.cleanup_protected_paths ?? [],
+  },
+})
+
 const fetchConfig = async () => {
   try {
     const response = await fetch('/api/config')
-    config.value = await response.json()
+    config.value = normalizeConfig(await response.json())
   } catch (e) {
     console.error('Failed to fetch config:', e)
   } finally {
@@ -66,7 +92,7 @@ const saveConfig = async () => {
 
     if (response.ok) {
       const data = await response.json()
-      config.value = data.config
+      config.value = normalizeConfig(data.config)
     }
   } catch (e) {
     console.error('Failed to save config:', e)
@@ -274,6 +300,15 @@ const deleteRootFolder = async (id: number) => {
   } catch (e) {
     console.error('Failed to delete root folder:', e)
   }
+}
+
+// Protected paths (Kindle cleanup)
+const addProtectedPath = () => {
+  config.value?.transfer.cleanup_protected_paths.push('')
+}
+
+const removeProtectedPath = (index: number) => {
+  config.value?.transfer.cleanup_protected_paths.splice(index, 1)
 }
 
 const folderOrgLabel = (org: string) => {
@@ -530,7 +565,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Kindle Devices -->
+      <!-- Kindle -->
       <div class="card">
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-3">
@@ -540,8 +575,8 @@ onMounted(() => {
               </svg>
             </div>
             <div>
-              <h2 class="text-lg font-display font-semibold text-stone-900">Kindle Devices</h2>
-              <p class="text-sm text-stone-500">Target devices for book transfers</p>
+              <h2 class="text-lg font-display font-semibold text-stone-900">Kindle</h2>
+              <p class="text-sm text-stone-500">Devices and shelf-mirror sync behavior</p>
             </div>
           </div>
           <button @click="openKindleForm()" class="btn btn-primary">
@@ -597,6 +632,137 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
+        <div class="mt-6 pt-6 border-t border-stone-200 space-y-4">
+          <!-- Keep on Kindle -->
+          <div>
+            <p class="text-sm font-medium text-stone-700">Keep on Kindle</p>
+            <p class="text-xs text-stone-500">The Kindle mirrors these shelves; everything else is removed on sync.</p>
+          </div>
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.transfer.sync_shelves.want_to_read" class="sr-only peer" />
+            <div class="toggle" :class="config.transfer.sync_shelves.want_to_read ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <span class="text-sm font-medium text-stone-700">Want to Read</span>
+          </label>
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.transfer.sync_shelves.currently_reading" class="sr-only peer" />
+            <div class="toggle" :class="config.transfer.sync_shelves.currently_reading ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <span class="text-sm font-medium text-stone-700">Currently Reading</span>
+          </label>
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.transfer.sync_shelves.read" class="sr-only peer" />
+            <div class="toggle" :class="config.transfer.sync_shelves.read ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <span class="text-sm font-medium text-stone-700">Read</span>
+          </label>
+
+          <!-- Auto-send on import -->
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.pipeline.kindle_sync_on_import" class="sr-only peer" />
+            <div class="toggle" :class="config.pipeline.kindle_sync_on_import ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <div>
+              <span class="text-sm font-medium text-stone-700">Send new imports to Kindle automatically</span>
+              <p class="text-xs text-stone-500">Delivers each book as soon as it lands in the library</p>
+            </div>
+          </label>
+
+          <!-- Kindle folder layout -->
+          <div>
+            <label class="label">Kindle folder layout</label>
+            <select v-model="config.transfer.folder_organization" class="input">
+              <option value="flat">Flat (all books in root)</option>
+              <option value="author">By Author</option>
+              <option value="series">By Series (or Author)</option>
+              <option value="author_series">Author / Series</option>
+            </select>
+            <p class="mt-1.5 text-xs text-stone-500">
+              How books are organized on the Kindle. KOReader works best with simple folder structures.
+            </p>
+          </div>
+
+          <!-- Divider -->
+          <div class="border-t border-stone-200 pt-4 mt-4">
+            <p class="text-sm font-medium text-stone-700 mb-3">Cleanup Options</p>
+          </div>
+
+          <!-- Cleanup Enabled -->
+          <label class="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-stone-100 transition-colors" :class="config.transfer.cleanup_enabled ? 'bg-warning-50 border border-warning-200' : 'bg-stone-50 border border-stone-200'">
+            <input type="checkbox" v-model="config.transfer.cleanup_enabled" class="sr-only peer" />
+            <div class="toggle" :class="config.transfer.cleanup_enabled ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <div>
+              <span class="text-sm font-medium text-stone-700">Remove books not on synced shelves (mirror mode)</span>
+              <p class="text-xs text-stone-500">Deletes files from the Kindle that aren't on a synced shelf or pinned</p>
+            </div>
+          </label>
+
+          <!-- Cleanup SDR Folders (only shown when cleanup enabled) -->
+          <Transition
+            enter-active-class="transition-all duration-200"
+            enter-from-class="opacity-0 -translate-y-2"
+            enter-to-class="opacity-100 translate-y-0"
+            leave-active-class="transition-all duration-150"
+            leave-from-class="opacity-100 translate-y-0"
+            leave-to-class="opacity-0 -translate-y-2"
+          >
+            <label v-if="config.transfer.cleanup_enabled" class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors ml-4">
+              <input type="checkbox" v-model="config.transfer.cleanup_sdr_folders" class="sr-only peer" />
+              <div class="toggle" :class="config.transfer.cleanup_sdr_folders ? 'toggle-on' : 'toggle-off'">
+                <span class="toggle-knob"></span>
+              </div>
+              <div>
+                <span class="text-sm font-medium text-stone-700">Also remove .sdr folders</span>
+                <p class="text-xs text-stone-500">Delete reading progress/annotations for removed books</p>
+              </div>
+            </label>
+          </Transition>
+
+          <!-- Protected Paths -->
+          <div>
+            <label class="label">Protected paths</label>
+            <p class="mb-2 text-xs text-stone-500">Files and folders on the Kindle that cleanup never touches</p>
+            <div v-if="config.transfer.cleanup_protected_paths.length > 0" class="space-y-2">
+              <div
+                v-for="(_, index) in config.transfer.cleanup_protected_paths"
+                :key="index"
+                class="flex gap-2"
+              >
+                <input v-model="config.transfer.cleanup_protected_paths[index]" type="text" class="input font-mono text-sm flex-1" placeholder="/mnt/us/documents/dictionaries" />
+                <button @click="removeProtectedPath(index)" class="shrink-0 p-2 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors">
+                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <button @click="addProtectedPath" class="btn btn-secondary btn-sm mt-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+              </svg>
+              Add path
+            </button>
+          </div>
+
+          <!-- Dry Run -->
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.transfer.dry_run" class="sr-only peer" />
+            <div class="toggle" :class="config.transfer.dry_run ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <div>
+              <span class="text-sm font-medium text-stone-700">Dry run by default</span>
+              <p class="text-xs text-stone-500">Report what would be sent/deleted without doing it</p>
+            </div>
+          </label>
+        </div>
       </div>
 
       <!-- Pipeline Settings -->
@@ -628,50 +794,32 @@ onMounted(() => {
           <div v-if="config.pipeline.enabled" class="space-y-4 pl-4 border-l-2 border-stone-100">
             <div class="space-y-3">
               <h3 class="text-sm font-medium text-stone-900">Want to Read</h3>
-              <div class="flex gap-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
-                  <span class="text-sm text-stone-700">Auto-download</span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.kindle_sync" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
-                  <span class="text-sm text-stone-700">Auto-sync to Kindle</span>
-                </label>
-              </div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                <span class="text-sm text-stone-700">Auto-download</span>
+              </label>
             </div>
 
             <div class="space-y-3">
               <h3 class="text-sm font-medium text-stone-900">Currently Reading</h3>
-              <div class="flex gap-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
-                  <span class="text-sm text-stone-700">Auto-download</span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.kindle_sync" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
-                  <span class="text-sm text-stone-700">Auto-sync to Kindle</span>
-                </label>
-              </div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                <span class="text-sm text-stone-700">Auto-download</span>
+              </label>
             </div>
 
             <div class="space-y-3">
               <h3 class="text-sm font-medium text-stone-900">Read</h3>
-              <div class="flex gap-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" v-model="config.pipeline.status_actions.read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
-                  <span class="text-sm text-stone-700">Auto-download</span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" v-model="config.pipeline.status_actions.read.kindle_sync" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
-                  <span class="text-sm text-stone-700">Auto-sync to Kindle</span>
-                </label>
-              </div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="config.pipeline.status_actions.read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                <span class="text-sm text-stone-700">Auto-download</span>
+              </label>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Sync Settings - Book Statuses -->
+      <!-- Sync Settings - Hardcover Shelves -->
       <div class="card">
         <div class="flex items-center gap-3 mb-6">
           <div class="icon-container-primary">
@@ -680,12 +828,12 @@ onMounted(() => {
             </svg>
           </div>
           <div>
-            <h2 class="text-lg font-display font-semibold text-stone-900">Book Statuses to Sync</h2>
-            <p class="text-sm text-stone-500">Choose which Hardcover statuses to include</p>
+            <h2 class="text-lg font-display font-semibold text-stone-900">Hardcover Shelves to Import</h2>
+            <p class="text-sm text-stone-500">Books on these shelves are pulled into your library — searched and downloaded</p>
           </div>
         </div>
         <div class="space-y-3">
-          <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-3">Books are synced in priority order</p>
+          <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-3">Shelves are imported in priority order</p>
           <label class="flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all duration-200"
             :class="config.sync.include_statuses.currently_reading
               ? 'bg-kindle-50 border-kindle-300 ring-1 ring-kindle-300'
@@ -696,7 +844,7 @@ onMounted(() => {
               :class="config.sync.include_statuses.currently_reading ? 'bg-kindle-600 text-white' : 'bg-stone-200 text-stone-500'">1</div>
             <div class="flex-1">
               <span class="text-sm font-medium text-stone-800">Currently Reading</span>
-              <p class="text-xs text-stone-500">Books you're actively reading — synced first</p>
+              <p class="text-xs text-stone-500">Books you're actively reading — imported first</p>
             </div>
             <div class="toggle" :class="config.sync.include_statuses.currently_reading ? 'toggle-on' : 'toggle-off'">
               <span class="toggle-knob"></span>
@@ -769,95 +917,6 @@ onMounted(() => {
             <label class="label">Fuzzy Match Threshold (0-100)</label>
             <input v-model.number="config.matching.fuzzy_threshold" type="number" min="0" max="100" class="input w-32" />
           </div>
-        </div>
-      </div>
-
-      <!-- Transfer Settings -->
-      <div class="card">
-        <div class="flex items-center gap-3 mb-6">
-          <div class="icon-container">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-            </svg>
-          </div>
-          <div>
-            <h2 class="text-lg font-display font-semibold text-stone-900">Transfer</h2>
-            <p class="text-sm text-stone-500">Default transfer behavior</p>
-          </div>
-        </div>
-        <div class="space-y-4">
-          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
-            <input type="checkbox" v-model="config.transfer.skip_existing" class="sr-only peer" />
-            <div class="toggle" :class="config.transfer.skip_existing ? 'toggle-on' : 'toggle-off'">
-              <span class="toggle-knob"></span>
-            </div>
-            <div>
-              <span class="text-sm font-medium text-stone-700">Skip existing files</span>
-              <p class="text-xs text-stone-500">Don't transfer books already on Kindle</p>
-            </div>
-          </label>
-          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
-            <input type="checkbox" v-model="config.transfer.dry_run" class="sr-only peer" />
-            <div class="toggle" :class="config.transfer.dry_run ? 'toggle-on' : 'toggle-off'">
-              <span class="toggle-knob"></span>
-            </div>
-            <div>
-              <span class="text-sm font-medium text-stone-700">Default to dry run</span>
-              <p class="text-xs text-stone-500">Simulate transfers by default</p>
-            </div>
-          </label>
-
-          <!-- Folder Organization -->
-          <div>
-            <label class="label">Folder Organization</label>
-            <select v-model="config.transfer.folder_organization" class="input">
-              <option value="flat">Flat (all books in root)</option>
-              <option value="author">By Author</option>
-              <option value="series">By Series (or Author)</option>
-              <option value="author_series">Author / Series</option>
-            </select>
-            <p class="mt-1.5 text-xs text-stone-500">
-              How books are organized on the Kindle. KOReader works best with simple folder structures.
-            </p>
-          </div>
-
-          <!-- Divider -->
-          <div class="border-t border-stone-200 pt-4 mt-4">
-            <p class="text-sm font-medium text-stone-700 mb-3">Cleanup Options</p>
-          </div>
-
-          <!-- Cleanup Enabled -->
-          <label class="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-stone-100 transition-colors" :class="config.transfer.cleanup_enabled ? 'bg-warning-50 border border-warning-200' : 'bg-stone-50 border border-stone-200'">
-            <input type="checkbox" v-model="config.transfer.cleanup_enabled" class="sr-only peer" />
-            <div class="toggle" :class="config.transfer.cleanup_enabled ? 'toggle-on' : 'toggle-off'">
-              <span class="toggle-knob"></span>
-            </div>
-            <div>
-              <span class="text-sm font-medium text-stone-700">Remove books not in sync list</span>
-              <p class="text-xs text-stone-500">Delete books from Kindle that aren't in your "want to read" list</p>
-            </div>
-          </label>
-
-          <!-- Cleanup SDR Folders (only shown when cleanup enabled) -->
-          <Transition
-            enter-active-class="transition-all duration-200"
-            enter-from-class="opacity-0 -translate-y-2"
-            enter-to-class="opacity-100 translate-y-0"
-            leave-active-class="transition-all duration-150"
-            leave-from-class="opacity-100 translate-y-0"
-            leave-to-class="opacity-0 -translate-y-2"
-          >
-            <label v-if="config.transfer.cleanup_enabled" class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors ml-4">
-              <input type="checkbox" v-model="config.transfer.cleanup_sdr_folders" class="sr-only peer" />
-              <div class="toggle" :class="config.transfer.cleanup_sdr_folders ? 'toggle-on' : 'toggle-off'">
-                <span class="toggle-knob"></span>
-              </div>
-              <div>
-                <span class="text-sm font-medium text-stone-700">Also remove .sdr folders</span>
-                <p class="text-xs text-stone-500">Delete reading progress/annotations for removed books</p>
-              </div>
-            </label>
-          </Transition>
         </div>
       </div>
 

@@ -179,9 +179,13 @@ def get_default_config() -> dict:
         },
         "transfer": {
             "dry_run": False,
-            "skip_existing": True,
             "folder_organization": "flat",  # flat, author, series, author_series
-            "cleanup_enabled": False,  # Remove books not in sync list
+            "sync_shelves": {  # Hardcover shelves mirrored to the Kindle
+                "want_to_read": True,
+                "currently_reading": True,
+                "read": False,
+            },
+            "cleanup_enabled": True,  # Mirror mode: delete device books not on synced shelves or pinned
             "cleanup_sdr_folders": True,  # Also remove .sdr reading data
             "cleanup_protected_paths": [],  # Paths to never delete from
         },
@@ -195,9 +199,9 @@ def get_default_config() -> dict:
             "import_on_complete": True,  # Auto-import when download completes
             "kindle_sync_on_import": True,  # Auto-sync to Kindle after import
             "status_actions": {
-                "want_to_read": {"download": True, "kindle_sync": True},
-                "currently_reading": {"download": True, "kindle_sync": True},
-                "read": {"download": True, "kindle_sync": False},
+                "want_to_read": {"download": True},
+                "currently_reading": {"download": True},
+                "read": {"download": True},
             },
         },
         "rss": {
@@ -217,28 +221,12 @@ def get_default_config() -> dict:
     }
 
 
-def get_sync_status_ids() -> list[int]:
-    """
-    Get the list of status IDs to sync based on global config.
-    Returns IDs in priority order: Currently Reading (2) > Want to Read (1) > Read (3)
-    """
-    config = load_config()
-    sync_config = config.get("sync", {}).get("include_statuses", {})
-
-    # Build list in priority order
-    status_ids = []
-    if sync_config.get("currently_reading", False):
-        status_ids.append(2)
-    if sync_config.get("want_to_read", True):  # Default to True
-        status_ids.append(1)
-    if sync_config.get("read", False):
-        status_ids.append(3)
-
-    # Fallback to Want to Read if nothing selected
-    if not status_ids:
-        status_ids = [1]
-
-    return status_ids
+def get_kindle_sync_shelves(config: dict | None = None) -> set[str]:
+    """Return the Hardcover shelf names whose books are mirrored to the Kindle."""
+    if config is None:
+        config = load_config()
+    shelves = config.get("transfer", {}).get("sync_shelves", {})
+    return {name for name, enabled in shelves.items() if enabled}
 
 
 def get_kindle_by_id(kindle_id: str) -> dict | None:

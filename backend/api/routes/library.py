@@ -363,6 +363,12 @@ def requeue_kindle_delivery(
 
     pipeline = getattr(request.app.state, "pipeline", None)
 
+    # A manual send is a pin: mirror cleanup keeps this book on the device
+    # regardless of its Hardcover shelf, until the user unpins it.
+    if not book.kindle_pinned:
+        book.kindle_pinned = True
+        db.commit()
+
     if book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value:
         return {
             "book_id": book_id,
@@ -403,6 +409,22 @@ def requeue_kindle_delivery(
         "already_queued": False,
         "kicked": pipeline is not None,
     }
+
+
+@router.delete("/books/{book_id}/kindle-pin")
+def unpin_kindle_delivery(book_id: int, db: Session = Depends(get_db)):
+    """Clear a book's Kindle pin; the next mirror sync removes it from the device."""
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    was_pinned = book.kindle_pinned
+    if was_pinned:
+        book.kindle_pinned = False
+        book.updated_at = naive_utcnow()
+        db.commit()
+
+    return {"book_id": book_id, "was_pinned": was_pinned, "kindle_pinned": False}
 
 
 @router.delete("/books/{book_id}")

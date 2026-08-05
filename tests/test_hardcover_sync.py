@@ -40,6 +40,7 @@ def _make_hc_book(
     isbn: str | None = "978-0-441-17271-9",
     authors: list[str] | None = None,
     description: str | None = None,
+    status_id: int = 1,
 ) -> dict:
     return {
         "hardcover_id": hardcover_id if hardcover_id is not None else "",
@@ -50,6 +51,7 @@ def _make_hc_book(
         "series_name": None,
         "series_position": None,
         "description": description,
+        "status_id": status_id,
     }
 
 
@@ -216,6 +218,79 @@ class TestNewBookIds:
 
         assert result["errors"] == 1
         assert result["new_book_ids"] == []
+
+
+class TestShelfStatusPersistence:
+    def test_status_set_on_create(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-shelf-1", status_id=1)])
+        svc.sync_hardcover_lists(db_session)
+
+        book = db_session.query(Book).filter(Book.hardcover_id == "hc-shelf-1").one()
+        assert book.hardcover_status == "want_to_read"
+
+    def test_status_updated_when_book_moves_shelves(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-shelf-2", status_id=1)])
+        svc.sync_hardcover_lists(db_session)
+
+        svc2 = _make_service([_make_hc_book(hardcover_id="hc-shelf-2", status_id=3)])
+        result = svc2.sync_hardcover_lists(db_session)
+
+        book = db_session.query(Book).filter(Book.hardcover_id == "hc-shelf-2").one()
+        assert book.hardcover_status == "read"
+        assert result["new_books"] == 0
+
+    def test_status_cleared_when_book_leaves_all_shelves(self, db_session):
+        svc = _make_service(
+            [
+                _make_hc_book(hardcover_id="hc-shelf-3", status_id=1, isbn="978-1-000-00000-1"),
+                _make_hc_book(hardcover_id="hc-shelf-4", title="Other", status_id=1, isbn="978-1-000-00000-2"),
+            ]
+        )
+        svc.sync_hardcover_lists(db_session)
+
+        # hc-shelf-3 disappears from every shelf; hc-shelf-4 remains
+        svc2 = _make_service([_make_hc_book(hardcover_id="hc-shelf-4", title="Other", status_id=1)])
+        svc2.sync_hardcover_lists(db_session)
+
+        gone = db_session.query(Book).filter(Book.hardcover_id == "hc-shelf-3").one()
+        kept = db_session.query(Book).filter(Book.hardcover_id == "hc-shelf-4").one()
+        assert gone.hardcover_status is None
+        assert kept.hardcover_status == "want_to_read"
+
+    def test_status_not_cleared_when_api_returns_empty(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-shelf-5", status_id=1)])
+        svc.sync_hardcover_lists(db_session)
+
+        svc2 = _make_service([])
+        svc2.sync_hardcover_lists(db_session)
+
+        book = db_session.query(Book).filter(Book.hardcover_id == "hc-shelf-5").one()
+        assert book.hardcover_status == "want_to_read"
+
+    def test_all_shelves_fetched_regardless_of_include_statuses(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-shelf-6", status_id=1)])
+        svc.sync_hardcover_lists(db_session)
+        svc.hardcover_client.get_books_by_status.assert_called_once_with([1, 2, 3])
+
+    def test_non_imported_shelf_updates_existing_without_creating(self, db_session):
+        # Imported while on want_to_read...
+        svc = _make_service([_make_hc_book(hardcover_id="hc-shelf-7", status_id=1)])
+        svc.sync_hardcover_lists(db_session)
+
+        # ...then moved to read, which is NOT in include_statuses: status updates, no dupe
+        svc2 = _make_service([_make_hc_book(hardcover_id="hc-shelf-7", status_id=3)])
+        result = svc2.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 0
+        assert db_session.query(Book).count() == 1
+        assert db_session.query(Book).one().hardcover_status == "read"
+
+    def test_new_book_on_non_imported_shelf_not_created(self, db_session):
+        svc = _make_service([_make_hc_book(hardcover_id="hc-shelf-8", status_id=3)])
+        result = svc.sync_hardcover_lists(db_session)
+
+        assert result["new_books"] == 0
+        assert db_session.query(Book).count() == 0
 
 
 class TestGetOrCreateAuthor:
