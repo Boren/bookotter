@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 import PathBrowserModal from '@/components/PathBrowserModal.vue'
+import RenamePreviewModal from '@/components/RenamePreviewModal.vue'
 
 import type { Config, Kindle, RootFolder, FolderOrganization, PathBrowserMode } from '../types'
 
 const config = ref<Config | null>(null)
 const loading = ref(true)
 const saving = ref(false)
+const saveError = ref<string | null>(null)
 const testResults = ref<Record<string, { success: boolean; message?: string; error?: string }>>({})
 const testingService = ref<string | null>(null)
 
@@ -54,6 +56,11 @@ const normalizeConfig = (raw: Config): Config => ({
       read: { download: raw.pipeline.status_actions.read.download },
     },
   },
+  library: {
+    ...raw.library,
+    naming_template:
+      raw.library?.naming_template ?? '{Author} - {Series} #{SeriesPosition:00} - {Title}',
+  },
   transfer: {
     dry_run: raw.transfer.dry_run,
     sync_shelves: raw.transfer.sync_shelves ?? {
@@ -82,6 +89,7 @@ const fetchConfig = async () => {
 const saveConfig = async () => {
   if (!config.value) return
   saving.value = true
+  saveError.value = null
 
   try {
     const response = await fetch('/api/config', {
@@ -93,13 +101,80 @@ const saveConfig = async () => {
     if (response.ok) {
       const data = await response.json()
       config.value = normalizeConfig(data.config)
+    } else {
+      const body = await response.json().catch(() => ({}))
+      saveError.value = typeof body.detail === 'string' ? body.detail : 'Failed to save settings'
     }
   } catch (e) {
     console.error('Failed to save config:', e)
+    saveError.value = 'Failed to save settings'
   } finally {
     saving.value = false
   }
 }
+
+// File naming
+const showRenamePreview = ref(false)
+
+const NAMING_TOKEN_RE = /\{(Author|Title|Series|SeriesPosition)(?::(0+))?\}/g
+
+// TS mirror of backend/utils/naming.py render_filename for the live example.
+const renderNamingExample = (
+  template: string,
+  v: { author: string; title: string; series?: string; position?: number }
+): string => {
+  const values: Record<string, string> = {
+    Author: v.author,
+    Title: v.title,
+    Series: v.series ?? '',
+  }
+  const formatPosition = (pos: number | undefined, pad?: string): string => {
+    if (pos === undefined) return ''
+    const [intPart, fracPart] = String(pos).split('.')
+    const padded = pad ? intPart.padStart(pad.length, '0') : intPart
+    return fracPart ? `${padded}.${fracPart}` : padded
+  }
+
+  const parts: Array<string | { name: string; pad?: string }> = []
+  let last = 0
+  for (const m of template.matchAll(NAMING_TOKEN_RE)) {
+    parts.push(template.slice(last, m.index))
+    parts.push({ name: m[1], pad: m[2] })
+    last = m.index + m[0].length
+  }
+  parts.push(template.slice(last))
+
+  const prefix = parts[0] as string
+  let out = ''
+  let emitted = false
+  for (let i = 1; i < parts.length - 1; i += 2) {
+    const token = parts[i] as { name: string; pad?: string }
+    const value =
+      token.name === 'SeriesPosition' ? formatPosition(v.position, token.pad) : (values[token.name] ?? '')
+    if (!value) continue
+    out += (emitted ? (parts[i - 1] as string) : prefix) + value
+    emitted = true
+  }
+  out += parts[parts.length - 1] as string
+  return out.replace(/\s+/g, ' ').trim()
+}
+
+const namingExampleSeries = computed(() => {
+  const template = config.value?.library?.naming_template
+  if (!template) return ''
+  return `${renderNamingExample(template, {
+    author: 'Brandon Sanderson',
+    title: 'The Final Empire',
+    series: 'Mistborn',
+    position: 1,
+  })}.epub`
+})
+
+const namingExampleStandalone = computed(() => {
+  const template = config.value?.library?.naming_template
+  if (!template) return ''
+  return `${renderNamingExample(template, { author: 'Andy Weir', title: 'Project Hail Mary' })}.epub`
+})
 
 const testConnection = async (service: string, kindleId?: string) => {
   const key = kindleId ? `kindle_${kindleId}` : service
@@ -565,6 +640,52 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- File Naming -->
+      <div v-if="config?.library" class="card">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="icon-container">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-display font-semibold text-stone-900">File Naming</h2>
+            <p class="text-sm text-stone-500">How library epub files are named on disk</p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="label">Naming Template</label>
+            <input v-model="config.library.naming_template" type="text" class="input font-mono" />
+            <p class="mt-1.5 text-xs text-stone-500">
+              Tokens: <code>{Author}</code>, <code>{Series}</code>, <code>{SeriesPosition:00}</code>,
+              <code>{Title}</code>. A token without a value (no series) is dropped along with its
+              separator. Folder layout is set per root folder above.
+            </p>
+          </div>
+
+          <div class="rounded-lg bg-stone-50 border border-stone-200 p-3 space-y-1">
+            <p class="text-xs font-medium text-stone-500 uppercase tracking-wide">Example</p>
+            <p class="text-sm font-mono text-stone-700 truncate" :title="namingExampleSeries">
+              {{ namingExampleSeries }}
+            </p>
+            <p class="text-sm font-mono text-stone-700 truncate" :title="namingExampleStandalone">
+              {{ namingExampleStandalone }}
+            </p>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <p class="text-sm text-stone-500">
+              Save the template first, then preview what would be renamed.
+            </p>
+            <button @click="showRenamePreview = true" class="btn btn-secondary">
+              Preview Rename...
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Kindle -->
       <div class="card">
         <div class="flex items-center justify-between mb-6">
@@ -921,6 +1042,9 @@ onMounted(() => {
       </div>
 
       <!-- Save Button -->
+      <div v-if="saveError" class="bg-error-50 border border-error-200 rounded-lg p-3">
+        <p class="text-sm text-error-700">{{ saveError }}</p>
+      </div>
       <div class="flex justify-end">
         <button @click="saveConfig" :disabled="saving" class="btn btn-primary btn-lg">
           <svg v-if="saving" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -936,6 +1060,8 @@ onMounted(() => {
         </button>
       </div>
     </template>
+
+    <RenamePreviewModal v-model="showRenamePreview" />
 
     <!-- Kindle Form Modal -->
     <Transition

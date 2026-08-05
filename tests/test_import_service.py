@@ -17,6 +17,17 @@ from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_epub
 
 
+@pytest.fixture(autouse=True)
+def _title_only_template(monkeypatch):
+    """Pin the naming template to bare {Title} so legacy directory/copy tests
+    keep their original filename expectations. Template rendering itself is
+    covered by TestOrganizePathTemplate and tests/test_naming.py."""
+    monkeypatch.setattr(
+        "backend.services.import_service.load_config",
+        lambda: {"library": {"naming_template": "{Title}"}},
+    )
+
+
 def _make_root_folder(db, tmp_path: Path, org: str = FolderOrganization.FLAT.value) -> RootFolder:
     rf = RootFolder(
         name="Test Library",
@@ -44,8 +55,8 @@ def _make_book(
     description: str | None = None,
 ) -> Book:
     global _book_counter
+    _book_counter += 1
     if author_name is None:
-        _book_counter += 1
         author_name = f"Author {_book_counter}"
 
     author = Author(name=author_name, created_at=naive_utcnow())
@@ -209,6 +220,92 @@ class TestOrganizePath:
         result = svc.organize_path(book, rf)
 
         assert '"' not in str(result)
+
+
+class TestOrganizePathTemplate:
+    def _service(self, db) -> ImportService:
+        return ImportService(db, epub_service=MagicMock())
+
+    def test_default_template_from_config(self, db_session, lib_root: Path, monkeypatch) -> None:
+        monkeypatch.setattr("backend.services.import_service.load_config", lambda: {})
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(
+            db_session,
+            rf,
+            title="Book 1",
+            author_name="Jane Doe",
+            series_name="Epic Saga",
+            series_position=1,
+        )
+        svc = self._service(db_session)
+
+        result = svc.organize_path(book, rf)
+
+        assert result == lib_root / "Jane Doe - Epic Saga #01 - Book 1.epub"
+
+    def test_config_template_used(self, db_session, lib_root: Path, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "backend.services.import_service.load_config",
+            lambda: {"library": {"naming_template": "{Title} by {Author}"}},
+        )
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(db_session, rf, title="Solaris", author_name="Stanislaw Lem")
+        svc = self._service(db_session)
+
+        result = svc.organize_path(book, rf)
+
+        assert result == lib_root / "Solaris by Stanislaw Lem.epub"
+
+    def test_explicit_template_overrides_config(self, db_session, lib_root: Path) -> None:
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(db_session, rf, title="Solaris", author_name="Stanislaw Lem")
+        svc = self._service(db_session)
+
+        result = svc.organize_path(book, rf, template="{Author} - {Title}")
+
+        assert result == lib_root / "Stanislaw Lem - Solaris.epub"
+
+    def test_invalid_template_falls_back_to_default(self, db_session, lib_root: Path) -> None:
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(
+            db_session,
+            rf,
+            title="Book 1",
+            author_name="Jane Doe",
+            series_name="Epic Saga",
+            series_position=2,
+        )
+        svc = self._service(db_session)
+
+        result = svc.organize_path(book, rf, template="{Bogus} - {Nope}")
+
+        assert result == lib_root / "Jane Doe - Epic Saga #02 - Book 1.epub"
+
+    def test_rendered_name_sanitized(self, db_session, lib_root: Path) -> None:
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(db_session, rf, title="Book: Reckoning", author_name="A/B Author")
+        svc = self._service(db_session)
+
+        result = svc.organize_path(book, rf, template="{Author} - {Title}")
+
+        assert "/" not in result.name and ":" not in result.name
+        assert result.parent == lib_root
+
+    def test_template_respected_inside_organized_dirs(self, db_session, lib_root: Path) -> None:
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.AUTHOR_SERIES.value)
+        book = _make_book(
+            db_session,
+            rf,
+            title="Book 1",
+            author_name="Jane Doe",
+            series_name="Epic Saga",
+            series_position=1,
+        )
+        svc = self._service(db_session)
+
+        result = svc.organize_path(book, rf, template="{Author} - {Series} #{SeriesPosition:00} - {Title}")
+
+        assert result == lib_root / "Jane Doe" / "Epic Saga" / "Jane Doe - Epic Saga #01 - Book 1.epub"
 
 
 class TestCopyToLibrary:

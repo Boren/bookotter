@@ -17,6 +17,16 @@ from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book, create_test_epub
 
 
+@pytest.fixture(autouse=True)
+def _title_only_template(monkeypatch):
+    """Pin the naming template to bare {Title}; these tests cover event
+    emission, not filename rendering (see tests/test_naming.py)."""
+    monkeypatch.setattr(
+        "backend.services.import_service.load_config",
+        lambda: {"library": {"naming_template": "{Title}"}},
+    )
+
+
 def _session_factory(db_session):
     return lambda: db_session
 

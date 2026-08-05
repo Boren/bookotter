@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
 from backend.config import load_config, mask_sensitive_data, update_config
+from backend.utils.naming import validate_template
 
 router = APIRouter()
 
@@ -52,6 +53,12 @@ async def update_config_endpoint(body: ConfigUpdate):
     Update the configuration.
     Masked values (***MASKED***) are ignored and not written.
     """
+    naming_template = body.config.get("library", {}).get("naming_template")
+    if naming_template is not None:
+        errors = validate_template(naming_template)
+        if errors:
+            raise HTTPException(status_code=422, detail="; ".join(errors))
+
     try:
         updated = update_config(body.config)
         return {"success": True, "config": mask_sensitive_data(updated)}

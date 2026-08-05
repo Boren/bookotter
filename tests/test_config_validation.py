@@ -47,3 +47,12 @@ class TestValidateConfig:
         cfg["kindles"] = [{"id": "k1", "hostname": "", "port": 22, "username": "root"}]
         errors = validate_config(cfg)
         assert errors == []
+
+
+class TestNamingTemplateDefault:
+    def test_default_config_has_naming_template(self):
+        from backend.config import get_default_config
+        from backend.utils.naming import DEFAULT_NAMING_TEMPLATE
+
+        cfg = get_default_config()
+        assert cfg["library"]["naming_template"] == DEFAULT_NAMING_TEMPLATE

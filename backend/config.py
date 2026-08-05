@@ -13,6 +13,8 @@ from typing import Any
 
 import yaml
 
+from backend.utils.naming import DEFAULT_NAMING_TEMPLATE
+
 # Sensitive fields that should be masked in API responses
 SENSITIVE_FIELDS = {"api_token", "api_key", "password"}
 
@@ -192,6 +194,7 @@ def get_default_config() -> dict:
         "library": {
             "root_folders": [],  # [{path, name, folder_organization}]
             "download_path": "",  # For display only — qBit manages actual paths
+            "naming_template": DEFAULT_NAMING_TEMPLATE,  # Filename template for library epubs
         },
         "pipeline": {
             "enabled": True,

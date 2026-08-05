@@ -11,6 +11,7 @@ from pathlib import Path
 from ebooklib import epub
 from sqlalchemy.orm import Session
 
+from backend.config import load_config
 from backend.constants import MAX_COLLISION_ATTEMPTS, MAX_FILENAME_LENGTH
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus, FolderOrganization, RootFolder
@@ -21,6 +22,7 @@ from backend.utils.atomic import atomic_copy
 from backend.utils.cover import fetch_cover
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
+from backend.utils.naming import DEFAULT_NAMING_TEMPLATE, render_filename, validate_template
 from backend.utils.text import strip_html
 
 logger = logging.getLogger(__name__)
@@ -187,22 +189,37 @@ class ImportService:
             FailureReason.IMPORT_FILE_COLLISION,
         )
 
-    def organize_path(self, book: Book, root_folder: RootFolder) -> Path:
+    def organize_path(self, book: Book, root_folder: RootFolder, template: str | None = None) -> Path:
         """Return the absolute destination path for a book's EPUB.
 
-        Patterns (based on root_folder.folder_organization):
-          flat          → {root}/{title}.epub
-          author        → {root}/{author}/{title}.epub
-          series        → {root}/{series}/{title}.epub  (flat if no series)
-          author_series → {root}/{author}/{series}/{title}.epub  (author if no series)
+        The filename comes from the naming template (config
+        library.naming_template unless passed explicitly); directories from
+        root_folder.folder_organization:
+          flat          → {root}/{filename}
+          author        → {root}/{author}/{filename}
+          series        → {root}/{series}/{filename}  (flat if no series)
+          author_series → {root}/{author}/{series}/{filename}  (author if no series)
         """
         root = Path(root_folder.path)
         org = root_folder.folder_organization
 
+        if template is None:
+            template = load_config().get("library", {}).get("naming_template")
+        if not template or validate_template(template):
+            if template:
+                logger.warning("Invalid naming template %r; falling back to default", template)
+            template = DEFAULT_NAMING_TEMPLATE
+
         author_name = book.author.name if book.author else "Unknown Author"
         safe_author = sanitize_path_component(author_name)
-        safe_title = sanitize_path_component(book.title)
-        filename = f"{safe_title}.epub"
+        stem = render_filename(
+            template,
+            title=book.title,
+            author=book.author.name if book.author else None,
+            series_name=book.series_name,
+            series_position=book.series_position,
+        )
+        filename = f"{sanitize_path_component(stem)}.epub"
 
         if org == FolderOrganization.AUTHOR.value:
             return root / safe_author / filename

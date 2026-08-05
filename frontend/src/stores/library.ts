@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useToast } from '../composables/useToast';
-import type { Book } from '../types';
+import type { Book, RenameApplyResult, RenamePreviewResult } from '../types';
 
 export const useLibraryStore = defineStore('library', () => {
   // State
@@ -223,6 +223,33 @@ export const useLibraryStore = defineStore('library', () => {
     }
   };
 
+  const fetchRenamePreview = async (): Promise<RenamePreviewResult> => {
+    const response = await fetch('/api/library/rename/preview');
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || 'Failed to load rename preview');
+    }
+    return response.json();
+  };
+
+  const applyRename = async (bookIds?: number[]): Promise<RenameApplyResult> => {
+    const response = await fetch('/api/library/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ book_ids: bookIds ?? null }),
+    });
+    if (response.status === 409) {
+      throw new Error('The pipeline is busy — try again in a moment.');
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || 'Rename failed');
+    }
+    const result: RenameApplyResult = await response.json();
+    await fetchBooks();
+    return result;
+  };
+
   // Computed
   const bookCount = computed(() => books.value.length);
   const totalPages = computed(() => Math.ceil(total.value / limit.value));
@@ -269,5 +296,7 @@ export const useLibraryStore = defineStore('library', () => {
     retryBook,
     requeueKindle,
     unpinKindle,
+    fetchRenamePreview,
+    applyRename,
   };
 });
