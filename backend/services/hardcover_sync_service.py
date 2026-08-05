@@ -107,7 +107,8 @@ class HardcoverSyncService:
                     errors += 1
                     continue
 
-                shelf = status_id_to_name.get(hc_book.get("status_id"))
+                status_id = hc_book.get("status_id")
+                shelf = status_id_to_name.get(status_id) if status_id is not None else None
 
                 existing = None
                 if hardcover_id:
@@ -234,7 +235,7 @@ class HardcoverSyncService:
         # still transfers this run — cleanup must never delete a mirror-set book.
         expected_remote_paths = [
             kindle_client.generate_remote_path(
-                os.path.basename(book.file_path),
+                os.path.basename(book.file_path or ""),
                 author=book.author.name if book.author else "",
                 series=book.series_name or "",
                 folder_organization=folder_org,

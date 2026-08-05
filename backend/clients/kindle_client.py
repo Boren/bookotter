@@ -785,7 +785,7 @@ class KindleClient:
         """
         own_ssh = ssh is None
         try:
-            if own_ssh:
+            if ssh is None:
                 ssh = self._create_ssh_client()
 
             # Delete the book file
