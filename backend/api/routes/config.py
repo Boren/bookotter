@@ -60,7 +60,7 @@ async def update_config_endpoint(body: ConfigUpdate):
 
 
 @router.post("/test/hardcover")
-async def test_hardcover_connection(request: HardcoverTestRequest = None) -> ConnectionTestResult:
+async def test_hardcover_connection(request: HardcoverTestRequest | None = None) -> ConnectionTestResult:
     """Test connection to Hardcover API using provided or saved credentials."""
     config = load_config()
     hardcover_config = config.get("hardcover", {})

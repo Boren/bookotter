@@ -17,6 +17,7 @@ from backend.main import app
 from backend.models import blocklist, rss, scanner  # noqa: F401
 from backend.models.book import Author, Book, BookStatus, RootFolder
 from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus, Scan, ScanStatus
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
@@ -67,7 +68,7 @@ def create_scan(
     scan = Scan(
         root_folder_id=root_folder_id,
         status=status,
-        started_at=started_at or datetime.utcnow(),
+        started_at=started_at or naive_utcnow(),
         finished_at=finished_at,
         files_seen=files_seen,
         files_matched=files_matched,
@@ -129,7 +130,7 @@ def test_post_scans_returns_409_when_scan_running(client, db_session, root_folde
         db_session,
         root_folder.id,
         status=ScanStatus.RUNNING.value,
-        started_at=datetime.utcnow() - timedelta(minutes=10),
+        started_at=naive_utcnow() - timedelta(minutes=10),
     )
 
     response = client.post("/api/scanner/scans", json={"root_folder_id": root_folder.id})
@@ -149,13 +150,13 @@ def test_get_current_scan_returns_running_scan(client, db_session, root_folder):
         db_session,
         root_folder.id,
         status=ScanStatus.RUNNING.value,
-        started_at=datetime.utcnow() - timedelta(minutes=5),
+        started_at=naive_utcnow() - timedelta(minutes=5),
     )
     create_scan(
         db_session,
         root_folder.id,
         status=ScanStatus.RUNNING.value,
-        started_at=datetime.utcnow() - timedelta(hours=3),
+        started_at=naive_utcnow() - timedelta(hours=3),
     )
 
     response = client.get("/api/scanner/scans/current")
@@ -174,9 +175,9 @@ def test_get_current_scan_returns_null_when_idle(client):
 
 
 def test_get_scans_lists_recent_scans(client, db_session, root_folder):
-    oldest = create_scan(db_session, root_folder.id, started_at=datetime.utcnow() - timedelta(days=2), files_seen=1)
-    middle = create_scan(db_session, root_folder.id, started_at=datetime.utcnow() - timedelta(days=1), files_seen=2)
-    newest = create_scan(db_session, root_folder.id, started_at=datetime.utcnow(), files_seen=3)
+    oldest = create_scan(db_session, root_folder.id, started_at=naive_utcnow() - timedelta(days=2), files_seen=1)
+    middle = create_scan(db_session, root_folder.id, started_at=naive_utcnow() - timedelta(days=1), files_seen=2)
+    newest = create_scan(db_session, root_folder.id, started_at=naive_utcnow(), files_seen=3)
 
     response = client.get(f"/api/scanner/scans?root_folder_id={root_folder.id}&limit=2&offset=0")
 

@@ -1,6 +1,5 @@
 """Tests for download stall detection and hard timeout in DownloadService.monitor_downloads."""
 
-from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +12,7 @@ from backend.database import Base
 from backend.errors import FailureReason
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.download_service import DownloadService
+from backend.utils.clock import naive_utcnow
 
 HASH_HEX = "aabbccdd11223344aabbccdd11223344aabbccdd"
 MAGNET_HEX = f"magnet:?xt=urn:btih:{HASH_HEX}&dn=TestBook"
@@ -55,7 +55,7 @@ def service(qbit, SessionLocal):
 def _make_book(db, status=BookStatus.DOWNLOADING.value):
     # SQLAlchemy column defaults capture function refs at class-definition time,
     # so freezegun cannot patch them here. Set timestamp fields explicitly.
-    now = datetime.utcnow()
+    now = naive_utcnow()
     book = Book(title="Stall Test Book", hardcover_id="test-stall-book", status=status, created_at=now, updated_at=now)
     db.add(book)
     db.commit()
@@ -73,7 +73,7 @@ def _make_download(db, book_id, status=DownloadStatus.DOWNLOADING.value):
         size=10_000,
         seeders=5,
         status=status,
-        created_at=datetime.utcnow(),
+        created_at=naive_utcnow(),
     )
     db.add(dl)
     db.commit()

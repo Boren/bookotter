@@ -108,7 +108,7 @@ async def create_kindle(body: KindleCreate):
 async def update_kindle_endpoint(kindle_id: str, body: KindleUpdate):
     """Update a Kindle configuration."""
     # Build updates dict, excluding None values
-    updates = {}
+    updates: dict[str, str | int] = {}
     if body.name is not None:
         updates["name"] = body.name
     if body.hostname is not None:

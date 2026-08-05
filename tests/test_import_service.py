@@ -1,6 +1,5 @@
 """Tests for backend.services.import_service."""
 
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -14,6 +13,7 @@ from backend.services.import_service import (
     ImportStateError,
     sanitize_path_component,
 )
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_epub
 
 
@@ -22,7 +22,7 @@ def _make_root_folder(db, tmp_path: Path, org: str = FolderOrganization.FLAT.val
         name="Test Library",
         path=str(tmp_path),
         folder_organization=org,
-        created_at=datetime.utcnow(),
+        created_at=naive_utcnow(),
     )
     db.add(rf)
     db.flush()
@@ -48,7 +48,7 @@ def _make_book(
         _book_counter += 1
         author_name = f"Author {_book_counter}"
 
-    author = Author(name=author_name, created_at=datetime.utcnow())
+    author = Author(name=author_name, created_at=naive_utcnow())
     db.add(author)
     db.flush()
 
@@ -61,8 +61,8 @@ def _make_book(
         series_name=series_name,
         series_position=series_position,
         description=description,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=naive_utcnow(),
+        updated_at=naive_utcnow(),
     )
     db.add(book)
     db.flush()
@@ -400,7 +400,7 @@ class TestImportBook:
             svc.import_book(99999, source_epub)
 
     def test_raises_on_book_without_root_folder(self, db_session, source_epub: Path) -> None:
-        author = Author(name="Orphan Author", created_at=datetime.utcnow())
+        author = Author(name="Orphan Author", created_at=naive_utcnow())
         db_session.add(author)
         db_session.flush()
         book = Book(
@@ -408,8 +408,8 @@ class TestImportBook:
             hardcover_id="test-orphan",
             author_id=author.id,
             status=BookStatus.DOWNLOADING.value,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=naive_utcnow(),
+            updated_at=naive_utcnow(),
         )
         db_session.add(book)
         db_session.flush()
@@ -481,7 +481,7 @@ class TestImportRootFolderFallback:
     def _make_book_without_root_folder(self, db, title: str = "No Folder Book") -> Book:
         global _book_counter
         _book_counter += 1
-        author = Author(name=f"Fallback Author {_book_counter}", created_at=datetime.utcnow())
+        author = Author(name=f"Fallback Author {_book_counter}", created_at=naive_utcnow())
         db.add(author)
         db.flush()
         book = Book(
@@ -490,8 +490,8 @@ class TestImportRootFolderFallback:
             author_id=author.id,
             status=BookStatus.DOWNLOADING.value,
             root_folder_id=None,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=naive_utcnow(),
+            updated_at=naive_utcnow(),
         )
         db.add(book)
         db.flush()

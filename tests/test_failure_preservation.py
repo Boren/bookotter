@@ -3,7 +3,7 @@
 
 import tempfile
 import threading
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -21,6 +21,7 @@ from backend.main import app
 from backend.models import blocklist  # noqa: F401 - register tables
 from backend.models.book import Book, BookStatus
 from backend.services.pipeline_service import PipelineService
+from backend.utils.clock import naive_utcnow
 from backend.utils.failure import FAILURE_HISTORY_MAX, _append_failure_history
 from tests.helpers import create_test_book
 
@@ -74,7 +75,7 @@ def get_book(db_session, book_id):
 
 class TestAutoRetryAppendsHistory:
     def test_auto_retry_appends_to_history_and_clears_reason(self, db_session):
-        base_time = datetime.utcnow()
+        base_time = naive_utcnow()
         book = create_test_book(db_session, status=BookStatus.FAILED.value, updated_at=base_time)
         book.retry_count = 1
         book.failure_reason = FailureReason.PROWLARR_UNREACHABLE.value

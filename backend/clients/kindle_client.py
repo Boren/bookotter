@@ -10,6 +10,7 @@ import socket
 import stat
 from collections.abc import Callable
 from pathlib import PurePosixPath
+from typing import Any
 
 import paramiko
 
@@ -22,6 +23,7 @@ from backend.constants import (
     TMP_FILE_MAX_AGE_HOURS,
 )
 from backend.errors import FailureReason, PipelineError
+from backend.utils.filesystem import DirectoryEntry
 from backend.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -75,7 +77,7 @@ class KindleClient:
         self._ssh_pool: dict[str, paramiko.SSHClient] = {}
 
     @classmethod
-    def from_config(cls, config: dict) -> "KindleClient":
+    def from_config(cls, config: dict) -> KindleClient:
         """Create a KindleClient from a configuration dictionary."""
         return cls(
             hostname=config.get("hostname", ""),
@@ -99,7 +101,7 @@ class KindleClient:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        connect_kwargs = {
+        connect_kwargs: dict[str, Any] = {
             "hostname": self.hostname,
             "port": self.port,
             "username": self.username,
@@ -579,7 +581,7 @@ class KindleClient:
             except paramiko.SSHException as e:
                 raise KindleConnectionError(str(e)) from e
 
-            browse_entries = []
+            browse_entries: list[DirectoryEntry] = []
             for entry in entries:
                 if not entry.filename:
                     continue

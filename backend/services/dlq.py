@@ -1,11 +1,12 @@
 """Dead-letter queue style queries for failed books."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 from backend.errors import FailureReason
 from backend.models.book import Book, BookStatus
+from backend.utils.clock import naive_utcnow
 
 
 def get_permanent_failed(db: Session, limit: int = 100, offset: int = 0) -> list[Book]:
@@ -22,7 +23,7 @@ def get_permanent_failed(db: Session, limit: int = 100, offset: int = 0) -> list
 
 def get_recent_failures(db: Session, hours: int = 24, limit: int = 100) -> list[Book]:
     """Return books that failed within the last N hours (FAILED state only, not PERMANENT_FAILED)."""
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = naive_utcnow() - timedelta(hours=hours)
     return (
         db.query(Book)
         .filter(

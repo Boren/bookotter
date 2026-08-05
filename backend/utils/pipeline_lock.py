@@ -10,7 +10,7 @@ Stale locks (> PIPELINE_LOCK_STALE_THRESHOLD_HOURS) are auto-cleared on acquire.
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from backend.constants import PIPELINE_LOCK_STALE_THRESHOLD_HOURS
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import PipelineLock
+from backend.utils.clock import naive_utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def get_active_lock(db: Session) -> PipelineLock | None:
 
 
 @contextmanager
-def acquire_pipeline_lock(db: Session, holder: str) -> Generator[str, None, None]:
+def acquire_pipeline_lock(db: Session, holder: str) -> Generator[str]:
     """
     Context manager that acquires the single-row advisory pipeline lock.
 
@@ -41,7 +42,7 @@ def acquire_pipeline_lock(db: Session, holder: str) -> Generator[str, None, None
         db: SQLAlchemy session
         holder: "scheduled" | "manual" | "cli"
     """
-    now = datetime.utcnow()
+    now = naive_utcnow()
     stale_threshold = now - timedelta(hours=PIPELINE_LOCK_STALE_THRESHOLD_HOURS)
 
     existing = get_active_lock(db)

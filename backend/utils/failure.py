@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 FAILURE_HISTORY_MAX = 5
 
 
-def _append_failure_history(book: "Book", reason: str) -> None:
+def _append_failure_history(book: Book, reason: str) -> None:
     """Append a failure entry to ``book.failure_history`` (last ``FAILURE_HISTORY_MAX``).
 
     Callers must pass the OLD ``book.failure_reason`` when clearing/retrying,

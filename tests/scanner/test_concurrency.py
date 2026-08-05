@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -17,6 +17,7 @@ from backend.models.book import RootFolder
 from backend.models.scanner import Scan, ScanStatus
 from backend.services.epub_service import EpubService
 from backend.services.scanner.scanner_service import ScannerService, ScanResult
+from backend.utils.clock import naive_utcnow
 
 
 class BlockingScannerService(ScannerService):
@@ -161,7 +162,7 @@ def test_stale_running_scan_does_not_block_new_one(shared_db_factory, root_folde
         stale_scan = Scan(
             root_folder_id=root_folder.id,
             status=ScanStatus.RUNNING.value,
-            started_at=datetime.utcnow() - timedelta(hours=3),
+            started_at=naive_utcnow() - timedelta(hours=3),
         )
         db.add(stale_scan)
         db.commit()
@@ -195,8 +196,8 @@ def test_completed_scan_does_not_block_new_one(shared_db_factory, root_folder):
             Scan(
                 root_folder_id=root_folder.id,
                 status=ScanStatus.COMPLETED.value,
-                started_at=datetime.utcnow() - timedelta(minutes=5),
-                finished_at=datetime.utcnow() - timedelta(minutes=4),
+                started_at=naive_utcnow() - timedelta(minutes=5),
+                finished_at=naive_utcnow() - timedelta(minutes=4),
             )
         )
         db.commit()

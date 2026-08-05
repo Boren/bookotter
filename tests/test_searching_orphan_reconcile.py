@@ -2,17 +2,18 @@
 
 """Tests for SEARCHING orphan reconciliation (Fix 3)."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 from backend.models.book import BookStatus
 from backend.services.download_service import reconcile_state
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
 def _stale_book(db_session, *, age_seconds: int, **kwargs):
     book = create_test_book(db_session, status=BookStatus.SEARCHING.value, **kwargs)
-    book.updated_at = datetime.utcnow() - timedelta(seconds=age_seconds)
+    book.updated_at = naive_utcnow() - timedelta(seconds=age_seconds)
     db_session.commit()
     return book
 
@@ -66,7 +67,7 @@ class TestSearchingOrphanReconcile:
     def test_clears_stale_failure_reason_on_recovery(self, db_session):
         book = create_test_book(db_session, status=BookStatus.SEARCHING.value, title="With Failure Reason")
         book.failure_reason = "stale_reason_from_previous_run"
-        book.updated_at = datetime.utcnow() - timedelta(seconds=600)
+        book.updated_at = naive_utcnow() - timedelta(seconds=600)
         db_session.commit()
 
         reconcile_state(db_session, _empty_qbit())

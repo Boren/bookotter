@@ -2,7 +2,6 @@
 
 """Tests for PipelineService.kick_kindle_delivery (per-book instant kick)."""
 
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.models.book import Book, BookStatus, KindleDeliveryStatus, RootFolder
 from backend.services.pipeline_service import PipelineService
+from backend.utils.clock import naive_utcnow
 from backend.utils.pipeline_lock import acquire_pipeline_lock
 from tests.helpers import create_test_book
 
@@ -62,7 +62,7 @@ def _make_pending_book(db, root_folder_id, file_path):
         file_path=file_path,
     )
     book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-    book.kindle_first_pending_at = datetime.utcnow()
+    book.kindle_first_pending_at = naive_utcnow()
     db.commit()
     return book.id
 

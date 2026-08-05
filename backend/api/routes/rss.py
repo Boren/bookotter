@@ -36,7 +36,7 @@ class RssIndexerStateResponse(BaseModel):
     caps_supports_book_search: bool | None = Field(default=None, serialization_alias="capsSupportsBookSearch")
 
     @classmethod
-    def from_orm_state(cls, state: RssIndexerState) -> "RssIndexerStateResponse":
+    def from_orm_state(cls, state: RssIndexerState) -> RssIndexerStateResponse:
         state_row = cast(Any, state)
         return cls(
             indexer_id=int(state_row.indexer_id),

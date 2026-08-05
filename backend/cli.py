@@ -253,7 +253,7 @@ class CLIRunner:
     def print_summary(self):
         """Print summary statistics."""
         status_names = {1: "Want to Read", 2: "Currently Reading", 3: "Read"}
-        status_labels = [status_names.get(sid) for sid in self.status_ids]
+        status_labels = [status_names.get(sid, f"Unknown ({sid})") for sid in self.status_ids]
         status_str = ", ".join(status_labels)
 
         # Log to file

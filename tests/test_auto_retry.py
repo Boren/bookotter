@@ -1,7 +1,7 @@
 # pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 """Tests for auto-retry of FAILED books."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -14,6 +14,7 @@ from backend.database import Base
 from backend.errors import FailureReason
 from backend.models.book import Book, BookStatus
 from backend.services.pipeline_service import PipelineService
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
@@ -41,7 +42,7 @@ def get_book(db_session, book_id):
 class TestAutoRetry:
     def test_failed_book_retried_after_cooldown(self, db_session):
         """FAILED book with retry_count=0 + cool-down passed → WANTED, retry_count=1."""
-        base_time = datetime.utcnow()
+        base_time = naive_utcnow()
         book = create_test_book(db_session, status=BookStatus.FAILED, updated_at=base_time)
         book.retry_count = 0
         book.failure_reason = FailureReason.DOWNLOAD_STALLED.value
@@ -59,7 +60,7 @@ class TestAutoRetry:
 
     def test_failed_book_not_retried_within_cooldown(self, db_session):
         """FAILED book within cool-down window → NOT retried."""
-        base_time = datetime.utcnow()
+        base_time = naive_utcnow()
         book = create_test_book(db_session, status=BookStatus.FAILED, updated_at=base_time)
         book.retry_count = 0
         db_session.commit()
@@ -75,7 +76,7 @@ class TestAutoRetry:
 
     def test_budget_exhausted_to_permanent_failed(self, db_session):
         """FAILED book with retry_count==max → PERMANENT_FAILED."""
-        base_time = datetime.utcnow()
+        base_time = naive_utcnow()
         book = create_test_book(db_session, status=BookStatus.FAILED, updated_at=base_time)
         book.retry_count = PIPELINE_AUTO_RETRY_ATTEMPTS
         db_session.commit()
@@ -89,7 +90,7 @@ class TestAutoRetry:
 
     def test_permanent_failed_not_picked_up(self, db_session):
         """PERMANENT_FAILED books NOT picked up by auto-retry."""
-        base_time = datetime.utcnow()
+        base_time = naive_utcnow()
         book = create_test_book(db_session, status=BookStatus.PERMANENT_FAILED, updated_at=base_time)
         book.retry_count = 0
         db_session.commit()
@@ -105,7 +106,7 @@ class TestAutoRetry:
 
     def test_cooldown_is_exponential(self, db_session):
         """Cool-down sequence is exponential: 2s, 4s, 8s..."""
-        base_time = datetime.utcnow()
+        base_time = naive_utcnow()
         book = create_test_book(db_session, status=BookStatus.FAILED, updated_at=base_time)
         book.retry_count = 2
         db_session.commit()

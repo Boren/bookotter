@@ -1,7 +1,6 @@
 """Tests for WebSocket event broadcasting integration."""
 
 import asyncio
-from datetime import datetime
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -14,6 +13,7 @@ from backend.services.download_service import DownloadService
 from backend.services.import_service import BookImportError, ImportService
 from backend.services.pipeline_service import PipelineService
 from backend.services.websocket_manager import WebSocketManager
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book, create_test_epub
 
 
@@ -77,7 +77,7 @@ def _create_root_folder(db_session, path: Path) -> RootFolder:
         name="Test Library",
         path=str(path),
         folder_organization=FolderOrganization.FLAT.value,
-        created_at=datetime.utcnow(),
+        created_at=naive_utcnow(),
     )
     db_session.add(root_folder)
     db_session.commit()

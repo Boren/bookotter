@@ -3,7 +3,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
@@ -24,6 +24,15 @@ from backend.services.search_service import SearchService
 from backend.services.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
+
+
+class SyncSummary(TypedDict):
+    status: str
+    trigger: str
+    indexers_polled: int
+    items_found: int
+    items_grabbed: int
+    duration_ms: int
 
 
 class RssSyncService:
@@ -66,7 +75,7 @@ class RssSyncService:
         started_at = datetime.now(UTC).isoformat()
         self._last_sync_started_at = started_at
         started_monotonic = time.monotonic()
-        summary = {
+        summary: SyncSummary = {
             "status": "ok",
             "trigger": trigger,
             "indexers_polled": 0,
@@ -120,7 +129,7 @@ class RssSyncService:
                     "duration_ms": summary["duration_ms"],
                 },
             )
-            return summary
+            return dict(summary)
         except Exception as exc:  # noqa: BLE001
             self._broadcast("rss_sync_failed", {"error": str(exc)})
             raise

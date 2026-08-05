@@ -1,11 +1,10 @@
-# pyright: reportGeneralTypeIssues=false
-
 """
 Database models for books, authors, root folders, and downloads.
 """
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -22,9 +21,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
+from backend.utils.clock import naive_utcnow
 
 
 class BookStatus(StrEnum):
@@ -84,13 +84,13 @@ class Author(Base):
 
     __tablename__ = "author"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(500), nullable=False, unique=True)
-    hardcover_id = Column(String(100), nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    hardcover_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
 
     # Relationships
-    books = relationship("Book", back_populates="author")
+    books: Mapped[list[Book]] = relationship(back_populates="author")
 
     def to_dict(self):
         """Convert to dictionary for API responses."""
@@ -107,14 +107,14 @@ class RootFolder(Base):
 
     __tablename__ = "root_folder"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    path = Column(String(1000), nullable=False, unique=True)
-    folder_organization = Column(String(20), nullable=False, default=FolderOrganization.FLAT.value)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    path: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)
+    folder_organization: Mapped[str] = mapped_column(String(20), nullable=False, default=FolderOrganization.FLAT.value)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
 
     # Relationships
-    books = relationship("Book", back_populates="root_folder")
+    books: Mapped[list[Book]] = relationship(back_populates="root_folder")
 
 
 class Book(Base):
@@ -122,44 +122,44 @@ class Book(Base):
 
     __tablename__ = "book"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(500), nullable=False)
-    author_id = Column(Integer, ForeignKey("author.id"), nullable=True, index=True)
-    hardcover_id = Column(String(100), nullable=False, unique=True, index=True)
-    isbn = Column(String(20), nullable=True)
-    source = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    author_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("author.id"), nullable=True, index=True)
+    hardcover_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    isbn: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    source: Mapped[str | None] = mapped_column(
         String(50), nullable=True, index=True
     )  # 'hardcover_sync' | 'scanner' | 'manual' | 'download' | None
-    description = Column(Text, nullable=True)
-    publisher = Column(String(255), nullable=True)
-    language = Column(String(10), nullable=True)
-    tags = Column(JSON, nullable=True)  # List of tags
-    rating = Column(Float, nullable=True)
-    read_date = Column(DateTime, nullable=True)
-    cover_url = Column(String(500), nullable=True)
-    series_name = Column(String(255), nullable=True)
-    series_position = Column(Float, nullable=True)
-    status = Column(String(20), nullable=False, default=BookStatus.WANTED.value, index=True)
-    root_folder_id = Column(Integer, ForeignKey("root_folder.id"), nullable=True, index=True)
-    file_path = Column(String(1000), nullable=True)  # Relative to root folder
-    file_size = Column(Integer, nullable=True)  # Bytes
-    search_attempts = Column(Integer, default=0)
-    last_searched_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-    failure_reason = Column(String(100), nullable=True)
-    retry_count = Column(Integer, default=0, nullable=False)
-    failure_history = Column(JSON, nullable=True, default=None)
-    low_confidence = Column(Boolean, default=False, nullable=False)
-    kindle_delivery_status = Column(String(20), nullable=True)
-    kindle_delivery_attempts = Column(Integer, default=0, nullable=False)
-    kindle_first_pending_at = Column(DateTime, nullable=True)
-    kindle_delivered_at = Column(DateTime, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publisher: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # List of tags
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    read_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cover_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    series_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    series_position: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=BookStatus.WANTED.value, index=True)
+    root_folder_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("root_folder.id"), nullable=True, index=True)
+    file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # Relative to root folder
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Bytes
+    search_attempts: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    last_searched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow, onupdate=naive_utcnow)
+    failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failure_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True, default=None)
+    low_confidence: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    kindle_delivery_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    kindle_delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    kindle_first_pending_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    kindle_delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    author = relationship("Author", back_populates="books")
-    root_folder = relationship("RootFolder", back_populates="books")
-    downloads = relationship("Download", back_populates="book", cascade="all, delete-orphan")
+    author: Mapped[Author | None] = relationship(back_populates="books")
+    root_folder: Mapped[RootFolder | None] = relationship(back_populates="books")
+    downloads: Mapped[list[Download]] = relationship(back_populates="book", cascade="all, delete-orphan")
 
     # Indexes and constraints
     __table_args__ = (
@@ -211,24 +211,24 @@ class Download(Base):
 
     __tablename__ = "download"
 
-    id = Column(Integer, primary_key=True, index=True)
-    book_id = Column(Integer, ForeignKey("book.id"), nullable=False, index=True)
-    torrent_hash = Column(String(100), nullable=False, unique=True, index=True)
-    torrent_name = Column(String(500), nullable=False)
-    indexer_name = Column(String(100), nullable=False)
-    download_url = Column(String(1000), nullable=False)
-    size = Column(Integer, nullable=False)  # Bytes
-    seeders = Column(Integer, nullable=False)
-    status = Column(String(20), nullable=False, default=DownloadStatus.QUEUED.value, index=True)
-    file_path = Column(String(1000), nullable=True)  # EPUB path within torrent
-    error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    last_progress_at = Column(DateTime, nullable=True)
-    bytes_at_last_check = Column(Integer, default=0, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    book_id: Mapped[int] = mapped_column(Integer, ForeignKey("book.id"), nullable=False, index=True)
+    torrent_hash: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    torrent_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    indexer_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    download_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)  # Bytes
+    seeders: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=DownloadStatus.QUEUED.value, index=True)
+    file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # EPUB path within torrent
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_progress_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    bytes_at_last_check: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
-    book = relationship("Book", back_populates="downloads")
+    book: Mapped[Book] = relationship(back_populates="downloads")
 
     # Indexes
     __table_args__ = (Index("ix_download_status_created", "status", "created_at"),)
@@ -239,8 +239,8 @@ class PipelineLock(Base):
 
     __tablename__ = "pipeline_lock"
 
-    id = Column(Integer, primary_key=True)
-    locked_at = Column(DateTime, nullable=False)
-    run_id = Column(String(64), nullable=False)
-    holder = Column(String(20), nullable=False)  # "scheduled" | "manual" | "cli"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    locked_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    holder: Mapped[str] = mapped_column(String(20), nullable=False)  # "scheduled" | "manual" | "cli"
     __table_args__ = (CheckConstraint("id = 1", name="chk_pipeline_lock_single_row"),)

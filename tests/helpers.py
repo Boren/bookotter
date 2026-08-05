@@ -2,9 +2,9 @@
 
 import os
 import zipfile
-from datetime import datetime
 
 from backend.models.book import Author, Book, BookStatus
+from backend.utils.clock import naive_utcnow
 
 
 def create_test_epub(path: str, title: str, author: str) -> None:
@@ -107,8 +107,8 @@ def create_test_book(db, title: str = "Test Book", author_name: str = None, **kw
         "hardcover_id": kwargs.pop("hardcover_id", f"test-{title.replace(' ', '-').lower()}"),
         "isbn": kwargs.pop("isbn", "978-0-123456-78-9"),
         "status": BookStatus.WANTED.value,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": naive_utcnow(),
+        "updated_at": naive_utcnow(),
     }
     defaults.update(kwargs)
 
@@ -133,7 +133,7 @@ def create_test_author(db, name: str = "Test Author", **kwargs) -> Author:
     defaults = {
         "name": name,
         "hardcover_id": kwargs.pop("hardcover_id", None),
-        "created_at": datetime.utcnow(),
+        "created_at": naive_utcnow(),
     }
     defaults.update(kwargs)
 

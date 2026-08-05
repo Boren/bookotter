@@ -4,7 +4,7 @@
 
 import tempfile
 import threading
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from threading import Barrier
 from unittest.mock import MagicMock, patch
@@ -20,6 +20,7 @@ from backend.models.rss import RssIndexerState, RssSeenItem
 from backend.services.pipeline_service import PipelineService
 from backend.services.rss_sync_service import RssSyncService
 from backend.services.search_service import SearchService
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
@@ -137,7 +138,7 @@ def seed_indexer_state(db, indexer_id=1, indexer_name="TestIndexer", *, post_boo
     With ``post_bootstrap=True`` (default), ``last_poll_at`` is set so the next
     sync proceeds to match-and-grab. Caps are pre-cached as supporting book search.
     """
-    now = datetime.utcnow()
+    now = naive_utcnow()
     state = RssIndexerState(
         indexer_id=indexer_id,
         indexer_name=indexer_name,
@@ -567,16 +568,16 @@ def test_multiple_matches_deterministic(db_session, fake_ws):
         hardcover_id="test-hobbit",
         author_id=shared_author.id,
         status=BookStatus.WANTED.value,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=naive_utcnow(),
+        updated_at=naive_utcnow(),
     )
     book_b = Book(
         title="The Hobbit Companion",
         hardcover_id="test-hobbit-companion",
         author_id=shared_author.id,
         status=BookStatus.WANTED.value,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=naive_utcnow(),
+        updated_at=naive_utcnow(),
     )
     db_session.add_all([book_a, book_b])
     db_session.commit()
@@ -627,7 +628,7 @@ def test_status_filter_atomic(fake_ws):
             book = create_test_book(setup_session, title="The Hobbit", author_name="J.R.R. Tolkien")
             book_id = book.id
 
-            now = datetime.utcnow()
+            now = naive_utcnow()
             state = RssIndexerState(
                 indexer_id=1,
                 indexer_name="TestIndexer",

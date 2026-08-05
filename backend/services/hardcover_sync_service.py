@@ -9,7 +9,6 @@ import logging
 import os
 import time
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +18,7 @@ from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
 from backend.config import get_kindle_by_id
 from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus
+from backend.utils.clock import naive_utcnow
 from backend.utils.events import log_event
 from backend.utils.transfer_progress import make_progress_callback
 
@@ -194,8 +194,8 @@ class HardcoverSyncService:
 
         for book in books:
             try:
-                if not book.root_folder:
-                    logger.warning(f"Book '{book.title}' has no root_folder, skipping Kindle transfer")
+                if not book.root_folder or not book.file_path:
+                    logger.warning(f"Book '{book.title}' has no root_folder or file_path, skipping Kindle transfer")
                     skipped += 1
                     continue
 
@@ -245,7 +245,7 @@ class HardcoverSyncService:
                             duration_ms=transfer_duration_ms,
                             size_bytes=result.get("file_size", 0),
                         )
-                    book.kindle_delivered_at = datetime.utcnow()
+                    book.kindle_delivered_at = naive_utcnow()
                     if self.emit_callback:
                         self.emit_callback(
                             "kindle_delivered",

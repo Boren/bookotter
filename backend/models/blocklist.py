@@ -1,19 +1,21 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, String
+from sqlalchemy import DateTime, Index, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
+from backend.utils.clock import naive_utcnow
 
 
 class BlocklistEntry(Base):
     __tablename__ = "blocklist_entry"
 
-    id = Column(Integer, primary_key=True)
-    indexer = Column(String(100), nullable=False)
-    release_guid = Column(String(255), nullable=False)
-    title = Column(String(500), nullable=False)
-    reason = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    indexer: Mapped[str] = mapped_column(String(100), nullable=False)
+    release_guid: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=naive_utcnow, nullable=True)
 
     __table_args__ = (Index("ix_blocklist_indexer_guid", "indexer", "release_guid", unique=True),)
 

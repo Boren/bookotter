@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.clients.prowlarr_client import ProwlarrClient
 from backend.constants import EPUB_TITLE_SIMILARITY_THRESHOLD
 from backend.services.blocklist_service import BlocklistService
+from backend.utils.clock import naive_utcnow
 from backend.utils.similarity import author_surname_match, parse_release_title, title_similarity
 
 logger = logging.getLogger(__name__)
@@ -253,7 +254,7 @@ class SearchService:
             parsed = datetime.fromisoformat(publish_date.replace("Z", "+00:00"))
             if parsed.tzinfo is not None:
                 parsed = parsed.astimezone(UTC).replace(tzinfo=None)
-            return float((datetime.utcnow() - parsed).days)
+            return float((naive_utcnow() - parsed).days)
         except ValueError:
             logger.debug(f"Could not parse publish date: {publish_date}")
             return 0.0

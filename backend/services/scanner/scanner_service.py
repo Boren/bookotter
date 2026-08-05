@@ -26,10 +26,10 @@ import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.orm import joinedload
 
 from backend.errors import FailureReason, PipelineError
@@ -37,6 +37,7 @@ from backend.models.book import Book, BookStatus
 from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus, Scan, ScanStatus
 from backend.services.scanner.matchers import build_candidate_index, cascade_match
 from backend.services.scanner.types import BookCandidate, FileMetadata, MatchMethod, MatchResult
+from backend.utils.clock import naive_utcnow
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -182,7 +183,7 @@ class ScannerService:
     ) -> ScanResult:
         """Execute a full scan with persistence, WebSocket events, and concurrency guard."""
         scan_row = self._acquire_scan_lock(root_folder, holder=holder)
-        started_at = scan_row.started_at or datetime.utcnow()
+        started_at = scan_row.started_at or naive_utcnow()
         self._supersede_pending_proposals(int(root_folder.id))
         self._broadcast(
             "scan_started",
@@ -231,7 +232,7 @@ class ScannerService:
         finally:
             self._progress_callback = original_callback
 
-        duration_ms = int(((datetime.utcnow()) - started_at).total_seconds() * 1000)
+        duration_ms = int(((naive_utcnow()) - started_at).total_seconds() * 1000)
         self._broadcast(
             "scan_completed",
             {
@@ -480,7 +481,7 @@ class ScannerService:
 
     def _acquire_scan_lock(self, root_folder: RootFolder, *, holder: str) -> Scan:
         root_folder_id = int(root_folder.id)
-        now = datetime.utcnow()
+        now = naive_utcnow()
         stale_before = now - STALE_SCAN_WINDOW
 
         db = self._session_factory()
@@ -504,9 +505,11 @@ class ScannerService:
             if stale_scans:
                 db.commit()
 
-            insert_result = db.execute(
-                text(
-                    """
+            insert_result = cast(
+                "CursorResult[Any]",
+                db.execute(
+                    text(
+                        """
                     INSERT INTO scans (
                         root_folder_id,
                         status,
@@ -535,12 +538,13 @@ class ScannerService:
                           AND status = :status
                     )
                     """
+                    ),
+                    {
+                        "root_folder_id": root_folder_id,
+                        "status": ScanStatus.RUNNING.value,
+                        "started_at": now,
+                    },
                 ),
-                {
-                    "root_folder_id": root_folder_id,
-                    "status": ScanStatus.RUNNING.value,
-                    "started_at": now,
-                },
             )
             if insert_result.rowcount == 0:
                 db.rollback()
@@ -562,7 +566,7 @@ class ScannerService:
     def _supersede_pending_proposals(self, root_folder_id: int) -> None:
         db = self._session_factory()
         try:
-            now = datetime.utcnow()
+            now = naive_utcnow()
             (
                 db.query(MatchProposal)
                 .filter(MatchProposal.root_folder_id == root_folder_id)
@@ -649,7 +653,7 @@ class ScannerService:
                     )
                 )
 
-            finished_at = datetime.utcnow()
+            finished_at = naive_utcnow()
             scan_row = db.get(Scan, scan_id)
             if scan_row is None:
                 raise RuntimeError(f"Scan {scan_id} disappeared before completion")
@@ -687,7 +691,7 @@ class ScannerService:
             if scan_row is None:
                 return
             scan_row.status = ScanStatus.FAILED.value
-            scan_row.finished_at = datetime.utcnow()
+            scan_row.finished_at = naive_utcnow()
             scan_row.error_message = str(exc)
             db.commit()
         except Exception as update_exc:

@@ -17,7 +17,7 @@ from backend.errors import FailureReason, PipelineError
 
 
 @contextmanager
-def atomic_write(dest: Path, mode: str = "wb") -> Generator[IO, None, None]:
+def atomic_write(dest: Path, mode: str = "wb") -> Generator[IO]:
     """
     Context manager for atomic file writes.
 

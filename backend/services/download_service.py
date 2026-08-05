@@ -15,6 +15,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from backend.utils.clock import naive_utcnow
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
@@ -66,7 +68,7 @@ QUEUED_DL_STATES = {
 
 
 def reconcile_state(
-    db: "Session",
+    db: Session,
     qbit_client: QBittorrentClient,
     *,
     category: str = DEFAULT_CATEGORY,
@@ -246,7 +248,7 @@ class DownloadService:
         self.category = category
         self.ws_manager = ws_manager
 
-    def add_download(self, book_id: int, search_result: dict) -> "Download | None":
+    def add_download(self, book_id: int, search_result: dict) -> Download | None:
         """
         Add a torrent to qBittorrent and create a Download DB record.
 
@@ -266,7 +268,8 @@ class DownloadService:
         magnet_url: str | None = search_result.get("magnet_url")
         download_url: str | None = search_result.get("download_url")
 
-        if not magnet_url and not download_url:
+        url_to_add = magnet_url or download_url
+        if not url_to_add:
             logger.error("No URL available in search result for book %d", book_id)
             return None
 
@@ -277,8 +280,6 @@ class DownloadService:
                 book_id,
             )
             return None
-
-        url_to_add = magnet_url or download_url
 
         # Pre-flight DB dedup: skip if an active download for this book already exists
         # or if any download with this torrent_hash is already tracked.
@@ -514,8 +515,8 @@ class DownloadService:
 
     def handle_completed(
         self,
-        download: "Download",
-        db: "Session | None" = None,
+        download: Download,
+        db: Session | None = None,
     ) -> bool:
         """
         Handle a torrent that has finished downloading.
@@ -531,7 +532,7 @@ class DownloadService:
             True if handled successfully, False on error.
         """
         owns_session = db is None
-        if owns_session:
+        if db is None:
             db = self._db_factory()
             if download not in db:
                 download = db.merge(download)
@@ -758,7 +759,7 @@ class DownloadService:
         finally:
             db.close()
 
-    def add_torrent(self, download: "Download") -> bool:
+    def add_torrent(self, download: Download) -> bool:
         """Add an existing QUEUED download's torrent to qBittorrent.
 
         Called by the pipeline when a book transitions from GRABBED to DOWNLOADING.
@@ -792,7 +793,7 @@ class DownloadService:
                 return True
         return added
 
-    def get_completed_file_path(self, download: "Download") -> str | None:
+    def get_completed_file_path(self, download: Download) -> str | None:
         """Check if a torrent download is complete and return the EPUB file path.
 
         Delegates to QBittorrentClient.get_completed_file_path using the
@@ -811,7 +812,7 @@ class DownloadService:
         result = self.qbit.get_completed_file_path(download.torrent_hash)
         return str(result) if result is not None else None
 
-    def _configure_file_priorities(self, torrent_hash: str) -> "str | None":
+    def _configure_file_priorities(self, torrent_hash: str) -> str | None:
         """
         For multi-file torrents, set priority 0 on all non-EPUB files.
 
@@ -847,20 +848,20 @@ class DownloadService:
 
         return epub_name
 
-    def _update_progress_tracking(self, download: "Download", torrent_info: dict) -> None:
+    def _update_progress_tracking(self, download: Download, torrent_info: dict) -> None:
         if download.last_progress_at is None:
-            download.last_progress_at = download.created_at or datetime.utcnow()
+            download.last_progress_at = download.created_at or naive_utcnow()
 
         downloaded = torrent_info.get("downloaded", 0) or 0
         if downloaded > (download.bytes_at_last_check or 0):
             download.bytes_at_last_check = downloaded
-            download.last_progress_at = datetime.utcnow()
+            download.last_progress_at = naive_utcnow()
 
-    def _check_stall_and_timeout(self, download: "Download", db: "Session") -> bool:
+    def _check_stall_and_timeout(self, download: Download, db: Session) -> bool:
         if download.status not in {DownloadStatus.DOWNLOADING.value, DownloadStatus.QUEUED.value}:
             return False
 
-        now = datetime.utcnow()
+        now = naive_utcnow()
         created_at = download.created_at
         if created_at is not None and created_at.tzinfo is not None:
             created_at = created_at.replace(tzinfo=None)
@@ -892,8 +893,8 @@ class DownloadService:
 
     def _fail_for_stall(
         self,
-        download: "Download",
-        db: "Session",
+        download: Download,
+        db: Session,
         *,
         reason: FailureReason,
         message: str,
@@ -958,7 +959,7 @@ class DownloadService:
         if self.ws_manager:
             self.ws_manager.broadcast_sync(event, data)
 
-    def _transition_book(self, book: Book, target_status: str, db: "Session", download: Download | None = None) -> bool:
+    def _transition_book(self, book: Book, target_status: str, db: Session, download: Download | None = None) -> bool:
         old_status = book.status
         if not transition_book(book, target_status, db):
             return False

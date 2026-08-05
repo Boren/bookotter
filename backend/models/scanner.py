@@ -7,7 +7,6 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (
-    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -17,8 +16,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
+from backend.utils.clock import naive_utcnow
 
 
 class ScanStatus(StrEnum):
@@ -35,17 +36,17 @@ class Scan(Base):
 
     __tablename__ = "scans"
 
-    id = Column(Integer, primary_key=True, index=True)
-    root_folder_id = Column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
-    status = Column(String(20), nullable=False, default=ScanStatus.RUNNING.value, index=True)
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    finished_at = Column(DateTime, nullable=True)
-    files_seen = Column(Integer, default=0, nullable=False)
-    files_matched = Column(Integer, default=0, nullable=False)
-    files_proposed = Column(Integer, default=0, nullable=False)
-    files_unmatched = Column(Integer, default=0, nullable=False)
-    files_failed = Column(Integer, default=0, nullable=False)
-    error_message = Column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    root_folder_id: Mapped[int] = mapped_column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=ScanStatus.RUNNING.value, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    files_seen: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    files_matched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    files_proposed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    files_unmatched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    files_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class MatchProposalStatus(StrEnum):
@@ -63,17 +64,21 @@ class MatchProposal(Base):
 
     __tablename__ = "match_proposals"
 
-    id = Column(Integer, primary_key=True, index=True)
-    scan_id = Column(Integer, ForeignKey("scans.id"), nullable=False, index=True)
-    root_folder_id = Column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
-    relative_path = Column(String(1000), nullable=False)  # NFC-normalized
-    file_size = Column(Integer, nullable=False)
-    candidate_book_id = Column(Integer, ForeignKey("book.id"), nullable=True, index=True)
-    match_method = Column(String(50), nullable=True)  # String to avoid circular import from scanner.types
-    score = Column(Float, nullable=True)
-    status = Column(String(20), nullable=False, default=MatchProposalStatus.PENDING.value, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    decided_at = Column(DateTime, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    scan_id: Mapped[int] = mapped_column(Integer, ForeignKey("scans.id"), nullable=False, index=True)
+    root_folder_id: Mapped[int] = mapped_column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
+    relative_path: Mapped[str] = mapped_column(String(1000), nullable=False)  # NFC-normalized
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    candidate_book_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("book.id"), nullable=True, index=True)
+    match_method: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )  # String to avoid circular import from scanner.types
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=MatchProposalStatus.PENDING.value, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_proposals_status_root", "status", "root_folder_id"),)
 
@@ -83,9 +88,9 @@ class DismissedScanPath(Base):
 
     __tablename__ = "dismissed_scan_paths"
 
-    id = Column(Integer, primary_key=True, index=True)
-    root_folder_id = Column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
-    relative_path = Column(String(1000), nullable=False)
-    dismissed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    root_folder_id: Mapped[int] = mapped_column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
+    relative_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
 
     __table_args__ = (UniqueConstraint("root_folder_id", "relative_path", name="uq_dismissed_path"),)

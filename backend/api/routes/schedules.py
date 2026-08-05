@@ -180,6 +180,8 @@ async def toggle_schedule(schedule_id: str):
 
     new_enabled = not schedule.get("enabled", True)
     updated = update_schedule(schedule_id, {"enabled": new_enabled})
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
 
     # Update scheduler
     job_id = f"schedule_{schedule_id}"

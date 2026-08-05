@@ -1,5 +1,15 @@
 import os
 from pathlib import Path
+from typing import TypedDict
+
+
+class DirectoryEntry(TypedDict):
+    """A single file or directory in a browse listing."""
+
+    name: str
+    type: str
+    is_symlink: bool
+    size: int | None
 
 
 def list_local_directory(path: str, show_hidden: bool = False, max_entries: int = 1000) -> dict:
@@ -14,7 +24,7 @@ def list_local_directory(path: str, show_hidden: bool = False, max_entries: int 
         raise NotADirectoryError(str(resolved_path))
 
     effective_max_entries = max(0, min(max_entries, 1000))
-    entries = []
+    entries: list[DirectoryEntry] = []
 
     for entry in resolved_path.iterdir():
         if not show_hidden and entry.name.startswith("."):
