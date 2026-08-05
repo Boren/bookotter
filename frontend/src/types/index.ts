@@ -75,6 +75,8 @@ export interface KindleDeviceBook {
   name: string;
   size: number;
   modified: string | null;
+  book_id: number | null;
+  title: string | null;
 }
 
 export interface TransferProgress {

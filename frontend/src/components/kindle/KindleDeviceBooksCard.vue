@@ -55,7 +55,18 @@ const refresh = () => {
         </thead>
         <tbody class="divide-y divide-stone-100">
           <tr v-for="file in kindlesStore.deviceBooks" :key="file.name">
-            <td class="px-2 py-2 text-stone-800 break-all">{{ file.name }}</td>
+            <td class="px-2 py-2 break-all">
+              <template v-if="file.book_id">
+                <RouterLink
+                  :to="`/library/${file.book_id}`"
+                  class="font-medium text-stone-900 hover:text-kindle-700"
+                >
+                  {{ file.title }}
+                </RouterLink>
+                <div class="text-xs text-stone-400">{{ file.name }}</div>
+              </template>
+              <span v-else class="text-stone-800">{{ file.name }}</span>
+            </td>
             <td class="px-2 py-2 text-right text-stone-500 tabular-nums whitespace-nowrap">
               {{ formatSize(file.size) }}
             </td>
