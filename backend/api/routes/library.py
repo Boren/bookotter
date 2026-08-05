@@ -5,9 +5,11 @@ Handles book CRUD operations and browsing with filtering/pagination.
 
 import logging
 import os
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -192,6 +194,35 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
     if not book:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
     return book.to_dict()
+
+
+@router.get("/books/{book_id}/download")
+async def download_book(book_id: int, db: Session = Depends(get_db)):
+    """Serve a book's EPUB as a browser download."""
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    if not book.file_path or book.root_folder_id is None:
+        raise HTTPException(status_code=404, detail="Book has no library file")
+
+    root_folder = db.query(RootFolder).filter(RootFolder.id == book.root_folder_id).first()
+    if root_folder is None:
+        raise HTTPException(status_code=404, detail="Book has no library file")
+
+    root = Path(root_folder.path).resolve()
+    epub_path = (root / book.file_path).resolve()
+    # file_path must stay inside the root folder
+    if not epub_path.is_relative_to(root):
+        raise HTTPException(status_code=404, detail="Book file not found")
+    if not epub_path.is_file():
+        raise HTTPException(status_code=404, detail="Book file not found")
+
+    return FileResponse(
+        epub_path,
+        media_type="application/epub+zip",
+        filename=epub_path.name,
+    )
 
 
 @router.post("/books", status_code=201)
