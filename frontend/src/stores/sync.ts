@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useToast } from '../composables/useToast';
-import type { Book, KindleDeliveryProgress, TransferProgress } from '../types';
+import type { Book, KindleDeliveryProgress, KindleSyncPreview, TransferProgress } from '../types';
 import { useDownloadStore } from './download';
 import { useFailedStore } from './failed';
 import { useLibraryStore } from './library';
@@ -29,6 +29,8 @@ export const useSyncStore = defineStore('sync', () => {
   const kindleSyncing = ref(false);
   const kindleSyncProgress = ref<TransferProgress | null>(null);
   const kindleSyncInfo = ref<{ kindle_id: string; total_books: number } | null>(null);
+  // Result of the last dry-run sync ("Preview" on the Kindle page)
+  const kindleSyncPreview = ref<KindleSyncPreview | null>(null);
   // Per-book pipeline delivery ("Send to Kindle" on a book page)
   const kindleDeliveryProgress = ref<KindleDeliveryProgress | null>(null);
   let kindleSyncTimeout: number | null = null;
@@ -267,10 +269,33 @@ export const useSyncStore = defineStore('sync', () => {
     }
   };
 
-  const triggerKindleSync = async (kindle_device: string) => {
+  const triggerKindleSync = async (kindle_device: string, dryRun = false) => {
     const toast = useToast();
+    if (dryRun) {
+      // Dry runs respond synchronously and never touch the syncing/progress state.
+      try {
+        const response = await fetch('/api/sync/kindle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kindle_device, dry_run: true }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const msg = errorData.detail?.message || errorData.detail || 'Kindle sync preview failed';
+          throw new Error(msg);
+        }
+        const preview: KindleSyncPreview = await response.json();
+        kindleSyncPreview.value = preview;
+        return preview;
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : 'Kindle sync preview failed';
+        toast.error(errorMsg);
+        throw e;
+      }
+    }
     kindleSyncing.value = true;
     kindleSyncProgress.value = null;
+    kindleSyncPreview.value = null;
     try {
       const response = await fetch('/api/sync/kindle', {
         method: 'POST',
@@ -305,6 +330,7 @@ export const useSyncStore = defineStore('sync', () => {
     kindleSyncing,
     kindleSyncProgress,
     kindleSyncInfo,
+    kindleSyncPreview,
     kindleDeliveryProgress,
 
     connectWebSocket,

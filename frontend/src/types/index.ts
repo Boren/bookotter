@@ -55,6 +55,8 @@ export interface Book {
   kindle_delivery_attempts: number;
   kindle_first_pending_at: string | null;
   kindle_delivered_at: string | null;
+  hardcover_status: string | null;
+  kindle_pinned: boolean;
 }
 
 export type KindleDeliveryStatus = 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'SKIPPED';
@@ -87,6 +89,17 @@ export interface TransferProgress {
 
 export interface KindleDeliveryProgress extends TransferProgress {
   book_id: number;
+}
+
+export interface KindleSyncPreview {
+  success: boolean;
+  transferred: number;
+  skipped: number;
+  failed: number;
+  cleanup: number;
+  dry_run: boolean;
+  would_send: Array<{ book_id: number; title: string; remote_path: string }>;
+  would_delete: string[];
 }
 
 export type FolderOrganization = 'flat' | 'author' | 'series' | 'author_series';
@@ -186,15 +199,12 @@ export interface PipelineConfig {
   status_actions: {
     want_to_read: {
       download: boolean;
-      kindle_sync: boolean;
     };
     currently_reading: {
       download: boolean;
-      kindle_sync: boolean;
     };
     read: {
       download: boolean;
-      kindle_sync: boolean;
     };
   };
 }
@@ -253,7 +263,11 @@ export interface Config {
   };
   transfer: {
     dry_run: boolean;
-    skip_existing: boolean;
+    sync_shelves: {
+      want_to_read: boolean;
+      currently_reading: boolean;
+      read: boolean;
+    };
     folder_organization: 'flat' | 'author' | 'series' | 'author_series';
     cleanup_enabled: boolean;
     cleanup_sdr_folders: boolean;

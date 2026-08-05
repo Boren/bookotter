@@ -155,6 +155,11 @@ class Book(Base):
     kindle_delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     kindle_first_pending_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     kindle_delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Current Hardcover shelf ('want_to_read' | 'currently_reading' | 'read'), None when
+    # the book is on no shelf (or never came from Hardcover). Drives the Kindle mirror set.
+    hardcover_status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    # Manually sent to Kindle; mirror cleanup keeps pinned books regardless of shelf.
+    kindle_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     author: Mapped[Author | None] = relationship(back_populates="books")
@@ -203,6 +208,8 @@ class Book(Base):
             if self.kindle_first_pending_at
             else None,
             "kindle_delivered_at": self.kindle_delivered_at.isoformat() if self.kindle_delivered_at else None,
+            "hardcover_status": self.hardcover_status,
+            "kindle_pinned": self.kindle_pinned,
         }
 
 

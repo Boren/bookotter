@@ -11,12 +11,13 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
-from backend.config import get_kindle_by_id
+from backend.config import get_kindle_by_id, get_kindle_sync_shelves
 from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus
 from backend.utils.clock import naive_utcnow
 from backend.utils.events import log_event
@@ -66,28 +67,25 @@ class HardcoverSyncService:
         self.emit_callback = emit_callback
 
     def sync_hardcover_lists(self, db: Session) -> dict:
-        """Poll Hardcover for books with enabled statuses and add new ones to the DB."""
-        # `sync.include_statuses` is the UI-controlled toggle for which statuses to fetch.
-        # `pipeline.status_actions` controls per-status downstream actions (download /
-        # kindle_sync), not whether a status is fetched from Hardcover in the first place.
+        """Poll Hardcover shelves, add new books, and mirror shelf membership onto Book.hardcover_status."""
+        # `sync.include_statuses` gates which shelves may CREATE new library books.
+        # All shelves are always fetched so hardcover_status stays an accurate
+        # mirror: a book moving between shelves (or off every shelf) must be
+        # tracked even when its destination shelf isn't imported.
         sync_config = self.config.get("sync", {}).get("include_statuses", {})
+        include_shelves = {
+            name
+            for name in HARDCOVER_STATUS_MAP
+            if sync_config.get(
+                name, name == "want_to_read"
+            )  # want_to_read defaults True, matching get_default_config()
+        }
+        status_id_to_name = {v: k for k, v in HARDCOVER_STATUS_MAP.items()}
 
-        status_ids: list[int] = []
-        if sync_config.get("currently_reading", False):
-            status_ids.append(HARDCOVER_STATUS_MAP["currently_reading"])
-        if sync_config.get("want_to_read", True):  # default True matches get_default_config()
-            status_ids.append(HARDCOVER_STATUS_MAP["want_to_read"])
-        if sync_config.get("read", False):
-            status_ids.append(HARDCOVER_STATUS_MAP["read"])
-
-        if not status_ids:
-            logger.info("No Hardcover statuses enabled in sync.include_statuses, skipping sync")
-            return {"new_books": 0, "new_book_ids": [], "existing_skipped": 0, "errors": 0}
-
-        logger.info(f"Syncing Hardcover lists for status IDs: {status_ids}")
+        logger.info(f"Syncing Hardcover shelves (importing new books from: {sorted(include_shelves) or 'none'})")
 
         try:
-            hc_books = self.hardcover_client.get_books_by_status(status_ids)
+            hc_books = self.hardcover_client.get_books_by_status(list(HARDCOVER_STATUS_MAP.values()))
         except Exception as e:
             logger.error(f"Failed to fetch books from Hardcover: {e}")
             return {"new_books": 0, "new_book_ids": [], "existing_skipped": 0, "errors": 1}
@@ -96,6 +94,7 @@ class HardcoverSyncService:
         new_books = 0
         existing_skipped = 0
         errors = 0
+        seen_book_ids: set[int] = set()
 
         for hc_book in hc_books:
             try:
@@ -108,17 +107,22 @@ class HardcoverSyncService:
                     errors += 1
                     continue
 
+                shelf = status_id_to_name.get(hc_book.get("status_id"))
+
+                existing = None
                 if hardcover_id:
                     existing = db.query(Book).filter(Book.hardcover_id == hardcover_id).first()
-                    if existing:
-                        existing_skipped += 1
-                        continue
-
-                if isbn:
+                if existing is None and isbn:
                     existing = db.query(Book).filter(Book.isbn == isbn).first()
-                    if existing:
-                        existing_skipped += 1
-                        continue
+                if existing:
+                    if existing.hardcover_status != shelf:
+                        existing.hardcover_status = shelf
+                    seen_book_ids.add(existing.id)
+                    existing_skipped += 1
+                    continue
+
+                if shelf not in include_shelves:
+                    continue
 
                 author_name = ""
                 authors_list = hc_book.get("authors", [])
@@ -141,18 +145,36 @@ class HardcoverSyncService:
                     description=hc_book.get("description"),
                     publisher=None,
                     language=None,
+                    hardcover_status=shelf,
                 )
                 db.add(book)
                 db.commit()
 
                 new_books += 1
                 new_book_ids.append(book.id)
+                seen_book_ids.add(book.id)
                 logger.info(f"Added new book from Hardcover: '{book.title}' (hc_id={hardcover_id})")
 
             except Exception as e:
                 logger.error(f"Error processing Hardcover book '{hc_book.get('title', '?')}': {e}")
                 db.rollback()
                 errors += 1
+
+        # Absence pass: a book that previously had a shelf but appeared on none
+        # this run has left every Hardcover shelf — clear its mirror status.
+        # Guarded so a pathological empty API response can never blank the whole
+        # mirror set (which would make the next Kindle sync wipe the device).
+        if hc_books:
+            cleared = (
+                db.query(Book)
+                .filter(Book.hardcover_status.isnot(None), Book.id.notin_(seen_book_ids))
+                .update({Book.hardcover_status: None}, synchronize_session=False)
+            )
+            if cleared:
+                logger.info(f"Cleared shelf status for {cleared} book(s) no longer on any Hardcover shelf")
+        else:
+            logger.warning("Hardcover returned 0 books across all shelves — skipping shelf-absence pass")
+        db.commit()
 
         logger.info(f"Hardcover sync complete: {new_books} new, {existing_skipped} skipped, {errors} errors")
         return {
@@ -162,8 +184,14 @@ class HardcoverSyncService:
             "errors": errors,
         }
 
-    def run_kindle_sync(self, kindle_device_id: str, db: Session) -> dict:
-        """Transfer IN_LIBRARY books with files to a Kindle device."""
+    def run_kindle_sync(self, kindle_device_id: str, db: Session, dry_run: bool = False) -> dict:
+        """Mirror the kindle-sync shelves (plus pinned books) onto a Kindle device.
+
+        Sends shelf/pinned IN_LIBRARY books missing from the device, then (when
+        cleanup is enabled) deletes every other book file from the device. With
+        dry_run=True nothing is transferred, deleted, or written to the DB; the
+        returned dict carries would_send / would_delete previews instead.
+        """
         kindle_config = get_kindle_by_id(kindle_device_id)
         if not kindle_config:
             logger.error(f"Kindle device not found: {kindle_device_id}")
@@ -176,17 +204,74 @@ class HardcoverSyncService:
 
         kindle_client = KindleClient.from_config(kindle_config)
 
-        books = db.query(Book).filter(Book.status == BookStatus.IN_LIBRARY, Book.file_path.isnot(None)).all()
+        sync_shelves = get_kindle_sync_shelves(self.config)
+        books = (
+            db.query(Book)
+            .filter(
+                Book.status == BookStatus.IN_LIBRARY,
+                Book.file_path.isnot(None),
+                or_(Book.hardcover_status.in_(sync_shelves), Book.kindle_pinned.is_(True)),
+            )
+            .all()
+        )
 
-        logger.info(f"Kindle sync: found {len(books)} IN_LIBRARY book(s) with files")
+        logger.info(
+            f"Kindle sync: {len(books)} book(s) in mirror set "
+            f"(shelves={sorted(sync_shelves) or 'none'} + pinned){' [dry run]' if dry_run else ''}"
+        )
 
-        if self.emit_callback:
+        if self.emit_callback and not dry_run:
             self.emit_callback(
                 "kindle_sync_started",
                 {"kindle_id": kindle_device_id, "total_books": len(books)},
             )
 
-        folder_org = self.config.get("transfer", {}).get("folder_organization", "flat")
+        transfer_cfg = self.config.get("transfer", {})
+        folder_org = transfer_cfg.get("folder_organization", "flat")
+        protected_paths = transfer_cfg.get("cleanup_protected_paths", [])
+
+        # The mirror set as remote paths: every selected book, whether or not it
+        # still transfers this run — cleanup must never delete a mirror-set book.
+        expected_remote_paths = [
+            kindle_client.generate_remote_path(
+                os.path.basename(book.file_path),
+                author=book.author.name if book.author else "",
+                series=book.series_name or "",
+                folder_organization=folder_org,
+            )
+            for book in books
+        ]
+
+        # Cleanup safety valve: until the first Hardcover sync has backfilled
+        # hardcover_status, the mirror set is empty-looking and cleanup would
+        # wipe the device. Skip cleanup entirely in that state.
+        statuses_backfilled = db.query(Book.id).filter(Book.hardcover_status.isnot(None)).first() is not None
+        cleanup_wanted = transfer_cfg.get("cleanup_enabled", True)
+        if cleanup_wanted and not statuses_backfilled:
+            logger.warning(
+                "Kindle cleanup skipped: no book has a Hardcover shelf status yet (run a Hardcover sync first)"
+            )
+
+        if dry_run:
+            device_basenames = {os.path.basename(p) for p in kindle_client.list_all_books()}
+            would_send = [
+                {"book_id": book.id, "title": book.title, "remote_path": remote_path}
+                for book, remote_path in zip(books, expected_remote_paths, strict=True)
+                if os.path.basename(remote_path) not in device_basenames
+            ]
+            would_delete = []
+            if cleanup_wanted and statuses_backfilled:
+                would_delete = kindle_client.find_orphaned_books(expected_remote_paths, protected_paths)
+            logger.info(f"Kindle sync dry run: would send {len(would_send)}, would delete {len(would_delete)}")
+            return {
+                "transferred": 0,
+                "skipped": 0,
+                "failed": 0,
+                "cleanup": None,
+                "dry_run": True,
+                "would_send": would_send,
+                "would_delete": would_delete,
+            }
 
         transferred = 0
         skipped = 0
@@ -261,10 +346,46 @@ class HardcoverSyncService:
 
         db.commit()
 
+        cleanup_result = None
+        if cleanup_wanted and statuses_backfilled:
+            cleanup_result = kindle_client.cleanup_orphaned_books(
+                expected_remote_paths,
+                protected_paths,
+                delete_sdr=transfer_cfg.get("cleanup_sdr_folders", True),
+            )
+            log_event("kindle_cleanup", kindle_id=kindle_device_id, **cleanup_result)
+
+        # Reconcile delivery state: books that left the mirror set were (or will
+        # be) removed from the device — clear their delivery tracking so the UI
+        # and the delivery pipeline don't treat them as on-device or pending.
+        mirror_ids = [book.id for book in books]
+        reconciled = (
+            db.query(Book)
+            .filter(Book.kindle_delivery_status.isnot(None), Book.id.notin_(mirror_ids))
+            .update(
+                {
+                    Book.kindle_delivery_status: None,
+                    Book.kindle_delivered_at: None,
+                    Book.kindle_first_pending_at: None,
+                    Book.kindle_delivery_attempts: 0,
+                },
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        if reconciled:
+            logger.info(f"Reset Kindle delivery state for {reconciled} book(s) no longer in the mirror set")
+
         logger.info(f"Kindle sync complete: {transferred} transferred, {skipped} skipped, {failed} failed")
         if self.emit_callback:
             self.emit_callback(
                 "kindle_sync_completed",
                 {"transferred": transferred, "skipped": skipped, "failed": failed},
             )
-        return {"transferred": transferred, "skipped": skipped, "failed": failed}
+        return {
+            "transferred": transferred,
+            "skipped": skipped,
+            "failed": failed,
+            "cleanup": cleanup_result,
+            "dry_run": False,
+        }

@@ -205,6 +205,24 @@ export const useLibraryStore = defineStore('library', () => {
     }
   };
 
+  const unpinKindle = async (bookId: number): Promise<void> => {
+    const toast = useToast();
+    const response = await fetch(`/api/library/books/${bookId}/kindle-pin`, { method: 'DELETE' });
+    if (response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const pinned = body.kindle_pinned ?? false;
+      if (currentBook.value?.id === bookId) {
+        currentBook.value = { ...currentBook.value, kindle_pinned: pinned };
+      }
+      const idx = books.value.findIndex((b) => b.id === bookId);
+      if (idx !== -1) books.value[idx] = { ...books.value[idx], kindle_pinned: pinned };
+      toast.success('Unpinned — removed from the device on the next sync.');
+    } else {
+      const body = await response.json().catch(() => ({}));
+      toast.error(body.detail || 'Failed to unpin from Kindle');
+    }
+  };
+
   // Computed
   const bookCount = computed(() => books.value.length);
   const totalPages = computed(() => Math.ceil(total.value / limit.value));
@@ -250,5 +268,6 @@ export const useLibraryStore = defineStore('library', () => {
     handleBookEvent,
     retryBook,
     requeueKindle,
+    unpinKindle,
   };
 });

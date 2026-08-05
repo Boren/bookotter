@@ -22,6 +22,7 @@ const saveSuccess = ref(false)
 const isSearching = ref(false)
 const isRetrying = ref(false)
 const isRequeueingKindle = ref(false)
+const isUnpinningKindle = ref(false)
 
 const editForm = ref({
   title: '',
@@ -173,6 +174,16 @@ const handleKindleRequeue = async () => {
     await libraryStore.requeueKindle(book.value.id)
   } finally {
     isRequeueingKindle.value = false
+  }
+}
+
+const handleKindleUnpin = async () => {
+  if (!book.value) return
+  isUnpinningKindle.value = true
+  try {
+    await libraryStore.unpinKindle(book.value.id)
+  } finally {
+    isUnpinningKindle.value = false
   }
 }
 
@@ -859,6 +870,25 @@ onMounted(() => {
           <div v-if="(book.kindle_delivery_status === 'PENDING' || book.kindle_delivery_status === 'SKIPPED') && book.kindle_first_pending_at">
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Waiting Since</p>
             <p class="text-sm text-stone-800">{{ formatDate(book.kindle_first_pending_at) }}</p>
+          </div>
+          <div v-if="book.kindle_pinned" data-testid="kindle-pinned-indicator">
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1.5">Pinned to Kindle</p>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-stone-800">Kept on the device between syncs</span>
+              <button
+                @click="handleKindleUnpin"
+                :disabled="isUnpinningKindle"
+                class="btn btn-secondary btn-sm"
+                data-testid="kindle-unpin-button"
+              >
+                <svg v-if="isUnpinningKindle" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                Unpin
+              </button>
+            </div>
+            <p class="mt-1.5 text-xs text-stone-500">Unpinning removes it from the device on the next sync.</p>
           </div>
           <div v-if="canSendToKindle" class="ml-auto">
             <button

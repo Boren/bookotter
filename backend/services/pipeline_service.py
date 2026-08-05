@@ -223,11 +223,12 @@ class PipelineService:
             logger.warning("process_importing_books: no import_service configured, skipping")
             return 0
 
-        from backend.config import get_first_real_kindle, load_config
+        from backend.config import get_first_real_kindle, get_kindle_sync_shelves, load_config
 
         config_for_pipeline = load_config()
         auto_kindle = config_for_pipeline.get("pipeline", {}).get("kindle_sync_on_import", True)
         real_kindle = get_first_real_kindle(config_for_pipeline) if auto_kindle else None
+        kindle_shelves = get_kindle_sync_shelves(config_for_pipeline)
 
         db = self._session_factory()
         imported = 0
@@ -267,7 +268,9 @@ class PipelineService:
                             logger.warning("Could not transition download %s to IMPORTED", download.id)
                             db.rollback()
                             continue
-                        if real_kindle is not None:
+                        # Only mirror-set books auto-deliver; anything else (scanner
+                        # imports, manual adds) reaches the Kindle via the pin button.
+                        if real_kindle is not None and (book.hardcover_status in kindle_shelves or book.kindle_pinned):
                             book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
                             book.kindle_first_pending_at = naive_utcnow()
                         db.commit()

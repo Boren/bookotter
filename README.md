@@ -235,17 +235,14 @@ pipeline:
   enabled: true
   search_on_add: true       # Auto-search when book added
   import_on_complete: true  # Auto-import when download completes
-  kindle_sync_on_import: true  # Auto-sync to Kindle after import
+  kindle_sync_on_import: true  # Auto-send imports on synced shelves to Kindle
   status_actions:
     want_to_read:
       download: true
-      kindle_sync: true
     currently_reading:
       download: true
-      kindle_sync: true
     read:
       download: true
-      kindle_sync: false
 
 # RSS Sync (Auto-Grab)
 rss:
@@ -260,18 +257,24 @@ matching:
   use_fuzzy: true
   fuzzy_threshold: 80
 
-# Sync Settings
+# Sync Settings (which Hardcover shelves are imported into the library)
 sync:
   include_statuses:
     want_to_read: true
     currently_reading: false
     read: false
 
-# Transfer Settings
+# Transfer Settings (Kindle mirror)
 transfer:
-  dry_run: false
-  skip_existing: true
+  dry_run: false               # Report what would be sent/deleted without doing it
   folder_organization: "flat"  # flat, author, series, author_series
+  sync_shelves:                # Hardcover shelves mirrored to the Kindle
+    want_to_read: true
+    currently_reading: true
+    read: false
+  cleanup_enabled: true        # Remove device books not on synced shelves or pinned
+  cleanup_sdr_folders: true    # Also remove .sdr reading data for deleted books
+  cleanup_protected_paths: []  # Device paths cleanup must never touch
 
 # Logging Settings
 logging:
@@ -287,9 +290,9 @@ The pipeline automates the full book lifecycle. When a Hardcover sync finds book
 1. **Search** Prowlarr for available downloads
 2. **Download** via qBittorrent with the configured category
 3. **Import** completed downloads into the library with EPUB metadata
-4. **Sync** imported books to your Kindle
+4. **Sync** imported books to your Kindle (only books on shelves enabled in `transfer.sync_shelves`, plus manually pinned books)
 
-Control which statuses trigger which actions via `pipeline.status_actions`. For example, you might want "read" books downloaded for your library but not automatically sent to Kindle.
+Control which statuses trigger downloads via `pipeline.status_actions`. Which books reach the Kindle is governed separately by `transfer.sync_shelves`: the Kindle mirrors those shelves — a sync sends missing shelf books and, when `cleanup_enabled` is on, removes everything else from the device (books sent manually via "Send to Kindle" are pinned and kept).
 
 ### RSS Sync (Auto-Grab)
 
