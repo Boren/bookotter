@@ -60,6 +60,17 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]
 
+[tool.mypy]
+python_version = "3.14"
+files = ["backend"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*", "ebooklib.*"]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
@@ -68,4 +79,6 @@ dev = [
     "freezegun>=1.5.0",
     "httpx>=0.28.1",
     "ruff>=0.14",
+    "types-pyyaml>=6.0.12.20260724",
+    "types-paramiko>=5.0.0.20260724",
 ]
