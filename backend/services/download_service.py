@@ -15,6 +15,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from backend.utils.clock import naive_utcnow
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
@@ -848,18 +850,18 @@ class DownloadService:
 
     def _update_progress_tracking(self, download: Download, torrent_info: dict) -> None:
         if download.last_progress_at is None:
-            download.last_progress_at = download.created_at or datetime.utcnow()
+            download.last_progress_at = download.created_at or naive_utcnow()
 
         downloaded = torrent_info.get("downloaded", 0) or 0
         if downloaded > (download.bytes_at_last_check or 0):
             download.bytes_at_last_check = downloaded
-            download.last_progress_at = datetime.utcnow()
+            download.last_progress_at = naive_utcnow()
 
     def _check_stall_and_timeout(self, download: Download, db: Session) -> bool:
         if download.status not in {DownloadStatus.DOWNLOADING.value, DownloadStatus.QUEUED.value}:
             return False
 
-        now = datetime.utcnow()
+        now = naive_utcnow()
         created_at = download.created_at
         if created_at is not None and created_at.tzinfo is not None:
             created_at = created_at.replace(tzinfo=None)

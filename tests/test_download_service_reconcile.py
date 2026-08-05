@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,6 +9,7 @@ from backend.clients.qbittorrent_client import QBittorrentClient, TorrentState
 from backend.database import Base
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.download_service import DownloadService
+from backend.utils.clock import naive_utcnow
 
 REAL_HASH = "aabbccdd11223344aabbccdd11223344aabbccdd"
 MAGNET_WITH_REAL_HASH = f"magnet:?xt=urn:btih:{REAL_HASH}&dn=TestBook"
@@ -68,7 +69,7 @@ class TestReconcileRepairLegacyHash:
             size=1024,
             seeders=5,
             status=DownloadStatus.DOWNLOADING.value,
-            created_at=datetime.utcnow() - timedelta(minutes=5),
+            created_at=naive_utcnow() - timedelta(minutes=5),
         )
         db.add(dl)
         db.commit()
@@ -92,7 +93,7 @@ class TestReconcileRepairLegacyHash:
             size=1024,
             seeders=5,
             status=DownloadStatus.DOWNLOADING.value,
-            created_at=datetime.utcnow() - timedelta(minutes=5),
+            created_at=naive_utcnow() - timedelta(minutes=5),
         )
         db.add(dl)
         db.commit()
@@ -115,7 +116,7 @@ class TestReconcileRepairLegacyHash:
             size=1024,
             seeders=5,
             status=DownloadStatus.QUEUED.value,
-            created_at=datetime.utcnow() - timedelta(seconds=5),
+            created_at=naive_utcnow() - timedelta(seconds=5),
         )
         db.add(dl)
         db.commit()

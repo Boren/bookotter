@@ -11,7 +11,6 @@ HTML description stripped, and has a cover embedded.
 """
 
 import time
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +29,7 @@ from backend.models.book import Author, Book, BookStatus, FolderOrganization, Ro
 from backend.services.import_service import ImportService
 from backend.services.pipeline_service import PipelineService
 from backend.services.search_service import ScoredResult
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_epub
 
 # Minimal valid JPEG header bytes — ebooklib stores image bytes verbatim
@@ -107,12 +107,12 @@ class TestE2EFailureRetrySuccess:
             name="Test Library",
             path=str(lib_root),
             folder_organization=FolderOrganization.FLAT.value,
-            created_at=datetime.utcnow(),
+            created_at=naive_utcnow(),
         )
         db_session.add(rf)
         db_session.flush()
 
-        author = Author(name="Frank Herbert", created_at=datetime.utcnow())
+        author = Author(name="Frank Herbert", created_at=naive_utcnow())
         db_session.add(author)
         db_session.flush()
 
@@ -127,8 +127,8 @@ class TestE2EFailureRetrySuccess:
             cover_url="https://example.com/cover.jpg",
             description="<p>Pre-existing description</p>",
             root_folder_id=rf.id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=naive_utcnow(),
+            updated_at=naive_utcnow(),
         )
         db_session.add(book)
         db_session.commit()

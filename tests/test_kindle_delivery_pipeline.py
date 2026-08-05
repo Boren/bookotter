@@ -3,7 +3,6 @@
 """Tests for Kindle delivery state machine integration into run_pipeline (Fix 2)."""
 
 import os
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +13,7 @@ from sqlalchemy.orm import object_session, sessionmaker
 from backend.database import Base
 from backend.models.book import BookStatus, Download, DownloadStatus, KindleDeliveryStatus, RootFolder
 from backend.services.pipeline_service import PipelineService
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
@@ -82,7 +82,7 @@ def _make_pending_book(db, root_folder_id, file_path, **overrides):
         **overrides,
     )
     book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-    book.kindle_first_pending_at = datetime.utcnow()
+    book.kindle_first_pending_at = naive_utcnow()
     db.commit()
     return book.id
 
@@ -292,7 +292,7 @@ class TestKindleDeliveryStateMachine:
         db = file_db_factory()
         book = create_test_book(db, status=BookStatus.IN_LIBRARY.value, file_path="some/path.epub")
         book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-        book.kindle_first_pending_at = datetime.utcnow()
+        book.kindle_first_pending_at = naive_utcnow()
         db.commit()
         book_id = book.id
         db.close()
@@ -519,7 +519,7 @@ class TestReachabilityGate:
         book_id = _make_pending_book(db, rf_id, file_rel)
         from backend.models.book import Book
 
-        db.get(Book, book_id).kindle_first_pending_at = datetime.utcnow() - timedelta(days=15)
+        db.get(Book, book_id).kindle_first_pending_at = naive_utcnow() - timedelta(days=15)
         db.commit()
         db.close()
 

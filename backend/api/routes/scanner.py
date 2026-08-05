@@ -20,6 +20,7 @@ from backend.models.scanner import DismissedScanPath, MatchProposal, MatchPropos
 from backend.services.epub_service import EpubService
 from backend.services.scanner.scanner_service import ScannerService
 from backend.services.websocket_manager import manager as ws_manager
+from backend.utils.clock import naive_utcnow
 
 router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
@@ -130,7 +131,7 @@ def _run_scan_in_background(scan_id: int, root_folder: RootFolder, bind) -> None
         epub_service=EpubService(),
         ws_manager=ws_manager,
     )
-    started_at = datetime.utcnow()
+    started_at = naive_utcnow()
     original_callback = service._progress_callback
 
     def progress_handler(progress) -> None:
@@ -179,7 +180,7 @@ def _run_scan_in_background(scan_id: int, root_folder: RootFolder, bind) -> None
     finally:
         service._progress_callback = original_callback
 
-    duration_ms = int((datetime.utcnow() - started_at).total_seconds() * 1000)
+    duration_ms = int((naive_utcnow() - started_at).total_seconds() * 1000)
     service._broadcast(
         "scan_completed",
         {
@@ -305,7 +306,7 @@ def _ensure_proposal_id_matches(path_proposal_id: int, body_proposal_id: int) ->
 
 def _link_book_to_proposal(proposal: MatchProposal, book: Book) -> None:
     """Link a book to a proposal's file and mark both sides accordingly."""
-    now = datetime.utcnow()
+    now = naive_utcnow()
     book.file_path = proposal.relative_path
     book.file_size = proposal.file_size
     book.source = "scanner"
@@ -321,7 +322,7 @@ def trigger_scan(body: ScanRequest, background_tasks: BackgroundTasks, db: Sessi
     if root_folder is None:
         raise HTTPException(status_code=404, detail=f"Root folder {body.root_folder_id} not found")
 
-    stale_before = datetime.utcnow() - STALE_SCAN_WINDOW
+    stale_before = naive_utcnow() - STALE_SCAN_WINDOW
     active_scan = (
         db.query(Scan)
         .filter(Scan.root_folder_id == body.root_folder_id, Scan.status == ScanStatus.RUNNING.value)
@@ -348,7 +349,7 @@ def trigger_scan(body: ScanRequest, background_tasks: BackgroundTasks, db: Sessi
 
 @router.get("/scans/current", response_model=CurrentScanResponse)
 def get_current_scan(db: Session = Depends(get_db)):
-    stale_before = datetime.utcnow() - STALE_SCAN_WINDOW
+    stale_before = naive_utcnow() - STALE_SCAN_WINDOW
     scan = (
         db.query(Scan)
         .filter(Scan.status == ScanStatus.RUNNING.value)
@@ -475,7 +476,7 @@ def link_book(proposal_id: int, body: LinkBookRequest, db: Session = Depends(get
 def reject_proposal(proposal_id: int, db: Session = Depends(get_db)):
     proposal = _get_pending_proposal(db, proposal_id)
     proposal.status = MatchProposalStatus.REJECTED.value
-    proposal.decided_at = datetime.utcnow()
+    proposal.decided_at = naive_utcnow()
     db.commit()
     return _get_proposal_response(db, proposal_id)
 
@@ -490,7 +491,7 @@ def dismiss_proposal(proposal_id: int, body: DismissProposalRequest, db: Session
 
     if proposal.status == MatchProposalStatus.PENDING.value:
         proposal.status = MatchProposalStatus.REJECTED.value
-        proposal.decided_at = datetime.utcnow()
+        proposal.decided_at = naive_utcnow()
     elif proposal.status != MatchProposalStatus.REJECTED.value:
         raise HTTPException(status_code=400, detail="Proposal has already been decided")
 
@@ -506,7 +507,7 @@ def dismiss_proposal(proposal_id: int, body: DismissProposalRequest, db: Session
         proposal = db.get(MatchProposal, proposal_id)
         if proposal is not None and proposal.status == MatchProposalStatus.PENDING.value:
             proposal.status = MatchProposalStatus.REJECTED.value
-            proposal.decided_at = datetime.utcnow()
+            proposal.decided_at = naive_utcnow()
             db.commit()
     return _get_proposal_response(db, proposal_id)
 
@@ -586,7 +587,7 @@ def link_hardcover(proposal_id: int, body: LinkUnmatchedRequest, db: Session = D
     db.flush()
 
     proposal.status = MatchProposalStatus.APPROVED.value
-    proposal.decided_at = datetime.utcnow()
+    proposal.decided_at = naive_utcnow()
     proposal.candidate_book_id = book.id
     proposal.match_method = "hardcover_bootstrap"
     proposal.score = None

@@ -5,7 +5,6 @@
 import tempfile
 import threading
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -17,6 +16,7 @@ from backend.errors import FailureReason, PipelineError
 from backend.models import blocklist  # noqa: F401 — registers BlocklistEntry with Base.metadata
 from backend.models.book import PipelineLock
 from backend.services.pipeline_service import PipelineService
+from backend.utils.clock import naive_utcnow
 from backend.utils.pipeline_lock import acquire_pipeline_lock, get_active_lock
 
 
@@ -48,7 +48,7 @@ class TestPipelineLockGuard:
         """Manual trigger returns 409 when pipeline already running."""
         lock = PipelineLock(
             id=1,
-            locked_at=datetime.utcnow(),
+            locked_at=naive_utcnow(),
             run_id="test-run-id",
             holder="scheduled",
         )

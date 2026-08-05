@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import unicodedata
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -28,6 +27,7 @@ from backend.services.scanner.scanner_service import (
     _extract_isbn_from_identifier,
 )
 from backend.services.scanner.types import MatchMethod
+from backend.utils.clock import naive_utcnow
 
 
 class StubWebSocketManager:
@@ -537,7 +537,7 @@ class TestExecuteScanPersistence:
         assert book.root_folder_id == root_folder.id
 
     def test_execute_scan_marks_stale_proposals_superseded(self, session_factory, root_folder, tmp_path, db):
-        old_scan = Scan(root_folder_id=root_folder.id, status=ScanStatus.COMPLETED.value, started_at=datetime.utcnow())
+        old_scan = Scan(root_folder_id=root_folder.id, status=ScanStatus.COMPLETED.value, started_at=naive_utcnow())
         db.add(old_scan)
         db.flush()
         old_proposal = MatchProposal(

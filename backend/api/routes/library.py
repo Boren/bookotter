@@ -5,7 +5,6 @@ Handles book CRUD operations and browsing with filtering/pagination.
 
 import logging
 import os
-from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
@@ -17,6 +16,7 @@ from backend.config import load_config
 from backend.database import get_db
 from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
+from backend.utils.clock import naive_utcnow
 from backend.utils.failure import _append_failure_history
 
 logger = logging.getLogger(__name__)
@@ -256,7 +256,7 @@ async def update_book(book_id: int, body: BookUpdateRequest, db: Session = Depen
     for field, value in update_data.items():
         setattr(book, field, value)
 
-    book.updated_at = datetime.utcnow()
+    book.updated_at = naive_utcnow()
 
     if book.file_path and book.root_folder_id:
         try:
@@ -310,7 +310,7 @@ def force_retry_book(book_id: int, db: Session = Depends(get_db)):
     book.retry_count = 0
     book.failure_reason = None
     book.low_confidence = False
-    book.updated_at = datetime.utcnow()
+    book.updated_at = naive_utcnow()
     db.commit()
 
     try:
@@ -374,9 +374,9 @@ def requeue_kindle_delivery(
 
     previous_status = book.kindle_delivery_status
     book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-    book.kindle_first_pending_at = datetime.utcnow()
+    book.kindle_first_pending_at = naive_utcnow()
     book.kindle_delivery_attempts = 0
-    book.updated_at = datetime.utcnow()
+    book.updated_at = naive_utcnow()
     db.commit()
 
     try:

@@ -5,7 +5,6 @@ Handles manual book search via Prowlarr and grabbing results for download.
 """
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -23,6 +22,7 @@ from backend.services.torrent_hash import (
     fetch_and_hash_torrent,
     spooled_torrent_path,
 )
+from backend.utils.clock import naive_utcnow
 
 
 def _add_torrent_to_qbit(qbt, torrent_hash: str, download_url: str, category: str) -> bool:
@@ -195,7 +195,7 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
     db.add(download)
 
     _require_transition(book, BookStatus.GRABBED.value, db, f"Book {book.id} could not transition to grabbed")
-    book.updated_at = datetime.utcnow()
+    book.updated_at = naive_utcnow()
     db.commit()
     db.refresh(download)
 
@@ -226,7 +226,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
 
     _require_transition(book, BookStatus.SEARCHING.value, db, f"Book {book.id} could not transition to searching")
     book.search_attempts = (book.search_attempts or 0) + 1
-    book.last_searched_at = datetime.utcnow()
+    book.last_searched_at = naive_utcnow()
     db.commit()
 
     try:
@@ -323,7 +323,7 @@ async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
     db.add(download)
 
     _require_transition(book, BookStatus.GRABBED.value, db, f"Book {book.id} could not transition to grabbed")
-    book.updated_at = datetime.utcnow()
+    book.updated_at = naive_utcnow()
     db.commit()
     db.refresh(download)
 
@@ -347,7 +347,7 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
 
     _require_transition(book, BookStatus.SEARCHING.value, db, f"Book {book.id} could not transition to searching")
     book.search_attempts = (book.search_attempts or 0) + 1
-    book.last_searched_at = datetime.utcnow()
+    book.last_searched_at = naive_utcnow()
     db.commit()
 
     try:

@@ -27,6 +27,7 @@ from backend.services.search_service import ScoredResult
 from backend.services.torrent_hash import extract_info_hash_from_url, fetch_and_hash_torrent
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.cleanup import cleanup_orphan_tmp_files
+from backend.utils.clock import naive_utcnow
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
 from backend.utils.pipeline_lock import acquire_pipeline_lock
@@ -268,7 +269,7 @@ class PipelineService:
                             continue
                         if real_kindle is not None:
                             book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-                            book.kindle_first_pending_at = datetime.utcnow()
+                            book.kindle_first_pending_at = naive_utcnow()
                         db.commit()
                         imported += 1
                         logger.info(f"Imported '{book.title}' to library")
@@ -297,7 +298,7 @@ class PipelineService:
         db = self._session_factory()
         retried = 0
         changed = False
-        now = datetime.utcnow()
+        now = naive_utcnow()
 
         try:
             failed_books = db.query(Book).filter(Book.status == BookStatus.FAILED.value).all()
@@ -409,7 +410,7 @@ class PipelineService:
         folder_org = config.get("transfer", {}).get("folder_organization", "flat")
 
         db = self._session_factory()
-        now = datetime.utcnow()
+        now = naive_utcnow()
         timeout = timedelta(days=KINDLE_DELIVERY_TIMEOUT_DAYS)
         processed = 0
 
@@ -496,7 +497,7 @@ class PipelineService:
 
                 if result.get("success"):
                     book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
-                    book.kindle_delivered_at = datetime.utcnow()
+                    book.kindle_delivered_at = naive_utcnow()
                     duration_ms = int((time.monotonic() - transfer_start) * 1000)
                     logger.info(
                         "Kindle delivery DELIVERED for book %s (%s, %d bytes)",

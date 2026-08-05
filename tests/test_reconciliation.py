@@ -1,12 +1,13 @@
 # pyright: reportGeneralTypeIssues=false
 """Tests for periodic reconciliation (reconcile_state)."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 from backend.errors import FailureReason
 from backend.models.book import BookStatus, Download, DownloadStatus
 from backend.services.download_service import reconcile_state
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
@@ -38,7 +39,7 @@ class TestReconciliation:
             size=1024,
             seeders=1,
             status=DownloadStatus.DOWNLOADING.value,
-            created_at=datetime.utcnow() - timedelta(minutes=5),
+            created_at=naive_utcnow() - timedelta(minutes=5),
         )
         db_session.add(download)
         db_session.commit()

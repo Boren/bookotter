@@ -1,11 +1,12 @@
 # pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportOptionalMemberAccess=false
 """Tests for Kindle delivery state machine: timeout, success, retry counter, auto-reconnect."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 from backend.models.book import BookStatus, KindleDeliveryStatus
 from backend.services.pipeline_service import PipelineService
+from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
 
 
@@ -25,7 +26,7 @@ class TestKindleDeliveryTimeout:
         """PENDING book older than 14 days transitions to SKIPPED."""
         book = create_test_book(db_session, status=BookStatus.IN_LIBRARY)
         book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-        book.kindle_first_pending_at = datetime.utcnow() - timedelta(days=15)
+        book.kindle_first_pending_at = naive_utcnow() - timedelta(days=15)
         db_session.commit()
         book_id = book.id
 

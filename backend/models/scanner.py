@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
+from backend.utils.clock import naive_utcnow
 
 
 class ScanStatus(StrEnum):
@@ -38,7 +39,7 @@ class Scan(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     root_folder_id: Mapped[int] = mapped_column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=ScanStatus.RUNNING.value, index=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     files_seen: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     files_matched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -76,7 +77,7 @@ class MatchProposal(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=MatchProposalStatus.PENDING.value, index=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_proposals_status_root", "status", "root_folder_id"),)
@@ -90,6 +91,6 @@ class DismissedScanPath(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     root_folder_id: Mapped[int] = mapped_column(Integer, ForeignKey("root_folder.id"), nullable=False, index=True)
     relative_path: Mapped[str] = mapped_column(String(1000), nullable=False)
-    dismissed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    dismissed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
 
     __table_args__ = (UniqueConstraint("root_folder_id", "relative_path", name="uq_dismissed_path"),)

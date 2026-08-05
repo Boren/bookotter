@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +11,7 @@ from backend.database import Base
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
 from backend.services.download_service import DownloadService
 from backend.services.torrent_hash import extract_info_hash_from_url
+from backend.utils.clock import naive_utcnow
 
 MAGNET_HEX = "magnet:?xt=urn:btih:aabbccdd11223344aabbccdd11223344aabbccdd&dn=TestBook"
 HASH_HEX = "aabbccdd11223344aabbccdd11223344aabbccdd"
@@ -387,7 +388,7 @@ class TestReconcileOnStartup:
         assert counts == {"reconciled": 0, "failed": 0, "completed": 0}
 
     def test_missing_torrent_marks_queued_as_failed(self, service, qbit, db, book_record, queued_download):
-        queued_download.created_at = datetime.utcnow() - timedelta(minutes=5)
+        queued_download.created_at = naive_utcnow() - timedelta(minutes=5)
         db.commit()
         qbit.get_torrents.return_value = []
 
@@ -398,7 +399,7 @@ class TestReconcileOnStartup:
         assert counts["failed"] == 1
 
     def test_missing_torrent_sets_error_message(self, service, qbit, db, book_record, queued_download):
-        queued_download.created_at = datetime.utcnow() - timedelta(minutes=5)
+        queued_download.created_at = naive_utcnow() - timedelta(minutes=5)
         db.commit()
         qbit.get_torrents.return_value = []
         service.reconcile_on_startup()

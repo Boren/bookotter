@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import pytest
 from freezegun import freeze_time
 
+from backend.utils.clock import naive_utcnow
+
 
 class MockClock:
     """Controllable mock clock wrapping freezegun."""
@@ -21,7 +23,7 @@ class MockClock:
 
     def now(self) -> datetime:
         """Return current frozen time."""
-        return datetime.utcnow()
+        return naive_utcnow()
 
 
 @pytest.fixture

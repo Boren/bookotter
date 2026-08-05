@@ -4,7 +4,7 @@
 
 import tempfile
 import threading
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import PipelineLock
+from backend.utils.clock import naive_utcnow
 from backend.utils.pipeline_lock import acquire_pipeline_lock, get_active_lock
 
 
@@ -66,7 +67,7 @@ class TestAcquirePipelineLock:
             db2.close()
 
     def test_stale_lock_replaced(self, db_session):
-        stale_time = datetime.utcnow() - timedelta(hours=2)
+        stale_time = naive_utcnow() - timedelta(hours=2)
         stale_lock = PipelineLock(id=1, locked_at=stale_time, run_id="old-run", holder="scheduled")
         db_session.add(stale_lock)
         db_session.commit()

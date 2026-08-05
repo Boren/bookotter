@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
+from backend.utils.clock import naive_utcnow
 
 
 class BookStatus(StrEnum):
@@ -86,7 +87,7 @@ class Author(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     hardcover_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
 
     # Relationships
     books: Mapped[list[Book]] = relationship(back_populates="author")
@@ -110,7 +111,7 @@ class RootFolder(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     path: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)
     folder_organization: Mapped[str] = mapped_column(String(20), nullable=False, default=FolderOrganization.FLAT.value)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
 
     # Relationships
     books: Mapped[list[Book]] = relationship(back_populates="root_folder")
@@ -144,10 +145,8 @@ class Book(Base):
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Bytes
     search_attempts: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
     last_searched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow, onupdate=naive_utcnow)
     failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failure_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True, default=None)
@@ -223,7 +222,7 @@ class Download(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=DownloadStatus.QUEUED.value, index=True)
     file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # EPUB path within torrent
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_progress_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     bytes_at_last_check: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

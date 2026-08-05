@@ -4,6 +4,7 @@ from sqlalchemy import DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
+from backend.utils.clock import naive_utcnow
 
 
 class BlocklistEntry(Base):
@@ -14,7 +15,7 @@ class BlocklistEntry(Base):
     release_guid: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=naive_utcnow, nullable=True)
 
     __table_args__ = (Index("ix_blocklist_indexer_guid", "indexer", "release_guid", unique=True),)
 
