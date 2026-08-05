@@ -54,9 +54,7 @@ def _make_library_book(db_session, delivery_status: str | None, title: str = "Re
 
 
 class TestKindleRequeue:
-    @pytest.mark.parametrize(
-        "status", [KindleDeliveryStatus.SKIPPED.value, KindleDeliveryStatus.DELIVERED.value, None]
-    )
+    @pytest.mark.parametrize("status", [KindleDeliveryStatus.SKIPPED.value, KindleDeliveryStatus.DELIVERED.value, None])
     def test_requeue_from_queueable_states(self, client, db_session, status):
         book = _make_library_book(db_session, status)
 

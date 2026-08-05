@@ -603,5 +603,7 @@ class TestReachabilityGate:
 
         events = [c[0][0] for c in ws_manager.broadcast_sync.call_args_list]
         assert "kindle_delivered" in events
-        delivered_payload = next(c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "kindle_delivered")
+        delivered_payload = next(
+            c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "kindle_delivered"
+        )
         assert delivered_payload["book_id"] == book_id

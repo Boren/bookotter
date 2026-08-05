@@ -157,9 +157,7 @@ async def get_library_stats(db: Session = Depends(get_db)):
 
     kindle_counts = {}
     for kstatus in KindleDeliveryStatus:
-        kindle_counts[kstatus.value] = (
-            db.query(Book).filter(Book.kindle_delivery_status == kstatus.value).count()
-        )
+        kindle_counts[kstatus.value] = db.query(Book).filter(Book.kindle_delivery_status == kstatus.value).count()
 
     return {
         "total_books": total_books,

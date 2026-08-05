@@ -46,9 +46,7 @@ def _apply_patches(monkeypatch, *, config: dict, sync_result: dict):
     return mock_service
 
 
-def _make_app_with_pipeline(
-    grabs_per_search: list[int] | None = None, raises: bool = False
-) -> FastAPI:
+def _make_app_with_pipeline(grabs_per_search: list[int] | None = None, raises: bool = False) -> FastAPI:
     app = FastAPI()
     pipeline = MagicMock()
     if raises:

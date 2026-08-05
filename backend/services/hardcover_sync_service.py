@@ -8,6 +8,7 @@ Also handles Kindle sync from library DB (books with IN_LIBRARY status).
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -267,4 +268,3 @@ class HardcoverSyncService:
                 {"transferred": transferred, "skipped": skipped, "failed": failed},
             )
         return {"transferred": transferred, "skipped": skipped, "failed": failed}
-

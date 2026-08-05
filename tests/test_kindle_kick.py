@@ -182,7 +182,9 @@ class TestDeliveryLifecycleEvents:
         assert "kindle_delivery_progress" in events
         assert "kindle_delivered" in events
 
-        started = next(c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "kindle_delivery_started")
+        started = next(
+            c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "kindle_delivery_started"
+        )
         assert started["book_id"] == book_id
         assert started["book_title"]
 

@@ -202,9 +202,7 @@ class Book(Base):
             "kindle_first_pending_at": self.kindle_first_pending_at.isoformat()
             if self.kindle_first_pending_at
             else None,
-            "kindle_delivered_at": self.kindle_delivered_at.isoformat()
-            if self.kindle_delivered_at
-            else None,
+            "kindle_delivered_at": self.kindle_delivered_at.isoformat() if self.kindle_delivered_at else None,
         }
 
 
