@@ -30,6 +30,7 @@ from backend.utils.cleanup import cleanup_orphan_tmp_files
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
 from backend.utils.pipeline_lock import acquire_pipeline_lock
+from backend.utils.transfer_progress import make_progress_callback
 
 logger = logging.getLogger(__name__)
 
@@ -467,10 +468,16 @@ class PipelineService:
                 book.kindle_delivery_status = KindleDeliveryStatus.IN_PROGRESS.value
                 book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
                 db.commit()
+                self._broadcast("kindle_delivery_started", {"book_id": book.id, "book_title": book.title})
 
                 author_name = book.author.name if book.author else ""
                 series_name = str(book.series_name) if book.series_name else ""
                 transfer_start = time.monotonic()
+                progress_cb = make_progress_callback(
+                    self._broadcast,
+                    "kindle_delivery_progress",
+                    {"book_id": book.id, "book_title": book.title},
+                )
 
                 try:
                     result = kindle_client.transfer_file(
@@ -479,6 +486,7 @@ class PipelineService:
                         author=author_name,
                         series=series_name,
                         folder_organization=folder_org,
+                        progress_callback=progress_cb,
                     )
                 except Exception as exc:
                     logger.warning("Kindle delivery raised for book %s: %s", book.id, exc)
@@ -488,6 +496,7 @@ class PipelineService:
 
                 if result.get("success"):
                     book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+                    book.kindle_delivered_at = datetime.utcnow()
                     duration_ms = int((time.monotonic() - transfer_start) * 1000)
                     logger.info(
                         "Kindle delivery DELIVERED for book %s (%s, %d bytes)",
@@ -525,6 +534,41 @@ class PipelineService:
             return processed
         finally:
             db.close()
+
+    def kick_kindle_delivery(self) -> dict[str, Any]:
+        """Run only the Kindle delivery stage, right now.
+
+        Called in the background after a user queues a book so delivery starts
+        within seconds instead of waiting for the next scheduled tick. Never
+        raises: if the pipeline lock is held or a bulk Kindle sync is running,
+        it defers silently — the book is already PENDING and the 15s scheduler
+        tick will deliver it.
+        """
+        from backend.api.routes.sync import is_kindle_sync_running
+
+        if is_kindle_sync_running():
+            logger.info("Kindle kick skipped: bulk Kindle sync in progress")
+            return {"skipped": True, "reason": "bulk_sync_running"}
+
+        db = self._session_factory()
+        try:
+            try:
+                with acquire_pipeline_lock(db, holder="kindle_kick"):
+                    delivered = self.process_kindle_delivery_books()
+                    return {"kindle_delivery": delivered}
+            except PipelineError as exc:
+                if exc.reason == FailureReason.PIPELINE_LOCK_HELD:
+                    logger.info("Kindle kick skipped: pipeline lock held: %s", exc)
+                    return {"skipped": True, "reason": "lock_held"}
+                raise
+        except Exception as exc:
+            logger.warning("Kindle kick failed: %s", exc)
+            return {"skipped": True, "reason": "error"}
+        finally:
+            try:
+                db.close()
+            except Exception as exc:
+                logger.debug(f"Error closing kindle kick lock session: {exc}")
 
     def run_pipeline(self, holder: str = "scheduled") -> dict[str, Any]:
         """

@@ -19,6 +19,11 @@ const router = createRouter({
       component: () => import('../views/DownloadsView.vue'),
     },
     {
+      path: '/kindle',
+      name: 'kindle',
+      component: () => import('../views/KindleView.vue'),
+    },
+    {
       path: '/library',
       name: 'library',
       component: () => import('../views/LibraryView.vue'),

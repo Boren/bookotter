@@ -3,7 +3,10 @@ Kindle management API routes.
 Handles CRUD operations for Kindle device configurations.
 """
 
+import asyncio
+import time
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -26,6 +29,12 @@ from backend.config import (
 )
 
 router = APIRouter()
+
+# Reachability cache: kindle_id -> (monotonic_checked_at, reachable, checked_at_iso).
+# The TCP probe takes up to 3s; the dashboard widget and Kindle page poll this
+# endpoint, so cache briefly to avoid hammering a sleeping device.
+_status_cache: dict[str, tuple[float, bool, str]] = {}
+STATUS_CACHE_TTL_SECONDS = 10.0
 
 
 class KindleCreate(BaseModel):
@@ -147,6 +156,33 @@ async def test_kindle_endpoint(kindle_id: str):
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@router.get("/{kindle_id}/status")
+async def get_kindle_status(kindle_id: str, refresh: bool = False):
+    """Reachability of a Kindle device (cached TCP probe, no SSH handshake)."""
+    kindle_config = get_kindle_by_id(kindle_id)
+    if not kindle_config:
+        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+
+    base = {
+        "kindle_id": kindle_id,
+        "name": kindle_config.get("name", ""),
+        "hostname": kindle_config.get("hostname", ""),
+    }
+
+    if not kindle_config.get("hostname"):
+        return {**base, "configured": False, "reachable": False, "checked_at": None, "cached": False}
+
+    cached = _status_cache.get(kindle_id)
+    if cached and not refresh and (time.monotonic() - cached[0]) < STATUS_CACHE_TTL_SECONDS:
+        return {**base, "configured": True, "reachable": cached[1], "checked_at": cached[2], "cached": True}
+
+    client = KindleClient.from_config(kindle_config)
+    reachable = await asyncio.to_thread(client.is_reachable)
+    checked_at = datetime.now(UTC).isoformat()
+    _status_cache[kindle_id] = (time.monotonic(), reachable, checked_at)
+    return {**base, "configured": True, "reachable": reachable, "checked_at": checked_at, "cached": False}
 
 
 @router.get("/{kindle_id}/books")

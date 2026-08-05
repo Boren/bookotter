@@ -54,9 +54,40 @@ export interface Book {
   kindle_delivery_status: KindleDeliveryStatus | null;
   kindle_delivery_attempts: number;
   kindle_first_pending_at: string | null;
+  kindle_delivered_at: string | null;
 }
 
 export type KindleDeliveryStatus = 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'SKIPPED';
+
+export interface KindleStatus {
+  kindle_id: string;
+  name: string;
+  hostname: string;
+  configured: boolean;
+  reachable: boolean;
+  checked_at: string | null;
+  cached?: boolean;
+}
+
+export interface KindleDeviceBook {
+  name: string;
+  size: number;
+  modified: string | null;
+}
+
+export interface TransferProgress {
+  book_id?: number;
+  book_title: string;
+  bytes_transferred: number;
+  bytes_total: number;
+  percentage: number;
+  speed_bytes_per_sec: number;
+  eta_seconds: number;
+}
+
+export interface KindleDeliveryProgress extends TransferProgress {
+  book_id: number;
+}
 
 export type FolderOrganization = 'flat' | 'author' | 'series' | 'author_series';
 

@@ -14,6 +14,7 @@ export const useLibraryStore = defineStore('library', () => {
   // Filter / sort / pagination
   const searchQuery = ref('');
   const filterStatus = ref<string | null>(null);
+  const filterKindleStatus = ref<string | null>(null);
   const filterAuthor = ref<string | null>(null);
   const sortBy = ref('created_at');
   const sortOrder = ref<'asc' | 'desc'>('desc');
@@ -35,6 +36,7 @@ export const useLibraryStore = defineStore('library', () => {
     try {
       const params = new URLSearchParams();
       if (filterStatus.value) params.set('status', filterStatus.value);
+      if (filterKindleStatus.value) params.set('kindle_delivery_status', filterKindleStatus.value);
       if (filterAuthor.value) params.set('author', filterAuthor.value);
       if (searchQuery.value) params.set('search', searchQuery.value);
       params.set('sort_by', sortBy.value);
@@ -153,8 +155,17 @@ export const useLibraryStore = defineStore('library', () => {
     offset.value = 0;
   };
 
+  const REFRESHING_EVENTS = new Set([
+    'book_status_changed',
+    'book_force_retried',
+    'kindle_delivery_started',
+    'kindle_delivered',
+    'kindle_delivery_skipped',
+    'kindle_delivery_requeued',
+  ]);
+
   const handleBookEvent = (event: string, payload: { book_id: number; [key: string]: unknown }) => {
-    if (event === 'book_status_changed' || event === 'book_force_retried') {
+    if (REFRESHING_EVENTS.has(event)) {
       const inBooks = books.value.some((b) => b.id === payload.book_id);
       const isCurrent = currentBook.value?.id === payload.book_id;
       if (inBooks || isCurrent) {
@@ -174,13 +185,23 @@ export const useLibraryStore = defineStore('library', () => {
   };
 
   const requeueKindle = async (bookId: number): Promise<void> => {
+    const toast = useToast();
     const response = await fetch(`/api/library/books/${bookId}/kindle-requeue`, { method: 'POST' });
     if (response.ok) {
-      useToast().success('Queued for Kindle delivery — sent automatically once the Kindle is on.');
+      const body = await response.json().catch(() => ({}));
+      if (body.already_queued) {
+        toast.info('Already queued for Kindle delivery.');
+      } else if (body.kicked) {
+        toast.success('Sending to Kindle — transfers now if the Kindle is on, queued otherwise.');
+      } else {
+        toast.success('Queued for Kindle delivery — sent automatically once the Kindle is on.');
+      }
       await fetchBook(bookId);
+    } else if (response.status === 409) {
+      toast.info('Delivery already in progress for this book.');
     } else {
       const body = await response.json().catch(() => ({}));
-      useToast().error(body.detail || 'Failed to queue Kindle delivery');
+      toast.error(body.detail || 'Failed to queue Kindle delivery');
     }
   };
 
@@ -203,6 +224,7 @@ export const useLibraryStore = defineStore('library', () => {
     error,
     searchQuery,
     filterStatus,
+    filterKindleStatus,
     filterAuthor,
     sortBy,
     sortOrder,

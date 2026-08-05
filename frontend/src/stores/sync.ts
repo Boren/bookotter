@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useToast } from '../composables/useToast';
-import type { Book } from '../types';
+import type { Book, KindleDeliveryProgress, TransferProgress } from '../types';
 import { useDownloadStore } from './download';
 import { useFailedStore } from './failed';
 import { useLibraryStore } from './library';
@@ -13,7 +13,6 @@ import { useScannerStore } from './scanner';
 const KINDLE_SYNC_FALLBACK_MS = 15 * 60 * 1000;
 
 export const useSyncStore = defineStore('sync', () => {
-  const isRunning = ref(false);
   const wsConnected = ref(false);
   const error = ref<string | null>(null);
 
@@ -28,8 +27,14 @@ export const useSyncStore = defineStore('sync', () => {
   const recentBooks = ref<Book[]>([]);
   const hardcoverSyncing = ref(false);
   const kindleSyncing = ref(false);
-  const kindleSyncProgress = ref<{ book_title: string; percentage: number } | null>(null);
+  const kindleSyncProgress = ref<TransferProgress | null>(null);
+  const kindleSyncInfo = ref<{ kindle_id: string; total_books: number } | null>(null);
+  // Per-book pipeline delivery ("Send to Kindle" on a book page)
+  const kindleDeliveryProgress = ref<KindleDeliveryProgress | null>(null);
   let kindleSyncTimeout: number | null = null;
+
+  // Drives the sidebar "Syncing…" indicator
+  const isRunning = computed(() => hardcoverSyncing.value || kindleSyncing.value);
 
   const setError = (message: string) => {
     error.value = message;
@@ -158,10 +163,22 @@ export const useSyncStore = defineStore('sync', () => {
       case 'kindle_sync_started':
         // Also covers syncs triggered from another tab or a schedule
         kindleSyncing.value = true;
+        kindleSyncInfo.value = message.data as { kindle_id: string; total_books: number };
         break;
 
       case 'transfer_progress':
-        kindleSyncProgress.value = message.data as { book_title: string; percentage: number };
+        kindleSyncProgress.value = message.data as TransferProgress;
+        break;
+
+      case 'kindle_delivery_started':
+        libraryStore.handleBookEvent(
+          'kindle_delivery_started',
+          message.data as { book_id: number }
+        );
+        break;
+
+      case 'kindle_delivery_progress':
+        kindleDeliveryProgress.value = message.data as KindleDeliveryProgress;
         break;
 
       case 'kindle_sync_completed': {
@@ -186,6 +203,11 @@ export const useSyncStore = defineStore('sync', () => {
       case 'kindle_delivered':
       case 'kindle_delivery_skipped':
       case 'kindle_delivery_requeued':
+        if (message.event !== 'kindle_delivery_requeued') {
+          kindleDeliveryProgress.value = null;
+        }
+        // Keep any visible book badge fresh (library grid / book detail)
+        libraryStore.handleBookEvent(message.event, message.data as { book_id: number });
         fetchPipelineStats();
         break;
 
@@ -197,6 +219,7 @@ export const useSyncStore = defineStore('sync', () => {
   const finishKindleSync = () => {
     kindleSyncing.value = false;
     kindleSyncProgress.value = null;
+    kindleSyncInfo.value = null;
     if (kindleSyncTimeout) {
       clearTimeout(kindleSyncTimeout);
       kindleSyncTimeout = null;
@@ -281,6 +304,8 @@ export const useSyncStore = defineStore('sync', () => {
     hardcoverSyncing,
     kindleSyncing,
     kindleSyncProgress,
+    kindleSyncInfo,
+    kindleDeliveryProgress,
 
     connectWebSocket,
     disconnectWebSocket,

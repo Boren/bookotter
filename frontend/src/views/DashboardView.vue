@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useSyncStore } from '../stores/sync'
-import type { Kindle } from '../types'
 import RssActivityCard from '../components/RssActivityCard.vue'
+import KindleStatusWidget from '../components/kindle/KindleStatusWidget.vue'
 
 const syncStore = useSyncStore()
-const kindles = ref<Kindle[]>([])
-const selectedKindle = ref<string>('')
 
 const statusBadgeClass = (status: string): string => {
   const map: Record<string, string> = {
@@ -32,22 +30,9 @@ const statusLabel = (status: string): string => {
   return map[status] || status
 }
 
-const fetchKindles = async () => {
-  try {
-    const response = await fetch('/api/kindles')
-    kindles.value = await response.json()
-    if (kindles.value.length > 0 && !selectedKindle.value) {
-      selectedKindle.value = kindles.value[0].id
-    }
-  } catch (e) {
-    console.error('Failed to fetch kindles:', e)
-  }
-}
-
 onMounted(() => {
   syncStore.fetchPipelineStats()
   syncStore.fetchRecentBooks()
-  fetchKindles()
 })
 </script>
 
@@ -163,32 +148,12 @@ onMounted(() => {
           </svg>
           {{ syncStore.hardcoverSyncing ? 'Syncing...' : 'Sync Hardcover' }}
         </button>
-
-        <div class="flex items-center gap-2">
-          <select v-model="selectedKindle" class="input text-sm py-2">
-            <option v-for="kindle in kindles" :key="kindle.id" :value="kindle.id">
-              {{ kindle.name }}
-            </option>
-          </select>
-          <button
-            @click="syncStore.triggerKindleSync(selectedKindle)"
-            :disabled="syncStore.kindleSyncing || !selectedKindle"
-            class="btn btn-secondary"
-          >
-            <svg v-if="syncStore.kindleSyncing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-            </svg>
-            {{ syncStore.kindleSyncing ? 'Syncing...' : 'Sync to Kindle' }}
-          </button>
-        </div>
       </div>
-      <p v-if="syncStore.kindleSyncProgress" class="text-xs text-stone-500 mt-2 truncate">
-        {{ syncStore.kindleSyncProgress.book_title }} — {{ Math.round(syncStore.kindleSyncProgress.percentage) }}%
-      </p>
+    </div>
+
+    <!-- Kindle Status Widget -->
+    <div class="animate-fade-in-up stagger-3">
+      <KindleStatusWidget />
     </div>
 
     <!-- RSS Activity Card -->

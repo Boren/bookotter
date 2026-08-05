@@ -82,6 +82,7 @@ class TestRunKindleSync:
         assert result == {"transferred": 0, "skipped": 1, "failed": 0}
         db_session.refresh(library_book)
         assert library_book.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert library_book.kindle_delivered_at is not None
 
     def test_transferred_marks_delivered(self, db_session, library_book):
         result = _run(db_session, {"success": True, "status": "transferred", "file_size": 5})
@@ -89,6 +90,15 @@ class TestRunKindleSync:
         assert result == {"transferred": 1, "skipped": 0, "failed": 0}
         db_session.refresh(library_book)
         assert library_book.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert library_book.kindle_delivered_at is not None
+
+    def test_per_book_delivered_event_emitted(self, db_session, library_book):
+        """Bulk sync emits kindle_delivered per book so open UIs refresh live."""
+        emit = MagicMock()
+        _run(db_session, {"success": True, "status": "transferred", "file_size": 5}, emit_callback=emit)
+
+        delivered = next(c[0][1] for c in emit.call_args_list if c[0][0] == "kindle_delivered")
+        assert delivered == {"book_id": library_book.id, "status": "transferred"}
 
     def test_lifecycle_events_emitted_synchronously(self, db_session, library_book):
         """kindle_sync_started/completed reach a plain sync callback (no coroutine leak)."""

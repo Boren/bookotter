@@ -69,6 +69,11 @@ def _resolve_author(db: Session, author_name: str | None) -> Author | None:
 @router.get("/books")
 async def list_books(
     status: str | None = Query(default=None, description="Filter by book status"),
+    kindle_delivery_status: str | None = Query(
+        default=None,
+        pattern="^(PENDING|IN_PROGRESS|DELIVERED|SKIPPED|NONE)$",
+        description="Filter by Kindle delivery status; NONE matches books never queued",
+    ),
     author: str | None = Query(default=None, description="Filter by author name (partial match)"),
     search: str | None = Query(default=None, description="Search title or author"),
     sort_by: str = Query(default="created_at", pattern="^(title|created_at|updated_at|status)$"),
@@ -81,6 +86,12 @@ async def list_books(
 
     if status:
         query = query.filter(Book.status == status)
+
+    if kindle_delivery_status:
+        if kindle_delivery_status == "NONE":
+            query = query.filter(Book.kindle_delivery_status.is_(None))
+        else:
+            query = query.filter(Book.kindle_delivery_status == kindle_delivery_status)
 
     if author:
         query = query.join(Author).filter(Author.name.ilike(f"%{author}%"))
@@ -326,26 +337,42 @@ def force_retry_book(book_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/books/{book_id}/kindle-requeue", status_code=202)
-def requeue_kindle_delivery(book_id: int, db: Session = Depends(get_db)):
-    """Re-queue a book for Kindle delivery.
+def requeue_kindle_delivery(
+    book_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Queue a book for Kindle delivery ("Send to Kindle").
 
-    Allowed from SKIPPED (gave up after the delivery window) or DELIVERED
-    (send again, e.g. after deleting it from the device). Resets the delivery
-    state to PENDING so the next pipeline tick delivers it once the Kindle is
-    reachable.
+    Allowed from any state except an active transfer: never-queued (NULL),
+    SKIPPED (gave up after the delivery window) and DELIVERED (send again,
+    e.g. after deleting it from the device) all reset to PENDING. PENDING is
+    idempotent (double-clicks are harmless); IN_PROGRESS returns 409.
+
+    After queueing, kicks the Kindle delivery pipeline stage in the background
+    so the transfer starts within seconds when the device is online; when it
+    is off, the book waits in the queue and the scheduled tick delivers later.
     """
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
 
-    requeueable = {KindleDeliveryStatus.SKIPPED.value, KindleDeliveryStatus.DELIVERED.value}
-    if book.kindle_delivery_status not in requeueable:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Book is not re-queueable for Kindle delivery, current status: {book.kindle_delivery_status}",
-        )
+    if book.kindle_delivery_status == KindleDeliveryStatus.IN_PROGRESS.value:
+        raise HTTPException(status_code=409, detail="Kindle delivery already in progress for this book")
     if not book.file_path or book.root_folder_id is None:
         raise HTTPException(status_code=400, detail="Book has no library file to deliver")
+
+    pipeline = getattr(request.app.state, "pipeline", None)
+
+    if book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value:
+        return {
+            "book_id": book_id,
+            "previous_status": KindleDeliveryStatus.PENDING.value,
+            "new_status": KindleDeliveryStatus.PENDING.value,
+            "already_queued": True,
+            "kicked": False,
+        }
 
     previous_status = book.kindle_delivery_status
     book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
@@ -368,10 +395,15 @@ def requeue_kindle_delivery(book_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.debug("WS broadcast failed for kindle-requeue(%s): %s", book_id, e)
 
+    if pipeline is not None:
+        background_tasks.add_task(pipeline.kick_kindle_delivery)
+
     return {
         "book_id": book_id,
         "previous_status": previous_status,
         "new_status": KindleDeliveryStatus.PENDING.value,
+        "already_queued": False,
+        "kicked": pipeline is not None,
     }
 
 

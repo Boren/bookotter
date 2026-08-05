@@ -8,7 +8,7 @@ Also handles Kindle sync from library DB (books with IN_LIBRARY status).
 import logging
 import os
 import time
-from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +19,7 @@ from backend.clients.kindle_client import KindleClient
 from backend.config import get_kindle_by_id
 from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus
 from backend.utils.events import log_event
+from backend.utils.transfer_progress import make_progress_callback
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +211,11 @@ class HardcoverSyncService:
 
                 progress_cb = None
                 if self.emit_callback:
-                    progress_cb = self._make_progress_callback(book.title, abs_path)
+                    progress_cb = make_progress_callback(
+                        self.emit_callback,
+                        "transfer_progress",
+                        {"book_id": book.id, "book_title": book.title},
+                    )
 
                 transfer_start = time.monotonic()
                 result = kindle_client.transfer_file(
@@ -239,6 +244,12 @@ class HardcoverSyncService:
                             duration_ms=transfer_duration_ms,
                             size_bytes=result.get("file_size", 0),
                         )
+                    book.kindle_delivered_at = datetime.utcnow()
+                    if self.emit_callback:
+                        self.emit_callback(
+                            "kindle_delivered",
+                            {"book_id": book.id, "status": result["status"]},
+                        )
                 else:
                     failed += 1
                     logger.error(f"Failed to transfer '{book.title}': {result.get('error')}")
@@ -257,31 +268,3 @@ class HardcoverSyncService:
             )
         return {"transferred": transferred, "skipped": skipped, "failed": failed}
 
-    def _make_progress_callback(self, book_title: str, file_path: str) -> Callable[[int, int], None]:
-        transfer_start = time.time()
-        last_emit_time = [0.0]
-
-        def progress_callback(bytes_so_far: int, bytes_total: int) -> None:
-            now = time.time()
-            if now - last_emit_time[0] < 0.25 and bytes_so_far < bytes_total:
-                return
-            last_emit_time[0] = now
-
-            elapsed = now - transfer_start
-            speed = bytes_so_far / elapsed if elapsed > 0 else 0
-            remaining = (bytes_total - bytes_so_far) / speed if speed > 0 else 0
-            percentage = (bytes_so_far / bytes_total * 100) if bytes_total > 0 else 0
-
-            self.emit_callback(
-                "transfer_progress",
-                {
-                    "book_title": book_title,
-                    "bytes_transferred": bytes_so_far,
-                    "bytes_total": bytes_total,
-                    "percentage": round(percentage, 1),
-                    "speed_bytes_per_sec": round(speed),
-                    "eta_seconds": round(remaining),
-                },
-            )
-
-        return progress_callback

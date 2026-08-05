@@ -46,10 +46,14 @@ const badgeConfig = computed(() => {
   }
 })
 
-// The compact corner dot only flags states that need attention; a "delivered"
-// dot on every library card would be noise.
+// The compact corner dot renders for every delivery state so "is this on my
+// Kindle?" is answerable straight from the library grid.
 const showCompact = computed(
-  () => props.status === 'PENDING' || props.status === 'IN_PROGRESS' || props.status === 'SKIPPED'
+  () =>
+    props.status === 'PENDING' ||
+    props.status === 'IN_PROGRESS' ||
+    props.status === 'SKIPPED' ||
+    props.status === 'DELIVERED'
 )
 </script>
 

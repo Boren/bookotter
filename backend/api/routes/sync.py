@@ -27,6 +27,15 @@ router = APIRouter()
 _kindle_sync_running = False
 
 
+def is_kindle_sync_running() -> bool:
+    """Whether a manual bulk Kindle sync is currently running.
+
+    Consulted by PipelineService.kick_kindle_delivery so a per-book kick
+    defers to an in-flight bulk sync instead of racing it over SSH.
+    """
+    return _kindle_sync_running
+
+
 class KindleSyncRequest(BaseModel):
     kindle_device: str
 

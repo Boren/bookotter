@@ -55,6 +55,14 @@ const statusOptions: { value: BookStatus; label: string }[] = [
   { value: 'failed', label: 'Failed' },
 ]
 
+const kindleStatusOptions = [
+  { value: 'DELIVERED', label: 'On Kindle' },
+  { value: 'PENDING', label: 'Queued for Kindle' },
+  { value: 'IN_PROGRESS', label: 'Sending to Kindle' },
+  { value: 'SKIPPED', label: 'Delivery skipped' },
+  { value: 'NONE', label: 'Not sent to Kindle' },
+]
+
 const sortOptions = [
   { value: 'title', label: 'Title' },
   { value: 'created_at', label: 'Date Added' },
@@ -101,13 +109,14 @@ const clearFilters = () => {
   searchInput.value = ''
   store.searchQuery = ''
   store.filterStatus = null
+  store.filterKindleStatus = null
   store.filterAuthor = null
   store.offset = 0
   store.fetchBooks()
 }
 
 const hasActiveFilters = () => {
-  return !!(store.searchQuery || store.filterStatus || store.filterAuthor)
+  return !!(store.searchQuery || store.filterStatus || store.filterKindleStatus || store.filterAuthor)
 }
 
 const formatFileSize = (bytes: number | null) => {
@@ -167,6 +176,17 @@ onUnmounted(() => {
         <select v-model="store.filterStatus" @change="handleStatusFilter" class="input sm:w-44">
           <option :value="null">All Statuses</option>
           <option v-for="s in statusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+        </select>
+
+        <!-- Kindle Delivery Filter -->
+        <select
+          v-model="store.filterKindleStatus"
+          @change="handleStatusFilter"
+          class="input sm:w-48"
+          data-testid="kindle-filter"
+        >
+          <option :value="null">Kindle: All</option>
+          <option v-for="k in kindleStatusOptions" :key="k.value" :value="k.value">{{ k.label }}</option>
         </select>
 
         <!-- Author Filter -->

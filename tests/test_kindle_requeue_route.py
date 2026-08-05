@@ -54,8 +54,10 @@ def _make_library_book(db_session, delivery_status: str | None, title: str = "Re
 
 
 class TestKindleRequeue:
-    @pytest.mark.parametrize("status", [KindleDeliveryStatus.SKIPPED.value, KindleDeliveryStatus.DELIVERED.value])
-    def test_requeue_from_terminal_states(self, client, db_session, status):
+    @pytest.mark.parametrize(
+        "status", [KindleDeliveryStatus.SKIPPED.value, KindleDeliveryStatus.DELIVERED.value, None]
+    )
+    def test_requeue_from_queueable_states(self, client, db_session, status):
         book = _make_library_book(db_session, status)
 
         response = client.post(f"/api/library/books/{book.id}/kindle-requeue")
@@ -64,17 +66,49 @@ class TestKindleRequeue:
         data = response.json()
         assert data["previous_status"] == status
         assert data["new_status"] == KindleDeliveryStatus.PENDING.value
+        assert data["already_queued"] is False
+        # TestClient runs without lifespan, so app.state.pipeline is absent
+        assert data["kicked"] is False
 
         db_session.refresh(book)
         assert book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
         assert book.kindle_delivery_attempts == 0
         assert book.kindle_first_pending_at is not None
 
-    @pytest.mark.parametrize("status", [KindleDeliveryStatus.PENDING.value, None])
-    def test_requeue_rejected_for_non_terminal_states(self, client, db_session, status):
-        book = _make_library_book(db_session, status)
+    def test_requeue_pending_is_idempotent(self, client, db_session):
+        book = _make_library_book(db_session, KindleDeliveryStatus.PENDING.value)
+
         response = client.post(f"/api/library/books/{book.id}/kindle-requeue")
-        assert response.status_code == 400
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["already_queued"] is True
+        assert data["new_status"] == KindleDeliveryStatus.PENDING.value
+
+        db_session.refresh(book)
+        # Idempotent: no state was touched (attempts stay at the fixture's 3)
+        assert book.kindle_delivery_attempts == 3
+
+    def test_requeue_rejected_while_in_progress(self, client, db_session):
+        book = _make_library_book(db_session, KindleDeliveryStatus.IN_PROGRESS.value)
+        response = client.post(f"/api/library/books/{book.id}/kindle-requeue")
+        assert response.status_code == 409
+
+    def test_requeue_kicks_pipeline_when_available(self, client, db_session):
+        from unittest.mock import MagicMock
+
+        book = _make_library_book(db_session, None)
+        pipeline = MagicMock()
+        app.state.pipeline = pipeline
+        try:
+            response = client.post(f"/api/library/books/{book.id}/kindle-requeue")
+        finally:
+            del app.state.pipeline
+
+        assert response.status_code == 202
+        assert response.json()["kicked"] is True
+        # BackgroundTasks run before TestClient returns
+        pipeline.kick_kindle_delivery.assert_called_once()
 
     def test_requeue_rejected_without_file(self, client, db_session):
         book = _make_library_book(db_session, KindleDeliveryStatus.SKIPPED.value, with_file=False)

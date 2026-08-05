@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import type { Schedule, Kindle } from '../types'
+import { ref, computed, onMounted } from 'vue'
+import { useKindlesStore } from '../stores/kindles'
+import type { Schedule } from '../types'
 
 const schedules = ref<Schedule[]>([])
-const kindles = ref<Kindle[]>([])
+const kindlesStore = useKindlesStore()
+const kindles = computed(() => kindlesStore.kindles)
 const loading = ref(true)
 const showForm = ref(false)
 const editingId = ref<string | null>(null)
@@ -30,15 +32,6 @@ const fetchSchedules = async () => {
     schedules.value = await response.json()
   } catch (e) {
     console.error('Failed to fetch schedules:', e)
-  }
-}
-
-const fetchKindles = async () => {
-  try {
-    const response = await fetch('/api/kindles')
-    kindles.value = await response.json()
-  } catch (e) {
-    console.error('Failed to fetch kindles:', e)
   }
 }
 
@@ -120,7 +113,7 @@ const formatDate = (dateStr: string | null) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchSchedules(), fetchKindles()])
+  await Promise.all([fetchSchedules(), kindlesStore.fetchKindles()])
   loading.value = false
 })
 </script>

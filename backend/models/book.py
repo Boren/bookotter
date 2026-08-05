@@ -154,6 +154,7 @@ class Book(Base):
     kindle_delivery_status = Column(String(20), nullable=True)
     kindle_delivery_attempts = Column(Integer, default=0, nullable=False)
     kindle_first_pending_at = Column(DateTime, nullable=True)
+    kindle_delivered_at = Column(DateTime, nullable=True)
 
     # Relationships
     author = relationship("Author", back_populates="books")
@@ -200,6 +201,9 @@ class Book(Base):
             "kindle_delivery_attempts": self.kindle_delivery_attempts,
             "kindle_first_pending_at": self.kindle_first_pending_at.isoformat()
             if self.kindle_first_pending_at
+            else None,
+            "kindle_delivered_at": self.kindle_delivered_at.isoformat()
+            if self.kindle_delivered_at
             else None,
         }
 
