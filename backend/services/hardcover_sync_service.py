@@ -194,8 +194,8 @@ class HardcoverSyncService:
 
         for book in books:
             try:
-                if not book.root_folder:
-                    logger.warning(f"Book '{book.title}' has no root_folder, skipping Kindle transfer")
+                if not book.root_folder or not book.file_path:
+                    logger.warning(f"Book '{book.title}' has no root_folder or file_path, skipping Kindle transfer")
                     skipped += 1
                     continue
 

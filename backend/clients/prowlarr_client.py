@@ -313,7 +313,7 @@ class ProwlarrClient:
         parsed (integer seconds or HTTP-date) into ``retry_after_seconds``.
         """
         url = f"{self.base_url}/api/v1/indexer/{indexer_id}/newznab"
-        params = {"t": "book", "maxage": max_age_days, "limit": limit}
+        params: dict[str, str | int] = {"t": "book", "maxage": max_age_days, "limit": limit}
 
         try:
             response = requests.get(url, headers=self.headers, params=params, timeout=RSS_HTTP_TIMEOUT_SECONDS)

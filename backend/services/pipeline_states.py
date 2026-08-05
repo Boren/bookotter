@@ -1,10 +1,10 @@
-# pyright: reportArgumentType=false, reportAttributeAccessIssue=false
-
 """
 Pipeline state machine for book and download status transitions with validation.
 """
 
-from sqlalchemy import update
+from typing import Any, cast
+
+from sqlalchemy import CursorResult, update
 from sqlalchemy.orm import Session
 
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
@@ -47,20 +47,20 @@ def can_transition(current_status: str, target_status: str, is_download: bool = 
     """
     if is_download:
         try:
-            current = DownloadStatus(current_status)
-            target = DownloadStatus(target_status)
+            download_current = DownloadStatus(current_status)
+            download_target = DownloadStatus(target_status)
         except ValueError:
             return False
 
-        return target in VALID_DOWNLOAD_TRANSITIONS.get(current, set())
+        return download_target in VALID_DOWNLOAD_TRANSITIONS.get(download_current, set())
 
     try:
-        current = BookStatus(current_status)
-        target = BookStatus(target_status)
+        book_current = BookStatus(current_status)
+        book_target = BookStatus(target_status)
     except ValueError:
         return False
 
-    return target in VALID_BOOK_TRANSITIONS.get(current, set())
+    return book_target in VALID_BOOK_TRANSITIONS.get(book_current, set())
 
 
 def transition_book(book: Book, target_status: str, db: Session) -> bool:
@@ -78,7 +78,10 @@ def transition_book(book: Book, target_status: str, db: Session) -> bool:
     if not can_transition(book.status, target_status, is_download=False):
         return False
 
-    result = db.execute(update(Book).where(Book.id == book.id, Book.status == book.status).values(status=target_status))
+    result = cast(
+        "CursorResult[Any]",
+        db.execute(update(Book).where(Book.id == book.id, Book.status == book.status).values(status=target_status)),
+    )
     if result.rowcount != 1:
         return False
 
@@ -101,10 +104,13 @@ def transition_download(download: Download, target_status: str, db: Session) -> 
     if not can_transition(download.status, target_status, is_download=True):
         return False
 
-    result = db.execute(
-        update(Download)
-        .where(Download.id == download.id, Download.status == download.status)
-        .values(status=target_status)
+    result = cast(
+        "CursorResult[Any]",
+        db.execute(
+            update(Download)
+            .where(Download.id == download.id, Download.status == download.status)
+            .values(status=target_status)
+        ),
     )
     if result.rowcount != 1:
         return False

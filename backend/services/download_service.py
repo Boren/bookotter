@@ -266,7 +266,8 @@ class DownloadService:
         magnet_url: str | None = search_result.get("magnet_url")
         download_url: str | None = search_result.get("download_url")
 
-        if not magnet_url and not download_url:
+        url_to_add = magnet_url or download_url
+        if not url_to_add:
             logger.error("No URL available in search result for book %d", book_id)
             return None
 
@@ -277,8 +278,6 @@ class DownloadService:
                 book_id,
             )
             return None
-
-        url_to_add = magnet_url or download_url
 
         # Pre-flight DB dedup: skip if an active download for this book already exists
         # or if any download with this torrent_hash is already tracked.
@@ -531,7 +530,7 @@ class DownloadService:
             True if handled successfully, False on error.
         """
         owns_session = db is None
-        if owns_session:
+        if db is None:
             db = self._db_factory()
             if download not in db:
                 download = db.merge(download)

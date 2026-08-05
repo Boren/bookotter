@@ -27,9 +27,9 @@ import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.orm import joinedload
 
 from backend.errors import FailureReason, PipelineError
@@ -504,9 +504,11 @@ class ScannerService:
             if stale_scans:
                 db.commit()
 
-            insert_result = db.execute(
-                text(
-                    """
+            insert_result = cast(
+                "CursorResult[Any]",
+                db.execute(
+                    text(
+                        """
                     INSERT INTO scans (
                         root_folder_id,
                         status,
@@ -535,12 +537,13 @@ class ScannerService:
                           AND status = :status
                     )
                     """
+                    ),
+                    {
+                        "root_folder_id": root_folder_id,
+                        "status": ScanStatus.RUNNING.value,
+                        "started_at": now,
+                    },
                 ),
-                {
-                    "root_folder_id": root_folder_id,
-                    "status": ScanStatus.RUNNING.value,
-                    "started_at": now,
-                },
             )
             if insert_result.rowcount == 0:
                 db.rollback()

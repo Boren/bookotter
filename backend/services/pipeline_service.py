@@ -702,6 +702,10 @@ class PipelineService:
             db.close()
 
     def _search_and_grab(self, book: Book, db: Any) -> int:
+        if self.search_service is None:
+            logger.warning("_search_and_grab: no search_service configured, skipping")
+            return 0
+
         author_name = book.author.name if book.author else ""
 
         if book.status in {BookStatus.WANTED, BookStatus.MISSING}:

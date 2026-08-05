@@ -177,7 +177,7 @@ class EpubService:
             epub_authors = metadata.authors or []
             epub_isbns = [metadata.identifier] if metadata.identifier else []
 
-        expected_isbn = cast(str | None, expected_book.isbn)
+        expected_isbn = expected_book.isbn
         expected_title = cast(str | None, expected_book.title)
         expected_author = cast(Any, expected_book.author)
         expected_author_names = [cast(str, expected_author.name)] if expected_author is not None else []
