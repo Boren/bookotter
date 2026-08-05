@@ -49,7 +49,7 @@ pytest tests/ --cov          # With coverage
 
 1. `ruff check .` + `ruff format --check .`
 2. `pytest tests/`
-3. `pnpm lint` + `pnpm build:check` (in `frontend/`)
+3. `pnpm lint` + `pnpm test` + `pnpm build:check` (in `frontend/`)
 
 ## Architecture
 
@@ -101,5 +101,17 @@ frontend/
 ## Branching & Releases
 
 `feature` → `dev` → PR → `main` → `git tag v1.x.x` → GitHub Release
+
+**All changes land via PR with auto-merge — never push directly to `dev` or `main`** (a repo ruleset blocks direct pushes and requires the `Backend Lint` and `Frontend Check` CI checks). Standard flow:
+
+```bash
+git checkout -b feat/my-change dev
+# ...commit...
+git push -u origin feat/my-change
+gh pr create --base dev --fill
+gh pr merge --auto --squash
+```
+
+Squash is the only allowed merge method; branches are auto-deleted after merge.
 
 Docker images auto-built: `dev` branch → `:dev` tag, `main` → `:main`, version tags → `:latest` + semver tags.

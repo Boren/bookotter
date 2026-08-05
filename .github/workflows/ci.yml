@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, dev]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend-lint:
     name: Backend Lint
@@ -25,14 +29,11 @@ jobs:
       - name: Install project + dev dependencies
         run: uv sync --group dev
 
-      - name: Install ruff
-        run: pip install ruff
-
       - name: Run ruff linter
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Check ruff formatting
-        run: ruff format --check .
+        run: uv run ruff format --check .
 
       - name: Run pytest
         run: uv run pytest tests/ -v --tb=short
@@ -64,6 +65,9 @@ jobs:
 
       - name: Lint with Biome
         run: pnpm lint
+
+      - name: Run vitest
+        run: pnpm test
 
       - name: Type check and build
         run: pnpm build:check
