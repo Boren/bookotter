@@ -9,6 +9,7 @@ import shlex
 import socket
 import stat
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -660,7 +661,12 @@ class KindleClient:
                         {
                             "name": entry.filename,
                             "size": entry.st_size,
-                            "modified": entry.st_mtime,
+                            # SFTP mtime is unix seconds; the frontend expects ISO
+                            "modified": (
+                                datetime.fromtimestamp(entry.st_mtime, UTC).isoformat()
+                                if entry.st_mtime is not None
+                                else None
+                            ),
                         }
                     )
 

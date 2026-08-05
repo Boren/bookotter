@@ -4,12 +4,14 @@ Handles CRUD operations for Kindle device configurations.
 """
 
 import asyncio
+import os
 import time
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from backend.api.routes.browse import BrowseResponse
 from backend.clients.kindle_client import (
@@ -27,6 +29,8 @@ from backend.config import (
     mask_sensitive_data,
     update_kindle,
 )
+from backend.database import get_db
+from backend.models.book import Book
 
 router = APIRouter()
 
@@ -186,8 +190,8 @@ async def get_kindle_status(kindle_id: str, refresh: bool = False):
 
 
 @router.get("/{kindle_id}/books")
-async def list_kindle_books(kindle_id: str):
-    """List books currently on a Kindle."""
+async def list_kindle_books(kindle_id: str, db: Session = Depends(get_db)):
+    """List books currently on a Kindle, matched to library books by filename."""
     kindle_config = get_kindle_by_id(kindle_id)
     if not kindle_config:
         raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
@@ -195,9 +199,17 @@ async def list_kindle_books(kindle_id: str):
     try:
         client = KindleClient.from_config(kindle_config)
         books = client.list_books()
-        return {"success": True, "books": books, "count": len(books)}
     except Exception as e:
         return {"success": False, "error": str(e), "books": []}
+
+    # Files are uploaded with their local basename unchanged, so
+    # basename(Book.file_path) is an exact join key (same as the sync code).
+    rows = db.query(Book.id, Book.title, Book.file_path).filter(Book.file_path.isnot(None)).all()
+    by_basename = {os.path.basename(file_path): (book_id, title) for book_id, title, file_path in rows}
+    for file in books:
+        file["book_id"], file["title"] = by_basename.get(file["name"], (None, None))
+
+    return {"success": True, "books": books, "count": len(books)}
 
 
 @router.get("/{kindle_id}/browse", response_model=BrowseResponse)
