@@ -22,7 +22,7 @@ from sqlalchemy import (
     inspect,
     text,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,10 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 def get_db():
@@ -178,7 +181,7 @@ def backfill_missing_status() -> int:
             if has_active_download:
                 continue
 
-            book.status = BookStatus.MISSING.value  # pyright: ignore[reportAttributeAccessIssue]
+            book.status = BookStatus.MISSING.value
             converted += 1
 
         db.commit()
