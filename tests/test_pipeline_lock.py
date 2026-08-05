@@ -85,6 +85,10 @@ class TestAcquirePipelineLock:
         errors: list[FailureReason] = []
         result_lock = threading.Lock()
         barrier = threading.Barrier(5)
+        # The winner must hold the lock until every loser has attempted;
+        # a fixed sleep lets a slow-to-schedule thread acquire after release
+        # and turn "exactly one wins" into two.
+        all_losers_failed = threading.Event()
 
         def try_acquire():
             db = shared_db_factory()
@@ -93,10 +97,12 @@ class TestAcquirePipelineLock:
                 with acquire_pipeline_lock(db, holder="scheduled"):
                     with result_lock:
                         results.append("success")
-                    time.sleep(0.3)
+                    all_losers_failed.wait(timeout=10)
             except PipelineError as e:
                 with result_lock:
                     errors.append(e.reason)
+                    if len(errors) == 4:
+                        all_losers_failed.set()
             finally:
                 db.close()
 

@@ -1,5 +1,6 @@
 """Tests for the qBittorrent API client."""
 
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,7 @@ import requests
 
 from backend.clients.qbittorrent_client import (
     DOWNLOAD_COMPLETE_STATES,
+    SESSION_TTL_SECONDS,
     QBittorrentClient,
     TorrentState,
 )
@@ -68,7 +70,9 @@ class TestEnsureAuthenticated:
 
     def test_reauths_when_session_expired(self, client):
         client._authenticated = True
-        client._auth_time = 0.0
+        # Relative to the monotonic clock: an absolute 0.0 only reads as
+        # expired once the host has been awake longer than the TTL.
+        client._auth_time = time.monotonic() - (SESSION_TTL_SECONDS + 1)
         with patch.object(client, "_login") as mock_login:
             client._ensure_authenticated()
         mock_login.assert_called_once()
