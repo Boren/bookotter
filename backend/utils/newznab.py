@@ -29,7 +29,7 @@ def _safe_int(value: str | None, default: int = 0) -> int:
         return default
     try:
         return int(str(value).strip())
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -216,7 +216,7 @@ def _normalize_item(item: ET.Element, *, indexer_id: int, indexer_name: str) -> 
         return None
     try:
         publish_dt = parsedate_to_datetime(pubdate_text)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if publish_dt is None:
         return None

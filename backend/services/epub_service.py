@@ -137,7 +137,7 @@ class EpubService:
                 mimetype = zf.read("mimetype").decode("utf-8", errors="replace").strip()
                 if mimetype != "application/epub+zip":
                     return False
-        except (zipfile.BadZipFile, KeyError, UnicodeDecodeError):
+        except zipfile.BadZipFile, KeyError, UnicodeDecodeError:
             return False
 
         try:
@@ -157,7 +157,7 @@ class EpubService:
         try:
             with zipfile.ZipFile(epub_path, "r") as zf:
                 return "META-INF/encryption.xml" in zf.namelist()
-        except (zipfile.BadZipFile, OSError):
+        except zipfile.BadZipFile, OSError:
             return False
 
     def verify_content(self, epub_path: Path, expected_book: Book) -> tuple[bool, str | None]:

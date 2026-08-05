@@ -66,7 +66,7 @@ QUEUED_DL_STATES = {
 
 
 def reconcile_state(
-    db: "Session",
+    db: Session,
     qbit_client: QBittorrentClient,
     *,
     category: str = DEFAULT_CATEGORY,
@@ -246,7 +246,7 @@ class DownloadService:
         self.category = category
         self.ws_manager = ws_manager
 
-    def add_download(self, book_id: int, search_result: dict) -> "Download | None":
+    def add_download(self, book_id: int, search_result: dict) -> Download | None:
         """
         Add a torrent to qBittorrent and create a Download DB record.
 
@@ -513,8 +513,8 @@ class DownloadService:
 
     def handle_completed(
         self,
-        download: "Download",
-        db: "Session | None" = None,
+        download: Download,
+        db: Session | None = None,
     ) -> bool:
         """
         Handle a torrent that has finished downloading.
@@ -757,7 +757,7 @@ class DownloadService:
         finally:
             db.close()
 
-    def add_torrent(self, download: "Download") -> bool:
+    def add_torrent(self, download: Download) -> bool:
         """Add an existing QUEUED download's torrent to qBittorrent.
 
         Called by the pipeline when a book transitions from GRABBED to DOWNLOADING.
@@ -791,7 +791,7 @@ class DownloadService:
                 return True
         return added
 
-    def get_completed_file_path(self, download: "Download") -> str | None:
+    def get_completed_file_path(self, download: Download) -> str | None:
         """Check if a torrent download is complete and return the EPUB file path.
 
         Delegates to QBittorrentClient.get_completed_file_path using the
@@ -810,7 +810,7 @@ class DownloadService:
         result = self.qbit.get_completed_file_path(download.torrent_hash)
         return str(result) if result is not None else None
 
-    def _configure_file_priorities(self, torrent_hash: str) -> "str | None":
+    def _configure_file_priorities(self, torrent_hash: str) -> str | None:
         """
         For multi-file torrents, set priority 0 on all non-EPUB files.
 
@@ -846,7 +846,7 @@ class DownloadService:
 
         return epub_name
 
-    def _update_progress_tracking(self, download: "Download", torrent_info: dict) -> None:
+    def _update_progress_tracking(self, download: Download, torrent_info: dict) -> None:
         if download.last_progress_at is None:
             download.last_progress_at = download.created_at or datetime.utcnow()
 
@@ -855,7 +855,7 @@ class DownloadService:
             download.bytes_at_last_check = downloaded
             download.last_progress_at = datetime.utcnow()
 
-    def _check_stall_and_timeout(self, download: "Download", db: "Session") -> bool:
+    def _check_stall_and_timeout(self, download: Download, db: Session) -> bool:
         if download.status not in {DownloadStatus.DOWNLOADING.value, DownloadStatus.QUEUED.value}:
             return False
 
@@ -891,8 +891,8 @@ class DownloadService:
 
     def _fail_for_stall(
         self,
-        download: "Download",
-        db: "Session",
+        download: Download,
+        db: Session,
         *,
         reason: FailureReason,
         message: str,
@@ -957,7 +957,7 @@ class DownloadService:
         if self.ws_manager:
             self.ws_manager.broadcast_sync(event, data)
 
-    def _transition_book(self, book: Book, target_status: str, db: "Session", download: Download | None = None) -> bool:
+    def _transition_book(self, book: Book, target_status: str, db: Session, download: Download | None = None) -> bool:
         old_status = book.status
         if not transition_book(book, target_status, db):
             return False

@@ -28,7 +28,7 @@ def get_active_lock(db: Session) -> PipelineLock | None:
 
 
 @contextmanager
-def acquire_pipeline_lock(db: Session, holder: str) -> Generator[str, None, None]:
+def acquire_pipeline_lock(db: Session, holder: str) -> Generator[str]:
     """
     Context manager that acquires the single-row advisory pipeline lock.
 

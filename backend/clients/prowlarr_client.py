@@ -48,7 +48,7 @@ def _parse_retry_after(value: str | None) -> int | None:
 
     try:
         dt = parsedate_to_datetime(text)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if dt is None:
         return None

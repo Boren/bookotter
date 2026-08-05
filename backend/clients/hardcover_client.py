@@ -173,7 +173,7 @@ class HardcoverClient:
         if header_value:
             try:
                 return float(header_value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
         return HARDCOVER_RATE_LIMIT_DELAY * (2 ** (attempt - 1))
 
@@ -520,7 +520,7 @@ class HardcoverClient:
 
         try:
             book_id_int = int(book_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.warning("Skipping Hardcover search entry with non-integer id: %r", book_id)
             return None
 

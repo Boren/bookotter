@@ -89,7 +89,7 @@ class Author(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
-    books: Mapped[list["Book"]] = relationship(back_populates="author")
+    books: Mapped[list[Book]] = relationship(back_populates="author")
 
     def to_dict(self):
         """Convert to dictionary for API responses."""
@@ -113,7 +113,7 @@ class RootFolder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Relationships
-    books: Mapped[list["Book"]] = relationship(back_populates="root_folder")
+    books: Mapped[list[Book]] = relationship(back_populates="root_folder")
 
 
 class Book(Base):
@@ -158,9 +158,9 @@ class Book(Base):
     kindle_delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    author: Mapped["Author | None"] = relationship(back_populates="books")
-    root_folder: Mapped["RootFolder | None"] = relationship(back_populates="books")
-    downloads: Mapped[list["Download"]] = relationship(back_populates="book", cascade="all, delete-orphan")
+    author: Mapped[Author | None] = relationship(back_populates="books")
+    root_folder: Mapped[RootFolder | None] = relationship(back_populates="books")
+    downloads: Mapped[list[Download]] = relationship(back_populates="book", cascade="all, delete-orphan")
 
     # Indexes and constraints
     __table_args__ = (
@@ -229,7 +229,7 @@ class Download(Base):
     bytes_at_last_check: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
-    book: Mapped["Book"] = relationship(back_populates="downloads")
+    book: Mapped[Book] = relationship(back_populates="downloads")
 
     # Indexes
     __table_args__ = (Index("ix_download_status_created", "status", "created_at"),)

@@ -77,7 +77,7 @@ class KindleClient:
         self._ssh_pool: dict[str, paramiko.SSHClient] = {}
 
     @classmethod
-    def from_config(cls, config: dict) -> "KindleClient":
+    def from_config(cls, config: dict) -> KindleClient:
         """Create a KindleClient from a configuration dictionary."""
         return cls(
             hostname=config.get("hostname", ""),
