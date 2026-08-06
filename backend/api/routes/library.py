@@ -79,8 +79,9 @@ async def list_books(
         description="Filter by Kindle delivery status; NONE matches books never queued",
     ),
     author: str | None = Query(default=None, description="Filter by author name (partial match)"),
+    series: str | None = Query(default=None, description="Filter by exact series name (case-insensitive, trimmed)"),
     search: str | None = Query(default=None, description="Search title or author"),
-    sort_by: str = Query(default="created_at", pattern="^(title|created_at|updated_at|status)$"),
+    sort_by: str = Query(default="created_at", pattern="^(title|created_at|updated_at|status|series_position)$"),
     sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -100,6 +101,9 @@ async def list_books(
     if author:
         query = query.join(Author).filter(Author.name.ilike(f"%{author}%"))
 
+    if series:
+        query = query.filter(func.lower(func.trim(Book.series_name)) == series.strip().lower())
+
     if search:
         search_term = f"%{search}%"
         query = query.outerjoin(Author).filter((Book.title.ilike(search_term)) | (Author.name.ilike(search_term)))
@@ -107,9 +111,11 @@ async def list_books(
     total = query.count()
 
     sort_column = getattr(Book, sort_by)
-    if sort_order == "desc":
-        sort_column = sort_column.desc()
-    query = query.order_by(sort_column)
+    sort_column = sort_column.desc() if sort_order == "desc" else sort_column.asc()
+    if sort_by == "series_position":
+        query = query.order_by(sort_column.nulls_last(), Book.title)
+    else:
+        query = query.order_by(sort_column)
 
     books = query.offset(offset).limit(limit).all()
 
