@@ -19,12 +19,13 @@ from sqlalchemy.orm import Session, joinedload
 from backend.config import get_first_real_kindle, get_kindle_sync_shelves, load_config
 from backend.constants import MAX_COLLISION_ATTEMPTS
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Book, BookStatus, KindleDeliveryStatus
+from backend.models.book import Book, BookStatus
 from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus
 from backend.services.import_service import ImportService
 from backend.utils.atomic import atomic_move
 from backend.utils.clock import naive_utcnow
 from backend.utils.events import log_event
+from backend.utils.kindle_delivery import rearm_kindle_delivery
 from backend.utils.pipeline_lock import acquire_pipeline_lock
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,15 @@ class RenameService:
         """
         with acquire_pipeline_lock(self.db, holder="manual"):
             return self._apply_locked(book_ids)
+
+    def apply_locked(self, book_ids: list[int] | None = None) -> dict:
+        """Execute the renames; the caller must already hold the pipeline lock.
+
+        Intended for the pipeline self-heal stage, which runs inside the
+        pipeline's own lock — calling apply() there would deadlock on
+        PIPELINE_LOCK_HELD.
+        """
+        return self._apply_locked(book_ids)
 
     def _compute_targets(self) -> list[RenameItem]:
         template = load_config().get("library", {}).get("naming_template")
@@ -225,15 +235,7 @@ class RenameService:
             DismissedScanPath.relative_path == _nfc(item.new_path),
         ).delete(synchronize_session=False)
 
-        # Mirror the pipeline's auto-delivery gate: only mirror-set books re-send.
-        if (
-            book.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
-            and real_kindle is not None
-            and (book.hardcover_status in kindle_shelves or book.kindle_pinned)
-        ):
-            book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-            book.kindle_first_pending_at = naive_utcnow()
-            book.kindle_delivery_attempts = 0
+        rearm_kindle_delivery(book, real_kindle, kindle_shelves)
 
     @staticmethod
     def _prune_empty_dirs(directory: Path, root: Path) -> None:

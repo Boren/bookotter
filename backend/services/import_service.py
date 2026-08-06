@@ -14,11 +14,12 @@ from sqlalchemy.orm import Session
 from backend.config import load_config
 from backend.constants import MAX_COLLISION_ATTEMPTS, MAX_FILENAME_LENGTH
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Book, BookStatus, FolderOrganization, RootFolder
+from backend.models.book import Book, BookStatus, EpubMetaState, FolderOrganization, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.atomic import atomic_copy
+from backend.utils.clock import naive_utcnow
 from backend.utils.cover import fetch_cover
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
@@ -131,9 +132,11 @@ class ImportService:
                 book.low_confidence = True
                 _append_failure_history(book, FailureReason.IMPORT_DRM_PROTECTED.value)
                 book.failure_reason = FailureReason.IMPORT_DRM_PROTECTED.value
+                book.epub_meta_state = EpubMetaState.DRM.value
             else:
-                self.write_metadata(book, dest_path)
-                self._embed_cover(book, dest_path)
+                self.embed_book_metadata(book, dest_path)
+                book.epub_meta_state = EpubMetaState.SYNCED.value
+                book.epub_meta_synced_at = naive_utcnow()
 
             relative_path = dest_path.relative_to(root_folder.path)
             book.file_path = str(relative_path)
@@ -263,6 +266,11 @@ class ImportService:
             raise PipelineError(f"Failed to copy {source} to {dest}: {exc}", FailureReason.IMPORT_COPY_FAILED) from exc
 
         return dest
+
+    def embed_book_metadata(self, book: Book, epub_path: Path) -> None:
+        """Write DB metadata into the EPUB and embed the cover (cover failures swallowed)."""
+        self.write_metadata(book, epub_path)
+        self._embed_cover(book, epub_path)
 
     def write_metadata(self, book: Book, epub_path: Path) -> None:
         """Write Book metadata (title, authors, series, description) into the EPUB.

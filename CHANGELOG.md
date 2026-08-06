@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- feat: pipeline self-heal stage — automatic template renames and EPUB metadata backfill
+  - Scanner-linked books now get template filenames and embedded metadata automatically
+  - Verify-before-rewrite: EPUBs whose embedded metadata already matches the DB are left untouched
+  - New `epub_meta_state` book column tracks synced / drm / failed; bounded retry on failures
+  - Renamed or rewritten mirror-set books re-deliver to the Kindle in the same pipeline run
 - feat: search UX uplift — interactive search, status badges, wanted page, blocklist
   - Fixed WebSocket broadcasting: all 11 pipeline events now fire in real time
   - Interactive search table with sortable columns (Age, Title, Indexer, Size, Peers, Rejections)

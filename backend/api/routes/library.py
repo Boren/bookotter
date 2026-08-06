@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.config import load_config
 from backend.database import get_db
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus, RootFolder
+from backend.models.book import Author, Book, BookStatus, EpubMetaState, KindleDeliveryStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.rename_service import RenameService
 from backend.utils.clock import naive_utcnow
@@ -308,8 +308,15 @@ async def update_book(book_id: int, body: BookUpdateRequest, db: Session = Depen
                         language=book.language,
                     )
                     EpubService().write_metadata(epub_path, metadata)
+                    book.epub_meta_state = EpubMetaState.SYNCED.value
+                    book.epub_meta_synced_at = naive_utcnow()
+                    book.epub_meta_attempts = 0
         except Exception as e:
             logger.warning("Failed to write EPUB metadata for book %s: %s", book_id, e)
+            # Fresh retry budget: the pipeline self-heal stage re-verifies and
+            # rewrites (or settles drm/failed) on its next pass.
+            book.epub_meta_state = None
+            book.epub_meta_attempts = 0
 
     db.commit()
     db.refresh(book)
