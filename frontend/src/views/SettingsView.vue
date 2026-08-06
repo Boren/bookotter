@@ -73,6 +73,10 @@ const normalizeConfig = (raw: Config): Config => ({
     cleanup_sdr_folders: raw.transfer.cleanup_sdr_folders,
     cleanup_protected_paths: raw.transfer.cleanup_protected_paths ?? [],
   },
+  kindle_sync: {
+    enabled: raw.kindle_sync?.enabled ?? false,
+    interval_hours: raw.kindle_sync?.interval_hours ?? 1,
+  },
 })
 
 const fetchConfig = async () => {
@@ -793,6 +797,40 @@ onMounted(() => {
               <p class="text-xs text-stone-500">Delivers each book as soon as it lands in the library</p>
             </div>
           </label>
+
+          <!-- Automatic scheduled sync -->
+          <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
+            <input type="checkbox" v-model="config.kindle_sync.enabled" class="sr-only peer" />
+            <div class="toggle" :class="config.kindle_sync.enabled ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <div>
+              <span class="text-sm font-medium text-stone-700">Sync Kindle automatically</span>
+              <p class="text-xs text-stone-500">Runs a full shelf sync on a schedule whenever the Kindle is online</p>
+            </div>
+          </label>
+
+          <!-- Sync interval (only shown when auto-sync enabled) -->
+          <Transition
+            enter-active-class="transition-all duration-200"
+            enter-from-class="opacity-0 -translate-y-2"
+            enter-to-class="opacity-100 translate-y-0"
+            leave-active-class="transition-all duration-150"
+            leave-from-class="opacity-100 translate-y-0"
+            leave-to-class="opacity-0 -translate-y-2"
+          >
+            <div v-if="config.kindle_sync.enabled" class="ml-4">
+              <label class="label">Sync interval</label>
+              <select v-model.number="config.kindle_sync.interval_hours" class="input">
+                <option :value="1">Every hour</option>
+                <option :value="6">Every 6 hours</option>
+                <option :value="24">Once a day</option>
+              </select>
+              <p class="mt-1.5 text-xs text-stone-500">
+                Offline Kindles are skipped and picked up on the next run
+              </p>
+            </div>
+          </Transition>
 
           <!-- Kindle folder layout -->
           <div>

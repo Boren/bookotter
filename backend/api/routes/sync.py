@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.kindle_client import KindleClient
-from backend.config import get_kindle_by_id, load_config
+from backend.config import get_first_real_kindle, get_kindle_by_id, load_config
 from backend.database import SessionLocal
 from backend.services.hardcover_sync_service import HardcoverSyncService
 from backend.services.websocket_manager import manager as ws_manager
@@ -21,14 +21,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Guards against concurrent manual Kindle syncs. Checked and set on the event
-# loop thread with no await in between, so two rapid clicks cannot both pass;
-# cleared in the background task's finally (and the handler's error paths).
+# Guards against concurrent bulk Kindle syncs (manual clicks and the scheduled
+# job). Manual triggers check-and-set on the event loop thread with no await in
+# between, so two rapid clicks cannot both pass; the scheduled job runs in the
+# APScheduler executor thread, where max_instances=1 prevents self-overlap.
+# Cleared in the background task's finally (and the handler's error paths).
 _kindle_sync_running = False
+
+# APScheduler job id for the automatic Kindle sync (kindle_sync config section).
+KINDLE_SYNC_JOB_ID = "kindle_auto_sync"
 
 
 def is_kindle_sync_running() -> bool:
-    """Whether a manual bulk Kindle sync is currently running.
+    """Whether a bulk Kindle sync (manual or scheduled) is currently running.
 
     Consulted by PipelineService.kick_kindle_delivery so a per-book kick
     defers to an in-flight bulk sync instead of racing it over SSH.
@@ -107,7 +112,7 @@ def _run_kindle_sync_background(
     # Plain def, NOT async: Starlette runs sync background tasks in the
     # threadpool, keeping the event loop free during long SFTP transfers.
     # broadcast_sync handles the worker-thread case via run_coroutine_threadsafe.
-    # dry_run/trigger_type are passed by the scheduler (add_sync_job kwargs).
+    # dry_run/trigger_type are passed by _run_scheduled_kindle_sync.
     global _kindle_sync_running
     try:
         config = load_config()
@@ -140,6 +145,82 @@ def _run_kindle_sync_background(
         return {"error": str(exc)}
     finally:
         _kindle_sync_running = False
+
+
+def _run_scheduled_kindle_sync() -> dict:
+    """APScheduler entry point for the automatic Kindle sync.
+
+    Skips cheaply (log + return, no SSH) when no real Kindle is configured,
+    a sync is already in flight, or the device fails the TCP probe — an
+    offline Kindle just means the next tick tries again.
+    """
+    global _kindle_sync_running
+
+    kindle = get_first_real_kindle()
+    if kindle is None:
+        logger.debug("Scheduled Kindle sync: no Kindle configured, skipping")
+        return {"skipped": "no_kindle"}
+
+    if _kindle_sync_running:
+        logger.info("Scheduled Kindle sync: a sync is already in progress, skipping")
+        return {"skipped": "already_running"}
+    _kindle_sync_running = True
+
+    try:
+        client = KindleClient.from_config(kindle)
+        if not client.is_reachable():
+            logger.info(
+                "Scheduled Kindle sync: Kindle '%s' is offline, skipping until next run",
+                kindle.get("name") or kindle.get("id"),
+            )
+            _kindle_sync_running = False
+            return {"skipped": "kindle_offline"}
+    except BaseException:
+        _kindle_sync_running = False
+        raise
+
+    dry_run = load_config().get("transfer", {}).get("dry_run", False)
+    # _run_kindle_sync_background's finally clears the running flag.
+    return _run_kindle_sync_background(
+        kindle_device=kindle["id"],
+        dry_run=dry_run,
+        trigger_type="scheduled",
+    )
+
+
+def apply_kindle_sync_schedule(config: dict | None = None) -> None:
+    """Register, update, or remove the automatic Kindle sync job per config.
+
+    Called at startup and whenever the kindle_sync config section is saved,
+    so toggling the setting takes effect without a restart. Re-saving while
+    enabled re-arms the interval (next run = now + interval); acceptable.
+    """
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from backend.services.scheduler_service import scheduler
+
+    if config is None:
+        config = load_config()
+    kindle_sync = config.get("kindle_sync", {})
+
+    if not kindle_sync.get("enabled"):
+        scheduler.remove_job(KINDLE_SYNC_JOB_ID)
+        logger.info("Automatic Kindle sync disabled")
+        return
+
+    hours = kindle_sync.get("interval_hours", 1)
+    if hours not in (1, 6, 24):
+        logger.warning("Invalid kindle_sync.interval_hours=%r, falling back to 1", hours)
+        hours = 1
+
+    scheduler.scheduler.add_job(
+        _run_scheduled_kindle_sync,
+        trigger=IntervalTrigger(hours=hours),
+        id=KINDLE_SYNC_JOB_ID,
+        name="Automatic Kindle sync",
+        replace_existing=True,
+    )
+    logger.info("Automatic Kindle sync registered (every %d hour(s))", hours)
 
 
 @router.post("/hardcover")

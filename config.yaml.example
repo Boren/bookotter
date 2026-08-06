@@ -78,6 +78,11 @@ transfer:
   cleanup_sdr_folders: true  # Also remove .sdr reading data folders
   cleanup_protected_paths: []  # Paths to never delete (e.g., ["/mnt/us/documents/"])
 
+# Automatic Kindle Sync — run a full shelf sync on a schedule
+kindle_sync:
+  enabled: false     # Set to true to sync the first configured Kindle automatically
+  interval_hours: 1  # 1, 6, or 24 (offline Kindles are skipped until the next run)
+
 # RSS Sync — automatically grab new releases matching wanted books
 rss:
   enabled: false                    # Set to true to enable RSS polling

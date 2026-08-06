@@ -256,17 +256,6 @@ export interface Kindle {
   destination_path: string;
 }
 
-export interface Schedule {
-  id: string;
-  name: string;
-  cron_expression: string;
-  enabled: boolean;
-  kindle_device: string | null;
-  dry_run: boolean;
-  last_run_at: string | null;
-  next_run_at: string | null;
-}
-
 export interface Config {
   hardcover: {
     api_token: string;
@@ -301,6 +290,10 @@ export interface Config {
     cleanup_protected_paths: string[];
   };
   library: LibraryConfig;
+  kindle_sync: {
+    enabled: boolean;
+    interval_hours: number;
+  };
   logging: {
     log_file: string;
     log_level: string;

@@ -1,13 +1,11 @@
 """
 Configuration management for BookOtter.
 Handles reading and writing config.yaml with support for multi-Kindle setup.
-All configuration (including schedules) is stored in config.yaml as the single source of truth.
+All configuration is stored in config.yaml as the single source of truth.
 """
 
 import copy
 import os
-import re
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +66,10 @@ def load_config() -> dict:
 
     # Migrate old single-kindle format to multi-kindle if needed
     file_config = _migrate_kindle_config(file_config)
+
+    # Legacy cron schedules were replaced by the kindle_sync toggle; drop the
+    # stale list so it stays inert and disappears on the next save.
+    file_config.pop("schedules", None)
 
     # Merge file config into defaults so new sections are always present
     return _deep_merge(get_default_config(), file_config)
@@ -220,7 +222,10 @@ def get_default_config() -> dict:
             "log_level": "INFO",
             "console_output": True,
         },
-        "schedules": [],
+        "kindle_sync": {
+            "enabled": False,
+            "interval_hours": 1,  # 1 | 6 | 24
+        },
     }
 
 
@@ -312,89 +317,6 @@ def delete_kindle(kindle_id: str) -> bool:
     for i, kindle in enumerate(kindles):
         if kindle.get("id") == kindle_id:
             kindles.pop(i)
-            save_config(config)
-            return True
-
-    return False
-
-
-# ============================================================================
-# Schedule Configuration Functions
-# ============================================================================
-
-
-def generate_schedule_id(name: str) -> str:
-    """Generate a URL-safe schedule ID from name."""
-    # Convert to lowercase, replace non-alphanumeric with hyphens
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    if not slug:
-        slug = "schedule"
-    # Append short UUID suffix for uniqueness
-    return f"{slug}-{uuid.uuid4().hex[:6]}"
-
-
-def get_schedules() -> list[dict]:
-    """Get all schedules from config."""
-    config = load_config()
-    return config.get("schedules", [])
-
-
-def get_schedule_by_id(schedule_id: str) -> dict | None:
-    """Get a specific schedule by ID."""
-    for schedule in get_schedules():
-        if schedule.get("id") == schedule_id:
-            return schedule
-    return None
-
-
-def add_schedule(schedule: dict) -> dict:
-    """
-    Add a new schedule to config.
-    Raises ValueError if schedule with same ID already exists.
-    """
-    config = load_config()
-    if "schedules" not in config:
-        config["schedules"] = []
-
-    existing_ids = {s.get("id") for s in config["schedules"]}
-    if schedule.get("id") in existing_ids:
-        raise ValueError(f"Schedule with id '{schedule['id']}' already exists")
-
-    config["schedules"].append(schedule)
-    save_config(config)
-    return schedule
-
-
-def update_schedule(schedule_id: str, updates: dict) -> dict | None:
-    """
-    Update a schedule configuration.
-    Returns updated schedule or None if not found.
-    """
-    config = load_config()
-    schedules = config.get("schedules", [])
-
-    for i, schedule in enumerate(schedules):
-        if schedule.get("id") == schedule_id:
-            # Don't allow changing ID
-            updates.pop("id", None)
-            schedules[i] = {**schedule, **updates}
-            save_config(config)
-            return schedules[i]
-
-    return None
-
-
-def delete_schedule(schedule_id: str) -> bool:
-    """
-    Delete a schedule configuration.
-    Returns True if deleted, False if not found.
-    """
-    config = load_config()
-    schedules = config.get("schedules", [])
-
-    for i, schedule in enumerate(schedules):
-        if schedule.get("id") == schedule_id:
-            schedules.pop(i)
             save_config(config)
             return True
 

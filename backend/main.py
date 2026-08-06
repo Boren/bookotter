@@ -27,13 +27,12 @@ from backend.api.routes import (
     root_folders,
     rss,
     scanner,
-    schedules,
     search,
     services,
     sync,
     wanted,
 )
-from backend.api.routes.sync import _run_hardcover_sync_background
+from backend.api.routes.sync import _run_hardcover_sync_background, apply_kindle_sync_schedule
 from backend.config import DATA_DIR, load_config
 from backend.database import init_db
 from backend.services.scheduler_service import scheduler
@@ -280,6 +279,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to register Hardcover poller: {e}")
 
+    try:
+        apply_kindle_sync_schedule(app_config)
+    except Exception as e:
+        logger.error(f"Failed to register automatic Kindle sync: {e}")
+
     yield
 
     if pipeline:
@@ -314,7 +318,6 @@ app.include_router(services.router, prefix="/api", tags=["services"])
 app.include_router(browse.router, prefix="/api/browse", tags=["browse"])
 app.include_router(kindles.router, prefix="/api/kindles", tags=["kindles"])
 app.include_router(root_folders.router, prefix="/api/root-folders", tags=["root-folders"])
-app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
