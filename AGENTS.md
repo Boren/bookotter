@@ -72,7 +72,7 @@ backend/
     download_service.py      → qBittorrent download management
     import_service.py        → EPUB import with metadata
     epub_service.py          → EPUB metadata read/write
-    scheduler_service.py     → Schedule management
+    scheduler_service.py     → Background jobs (RSS sync, automatic Kindle sync)
     websocket_manager.py     → WebSocket event broadcasting
   api/routes/          → FastAPI route modules
 frontend/
@@ -80,7 +80,7 @@ frontend/
   src/stores/          → Pinia stores
 ```
 
-- **Config lives in `config.yaml`**, not the database. Schedules, kindles, all settings — YAML.
+- **Config lives in `config.yaml`**, not the database. Kindles, sync toggles, all settings — YAML.
 - **Database** (SQLite) stores only sync run history and per-book results.
 - `DATA_DIR` is controlled by `BOOKOTTER_DATA_DIR` env var (default: `./data/`). Config path resolution: env var → `data/config.yaml` → `./config.yaml`.
 - `config.yaml` is **gitignored** (contains API keys, SSH creds). Use `config.yaml.example` as template.

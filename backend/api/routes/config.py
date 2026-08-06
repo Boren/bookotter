@@ -61,9 +61,18 @@ async def update_config_endpoint(body: ConfigUpdate):
 
     try:
         updated = update_config(body.config)
-        return {"success": True, "config": mask_sensitive_data(updated)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    # Re-register the automatic Kindle sync job so toggling the setting takes
+    # effect without a restart. Guarded on the key so unrelated saves don't
+    # touch the scheduler.
+    if "kindle_sync" in body.config:
+        from backend.api.routes.sync import apply_kindle_sync_schedule
+
+        apply_kindle_sync_schedule(updated)
+
+    return {"success": True, "config": mask_sensitive_data(updated)}
 
 
 @router.post("/test/hardcover")

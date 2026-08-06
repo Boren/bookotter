@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- feat: automatic Kindle sync — a Settings toggle with interval dropdown (hourly / every 6 hours / daily) replaces the cron-based Schedule page
+  - Scheduled runs probe the Kindle first and skip cheaply when it's offline
+  - Toggling the setting takes effect immediately, no restart needed
+  - Scheduled and manual syncs now share the same concurrency guard
+
+### Removed
+- The Schedule page and `/api/schedules` cron CRUD; existing `schedules:` entries in config.yaml are ignored and removed on the next settings save
 - feat: pipeline self-heal stage — automatic template renames and EPUB metadata backfill
   - Scanner-linked books now get template filenames and embedded metadata automatically
   - Verify-before-rewrite: EPUBs whose embedded metadata already matches the DB are left untouched

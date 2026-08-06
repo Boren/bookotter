@@ -9,11 +9,6 @@ const router = createRouter({
       component: () => import('../views/DashboardView.vue'),
     },
     {
-      path: '/schedule',
-      name: 'schedule',
-      component: () => import('../views/ScheduleView.vue'),
-    },
-    {
       path: '/downloads',
       name: 'downloads',
       component: () => import('../views/DownloadsView.vue'),

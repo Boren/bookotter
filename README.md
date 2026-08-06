@@ -18,7 +18,7 @@ Self-hosted book management platform — automatically search, download, and man
 - **Folder Organization**: Configurable library structure — flat, by author, by series, or by author/series
 - **Pipeline Automation**: Configurable status → action mapping (e.g., "want to read" triggers search + download + Kindle sync)
 - **Multi-Kindle Support**: Configure multiple Kindle devices and choose which to sync to
-- **Scheduled Syncs**: Configure cron-like schedules via the web UI
+- **Automatic Kindle Sync**: One toggle in Settings runs a full shelf sync hourly, every 6 hours, or daily
 - **RSS Sync (Auto-Grab)**: Automatically monitor Prowlarr indexers for new releases matching your wanted books
 - **Real-time Progress**: Live WebSocket updates during operations
 - **Web Interface**: Modern Vue 3 dashboard for configuration, scheduling, and monitoring
@@ -134,12 +134,6 @@ The web UI provides:
 - View real-time progress with WebSocket updates
 - See library statistics
 
-### Schedule
-- Create cron-like schedules
-- Enable/disable schedules
-- Choose target Kindle and book statuses per schedule
-- View next scheduled run time
-
 ### Settings
 - Configure Hardcover API token
 - Configure Prowlarr and qBittorrent connections
@@ -147,6 +141,7 @@ The web UI provides:
 - Manage root folders for library organization
 - Test all connections
 - Configure pipeline automation
+- Enable automatic Kindle sync (hourly, every 6 hours, or daily; offline Kindles are skipped until the next run)
 
 ### Logs
 - View application logs in real-time
@@ -244,6 +239,11 @@ pipeline:
     read:
       download: true
 
+# Automatic Kindle Sync
+kindle_sync:
+  enabled: false            # Sync the first configured Kindle on a schedule
+  interval_hours: 1         # 1, 6, or 24
+
 # RSS Sync (Auto-Grab)
 rss:
   enabled: false            # Enable background RSS monitoring
@@ -340,7 +340,6 @@ The web server exposes a REST API:
 | `/prowlarr/indexers` | GET | List Prowlarr indexers |
 | `/api/config` | GET/PUT | Configuration management |
 | `/api/kindles` | GET/POST | Kindle management |
-| `/api/schedules` | GET/POST | Schedule management |
 | `/api/logs` | GET | Get log entries |
 | `/api/ws` | WebSocket | Real-time events |
 
@@ -394,7 +393,7 @@ bookotter/
 │   │   ├── sync.py          # Hardcover and Kindle sync
 │   │   ├── services.py      # Connection tests (Prowlarr, qBittorrent)
 │   │   ├── root_folders.py  # Root folder management
-│   │   └── ...              # config, kindles, schedules, logs
+│   │   └── ...              # config, kindles, logs
 │   ├── services/            # Business logic
 │   │   ├── pipeline_service.py      # Full automation pipeline
 │   │   ├── pipeline_states.py       # Book state machine
