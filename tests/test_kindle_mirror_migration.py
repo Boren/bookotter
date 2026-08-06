@@ -33,6 +33,10 @@ def test_init_db_adds_mirror_columns_to_existing_db(tmp_path, monkeypatch):
         conn.execute("DROP INDEX IF EXISTS ix_book_hardcover_status")
         conn.execute("ALTER TABLE book DROP COLUMN hardcover_status")
         conn.execute("ALTER TABLE book DROP COLUMN kindle_pinned")
+        conn.execute("DROP INDEX IF EXISTS ix_book_epub_meta_state")
+        conn.execute("ALTER TABLE book DROP COLUMN epub_meta_state")
+        conn.execute("ALTER TABLE book DROP COLUMN epub_meta_synced_at")
+        conn.execute("ALTER TABLE book DROP COLUMN epub_meta_attempts")
         conn.execute(
             "INSERT INTO book (title, hardcover_id, status, created_at, updated_at,"
             " retry_count, low_confidence, kindle_delivery_attempts)"
@@ -45,12 +49,17 @@ def test_init_db_adds_mirror_columns_to_existing_db(tmp_path, monkeypatch):
     columns = {c["name"] for c in inspect(engine).get_columns("book")}
     assert "hardcover_status" in columns
     assert "kindle_pinned" in columns
+    assert "epub_meta_state" in columns
+    assert "epub_meta_synced_at" in columns
+    assert "epub_meta_attempts" in columns
 
     session = session_local()
     try:
         book = session.query(Book).filter(Book.hardcover_id == "hc-old").one()
         assert book.hardcover_status is None
         assert book.kindle_pinned is False
+        assert book.epub_meta_state is None
+        assert book.epub_meta_attempts == 0
     finally:
         session.close()
         engine.dispose()

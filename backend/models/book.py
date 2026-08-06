@@ -50,6 +50,19 @@ class KindleDeliveryStatus(StrEnum):
     SKIPPED = "SKIPPED"
 
 
+class EpubMetaState(StrEnum):
+    """Embedded-metadata sync state of a book's EPUB file.
+
+    NULL on the column means "unknown, needs verification" — the self-heal
+    pipeline stage picks those up, compares embedded metadata to the DB, and
+    settles the book into one of these states.
+    """
+
+    SYNCED = "synced"
+    DRM = "drm"
+    FAILED = "failed"
+
+
 class DownloadStatus(StrEnum):
     """Status of a download/torrent."""
 
@@ -160,6 +173,11 @@ class Book(Base):
     hardcover_status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     # Manually sent to Kindle; mirror cleanup keeps pinned books regardless of shelf.
     kindle_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # EpubMetaState value, or NULL when the EPUB's embedded metadata has not
+    # been verified against the DB yet (self-heal picks NULL rows up).
+    epub_meta_state: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    epub_meta_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    epub_meta_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
     author: Mapped[Author | None] = relationship(back_populates="books")
@@ -210,6 +228,7 @@ class Book(Base):
             "kindle_delivered_at": self.kindle_delivered_at.isoformat() if self.kindle_delivered_at else None,
             "hardcover_status": self.hardcover_status,
             "kindle_pinned": self.kindle_pinned,
+            "epub_meta_state": self.epub_meta_state,
         }
 
 

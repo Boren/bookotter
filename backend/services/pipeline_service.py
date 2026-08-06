@@ -68,6 +68,7 @@ class PipelineService:
         # Optional active session — tests may inject directly via `service.db = session`.
         # When unset, methods that need it should fall back to self._session_factory().
         self.db: Any | None = None
+        self._last_self_heal_monotonic: float | None = None
 
     def process_wanted_books(self) -> int:
         if self.search_service is None:
@@ -354,6 +355,31 @@ class PipelineService:
         finally:
             db.close()
 
+    def process_self_heal(self) -> int:
+        """Rename + metadata self-heal, throttled to SELF_HEAL_INTERVAL_SECONDS.
+
+        Runs inside run_pipeline's stage loop, so the pipeline lock is already
+        held. The timestamp is stamped before running so a crashing run cannot
+        hot-loop on every 15s tick.
+        """
+        from backend.constants import SELF_HEAL_INTERVAL_SECONDS
+        from backend.services.self_heal_service import SelfHealService
+
+        now = time.monotonic()
+        if (
+            self._last_self_heal_monotonic is not None
+            and now - self._last_self_heal_monotonic < SELF_HEAL_INTERVAL_SECONDS
+        ):
+            return 0
+        self._last_self_heal_monotonic = now
+
+        db = self._session_factory()
+        try:
+            result = SelfHealService(db).run()
+            return result.get("renamed", 0) + result.get("meta_rewritten", 0)
+        finally:
+            db.close()
+
     def _get_kindle_config(self) -> dict | None:
         """Return the first user-configured (non-placeholder) Kindle config, or None.
 
@@ -602,6 +628,7 @@ class PipelineService:
                         ("grabbed", self.process_grabbed_books),
                         ("downloading", self.process_downloading_books),
                         ("importing", self.process_importing_books),
+                        ("self_heal", self.process_self_heal),
                         ("kindle_delivery", self.process_kindle_delivery_books),
                     ]:
                         try:
@@ -619,6 +646,7 @@ class PipelineService:
                         grabbed=results.get("grabbed", 0),
                         downloading=results.get("downloading", 0),
                         importing=results.get("importing", 0),
+                        self_heal=results.get("self_heal", 0),
                         kindle_delivery=results.get("kindle_delivery", 0),
                     )
                     logger.debug(f"Pipeline run complete: {results}")

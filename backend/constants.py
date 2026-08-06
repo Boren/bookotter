@@ -60,3 +60,8 @@ RSS_CAPS_CACHE_SECONDS: Final[int] = 3600  # caps cache TTL (1 hour)
 RSS_CLEANUP_RETENTION_DAYS: Final[int] = 60  # delete rss_seen_item rows older than this
 RSS_HTTP_TIMEOUT_SECONDS: Final[int] = 30  # HTTP request timeout
 RSS_DEFAULT_CRON: Final[str] = "*/15 * * * *"  # default polling interval
+
+# ─── Self-Heal (library rename + metadata backfill) ────────────────────────────
+SELF_HEAL_INTERVAL_SECONDS: Final[int] = 300  # min seconds between self-heal scans
+SELF_HEAL_META_BATCH_SIZE: Final[int] = 50  # max EPUB verify/rewrites per run
+SELF_HEAL_META_MAX_ATTEMPTS: Final[int] = 3  # failed writes before state="failed"

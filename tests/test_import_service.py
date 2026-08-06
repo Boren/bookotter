@@ -1,11 +1,12 @@
 """Tests for backend.services.import_service."""
 
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from backend.models.book import Author, Book, BookStatus, FolderOrganization, RootFolder
+from backend.models.book import Author, Book, BookStatus, EpubMetaState, FolderOrganization, RootFolder
 from backend.services.import_service import (
     BookImportError,
     ImportInvalidEpubError,
@@ -626,3 +627,30 @@ class TestImportRootFolderFallback:
 
         with pytest.raises(ImportStateError, match="no root folder"):
             svc.import_book(book.id, source_epub)
+
+
+class TestEpubMetaStateStamping:
+    def test_import_stamps_synced(self, db_session, lib_root: Path, source_epub: Path) -> None:
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(db_session, rf, title="Stamped", status=BookStatus.DOWNLOADING.value)
+        svc = ImportService(db_session)
+
+        result = svc.import_book(book.id, source_epub)
+
+        assert result.epub_meta_state == EpubMetaState.SYNCED.value
+        assert result.epub_meta_synced_at is not None
+
+    def test_drm_import_stamps_drm(self, db_session, lib_root: Path, tmp_path: Path) -> None:
+        drm_epub = tmp_path / "drm-source.epub"
+        create_test_epub(str(drm_epub), "Locked Book", "Locked Author")
+        with zipfile.ZipFile(drm_epub, "a") as zf:
+            zf.writestr("META-INF/encryption.xml", "<encryption/>")
+        rf = _make_root_folder(db_session, lib_root, FolderOrganization.FLAT.value)
+        book = _make_book(db_session, rf, title="Locked Book", status=BookStatus.DOWNLOADING.value)
+        svc = ImportService(db_session)
+
+        result = svc.import_book(book.id, drm_epub)
+
+        assert result.status == BookStatus.IN_LIBRARY.value
+        assert result.epub_meta_state == EpubMetaState.DRM.value
+        assert result.epub_meta_synced_at is None

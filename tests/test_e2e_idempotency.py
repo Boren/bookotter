@@ -77,6 +77,7 @@ class TestPipelineIdempotency:
             "grabbed": 0,
             "downloading": 0,
             "importing": 0,
+            "self_heal": 0,
             "kindle_delivery": 0,
         }
         mock_search.search_book.assert_not_called()
