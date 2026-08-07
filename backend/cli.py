@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.ereader_client import EreaderClient
 from backend.config import load_config
-from backend.database import SessionLocal
+from backend.database import DATA_DIR, SessionLocal
 from backend.models.book import Book, BookStatus
 from backend.utils.failure import _append_failure_history
 
@@ -385,6 +385,13 @@ def main():
     force_retry_parser = subparsers.add_parser("force-retry", help="Force retry a failed book")
     force_retry_parser.add_argument("book_id", type=int, help="Book ID to retry")
 
+    # migrate-to-ereader subcommand
+    migrate_parser = subparsers.add_parser(
+        "migrate-to-ereader", help="One-shot rename of legacy kindle data/config to ereader"
+    )
+    migrate_parser.add_argument("--dry-run", action="store_true", help="Report actions without changing anything")
+    migrate_parser.add_argument("--force", action="store_true", help="Overwrite existing .bak-ereader backups")
+
     # Legacy sync command (default)
     parser.add_argument("--config", default="config.yaml", help="Path to configuration file (default: config.yaml)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate transfers without actually copying files")
@@ -397,6 +404,20 @@ def main():
     args = parser.parse_args()
 
     # Handle force-retry subcommand
+    if args.command == "migrate-to-ereader":
+        from pathlib import Path
+
+        from backend.services.ereader_migration import run_migration
+
+        report = run_migration(Path(DATA_DIR), dry_run=args.dry_run, force=args.force)
+        if report.already_migrated:
+            print("Already migrated — nothing to do.")
+        else:
+            prefix = "[dry-run] would " if args.dry_run else ""
+            for action in report.actions:
+                print(f"{prefix}{action}")
+        sys.exit(0)
+
     if args.command == "force-retry":
         db = SessionLocal()
         try:
