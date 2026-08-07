@@ -52,9 +52,9 @@ def _create_missing_low_confidence_fixture(db_path: Path) -> list[dict]:
             "updated_at": "2025-01-01 12:00:00",
             "failure_reason": None,
             "retry_count": 0,
-            "kindle_delivery_status": None,
-            "kindle_delivery_attempts": 0,
-            "kindle_first_pending_at": None,
+            "ereader_delivery_status": None,
+            "ereader_delivery_attempts": 0,
+            "ereader_first_pending_at": None,
         },
         {
             "id": 2,
@@ -81,9 +81,9 @@ def _create_missing_low_confidence_fixture(db_path: Path) -> list[dict]:
             "updated_at": "2025-01-02 12:00:00",
             "failure_reason": "temporary_failure",
             "retry_count": 1,
-            "kindle_delivery_status": "PENDING",
-            "kindle_delivery_attempts": 1,
-            "kindle_first_pending_at": "2025-01-02 12:30:00",
+            "ereader_delivery_status": "PENDING",
+            "ereader_delivery_attempts": 1,
+            "ereader_first_pending_at": "2025-01-02 12:30:00",
         },
         {
             "id": 3,
@@ -110,9 +110,9 @@ def _create_missing_low_confidence_fixture(db_path: Path) -> list[dict]:
             "updated_at": "2025-01-03 12:00:00",
             "failure_reason": None,
             "retry_count": 2,
-            "kindle_delivery_status": "DELIVERED",
-            "kindle_delivery_attempts": 2,
-            "kindle_first_pending_at": "2025-01-03 12:30:00",
+            "ereader_delivery_status": "DELIVERED",
+            "ereader_delivery_attempts": 2,
+            "ereader_first_pending_at": "2025-01-03 12:30:00",
         },
     ]
 
@@ -153,9 +153,9 @@ def _create_missing_low_confidence_fixture(db_path: Path) -> list[dict]:
                 updated_at DATETIME NOT NULL,
                 failure_reason TEXT,
                 retry_count INTEGER NOT NULL,
-                kindle_delivery_status TEXT,
-                kindle_delivery_attempts INTEGER NOT NULL,
-                kindle_first_pending_at DATETIME,
+                ereader_delivery_status TEXT,
+                ereader_delivery_attempts INTEGER NOT NULL,
+                ereader_first_pending_at DATETIME,
                 PRIMARY KEY (id)
             );
             """
@@ -171,13 +171,13 @@ def _create_missing_low_confidence_fixture(db_path: Path) -> list[dict]:
                 id, title, author_id, hardcover_id, isbn, description, publisher, language, tags, rating,
                 read_date, cover_url, series_name, series_position, status, root_folder_id, file_path,
                 file_size, search_attempts, last_searched_at, created_at, updated_at, failure_reason,
-                retry_count, kindle_delivery_status, kindle_delivery_attempts, kindle_first_pending_at
+                retry_count, ereader_delivery_status, ereader_delivery_attempts, ereader_first_pending_at
             ) VALUES (
                 :id, :title, :author_id, :hardcover_id, :isbn, :description, :publisher, :language, :tags,
                 :rating, :read_date, :cover_url, :series_name, :series_position, :status, :root_folder_id,
                 :file_path, :file_size, :search_attempts, :last_searched_at, :created_at, :updated_at,
-                :failure_reason, :retry_count, :kindle_delivery_status, :kindle_delivery_attempts,
-                :kindle_first_pending_at
+                :failure_reason, :retry_count, :ereader_delivery_status, :ereader_delivery_attempts,
+                :ereader_first_pending_at
             )
         """
         conn.executemany(insert_sql, seeded_rows)

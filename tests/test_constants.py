@@ -9,7 +9,7 @@ class TestConstantRanges:
             "HARDCOVER_RETRY_ATTEMPTS",
             "PROWLARR_RETRY_ATTEMPTS",
             "QBIT_RETRY_ATTEMPTS",
-            "KINDLE_RETRY_ATTEMPTS",
+            "EREADER_RETRY_ATTEMPTS",
             "PIPELINE_AUTO_RETRY_ATTEMPTS",
         ]:
             val = getattr(C, attr)
@@ -20,7 +20,7 @@ class TestConstantRanges:
             "HARDCOVER_TIMEOUT",
             "PROWLARR_TIMEOUT",
             "QBIT_TIMEOUT",
-            "KINDLE_SSH_TIMEOUT",
+            "EREADER_SSH_TIMEOUT",
         ]:
             val = getattr(C, attr)
             assert 1 <= val <= 3600, f"{attr}={val} out of range [1, 3600]"
@@ -40,7 +40,7 @@ class TestConstantRanges:
         assert hasattr(C, "HARDCOVER_RETRY_ATTEMPTS")
         assert hasattr(C, "DOWNLOAD_STALL_THRESHOLD_MIN")
         assert hasattr(C, "EPUB_TITLE_SIMILARITY_THRESHOLD")
-        assert hasattr(C, "KINDLE_DELIVERY_TIMEOUT_DAYS")
+        assert hasattr(C, "EREADER_DELIVERY_TIMEOUT_DAYS")
         assert hasattr(C, "PIPELINE_AUTO_RETRY_ATTEMPTS")
         assert hasattr(C, "MAX_FILENAME_LENGTH")
         assert hasattr(C, "RECONCILE_INTERVAL_MIN")

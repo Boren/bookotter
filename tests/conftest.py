@@ -40,11 +40,11 @@ def test_config():
             "api_token": "test_token_12345",
             "api_url": "https://api.hardcover.app/v1/graphql",
         },
-        "kindles": [
+        "ereaders": [
             {
-                "id": "test_kindle",
-                "name": "Test Kindle",
-                "hostname": "test.kindle.local",
+                "id": "test_ereader",
+                "name": "Test E-reader",
+                "hostname": "test.ereader.local",
                 "port": 22,
                 "username": "root",
                 "password": "",

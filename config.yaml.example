@@ -17,20 +17,20 @@ qbittorrent:
   password: ""                    # qBittorrent Web UI password
   category: "books"              # Torrent category for BookOtter downloads
 
-# Kindle Devices (supports multiple Kindles)
-kindles:
-  - id: "main"                           # Unique identifier for this Kindle
-    name: "My Kindle"                    # Display name
-    hostname: "your-kindle-hostname"     # Your Kindle's Tailscale hostname or IP
+# E-reader Devices (supports multiple E-readers)
+ereaders:
+  - id: "main"                           # Unique identifier for this E-reader
+    name: "My E-reader"                    # Display name
+    hostname: "your-ereader-hostname"     # Your E-reader's Tailscale hostname or IP
     port: 22                             # SSH port (default: 22)
-    username: "root"                     # SSH username (usually 'root' for jailbroken Kindles)
+    username: "root"                     # SSH username (usually 'root' for jailbroken E-readers)
     password: ""                         # Leave empty if using SSH key
     ssh_key_path: "~/.ssh/id_rsa"        # Path to SSH private key (if using key auth)
-    destination_path: "/mnt/us/books/"   # Destination path on Kindle
-  # Add more Kindles by duplicating the block above:
+    destination_path: "/mnt/us/books/"   # Destination path on E-reader
+  # Add more E-readers by duplicating the block above:
   # - id: "backup"
-  #   name: "Backup Kindle"
-  #   hostname: "kindle-2.tailnet.ts.net"
+  #   name: "Backup E-reader"
+  #   hostname: "ereader-2.tailnet.ts.net"
   #   ...
 
 # Library Settings
@@ -43,17 +43,17 @@ pipeline:
   enabled: true
   search_on_add: true            # Auto-search Prowlarr when book added
   import_on_complete: true       # Auto-import when download completes
-  kindle_sync_on_import: true    # Auto-sync to Kindle after import
+  ereader_sync_on_import: true    # Auto-sync to E-reader after import
   status_actions:
     want_to_read:
       download: true
-      kindle_sync: true
+      ereader_sync: true
     currently_reading:
       download: true
-      kindle_sync: true
+      ereader_sync: true
     read:
       download: true
-      kindle_sync: false
+      ereader_sync: false
 
 # Matching Settings
 matching:
@@ -71,17 +71,17 @@ sync:
 # Transfer Settings
 transfer:
   dry_run: false  # Set to true to simulate without actually transferring files
-  skip_existing: true  # Skip files that already exist on Kindle
+  skip_existing: true  # Skip files that already exist on E-reader
   folder_organization: "flat"  # Options: flat, author, series, author_series
-  # Cleanup options - remove books from Kindle that aren't in sync list
+  # Cleanup options - remove books from E-reader that aren't in sync list
   cleanup_enabled: false
   cleanup_sdr_folders: true  # Also remove .sdr reading data folders
   cleanup_protected_paths: []  # Paths to never delete (e.g., ["/mnt/us/documents/"])
 
-# Automatic Kindle Sync — run a full shelf sync on a schedule
-kindle_sync:
-  enabled: false     # Set to true to sync the first configured Kindle automatically
-  interval_hours: 1  # 1, 6, or 24 (offline Kindles are skipped until the next run)
+# Automatic E-reader Sync — run a full shelf sync on a schedule
+ereader_sync:
+  enabled: false     # Set to true to sync the first configured E-reader automatically
+  interval_hours: 1  # 1, 6, or 24 (offline E-readers are skipped until the next run)
 
 # RSS Sync — automatically grab new releases matching wanted books
 rss:

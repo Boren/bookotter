@@ -1,12 +1,12 @@
-"""Tests for KindleClient orphan detection and batched cleanup deletion."""
+"""Tests for EreaderClient orphan detection and batched cleanup deletion."""
 
 from unittest.mock import MagicMock, patch
 
-from backend.clients.kindle_client import KindleClient
+from backend.clients.ereader_client import EreaderClient
 
 
-def _make_client() -> KindleClient:
-    return KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+def _make_client() -> EreaderClient:
+    return EreaderClient(hostname="test-ereader", destination_path="/mnt/us/books/")
 
 
 def _mock_ssh_with_find_output(find_output: str) -> MagicMock:

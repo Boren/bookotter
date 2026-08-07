@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.clients.ereader_client import EreaderClient
 from backend.clients.hardcover_client import HardcoverClient
-from backend.clients.kindle_client import KindleClient
 from backend.config import load_config, mask_sensitive_data, update_config
 from backend.utils.naming import validate_template
 
@@ -64,13 +64,13 @@ async def update_config_endpoint(body: ConfigUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Re-register the automatic Kindle sync job so toggling the setting takes
+    # Re-register the automatic E-reader sync job so toggling the setting takes
     # effect without a restart. Guarded on the key so unrelated saves don't
     # touch the scheduler.
-    if "kindle_sync" in body.config:
-        from backend.api.routes.sync import apply_kindle_sync_schedule
+    if "ereader_sync" in body.config:
+        from backend.api.routes.sync import apply_ereader_sync_schedule
 
-        apply_kindle_sync_schedule(updated)
+        apply_ereader_sync_schedule(updated)
 
     return {"success": True, "config": mask_sensitive_data(updated)}
 
@@ -107,27 +107,27 @@ async def test_hardcover_connection(request: HardcoverTestRequest | None = None)
         return ConnectionTestResult(success=False, error=str(e))
 
 
-@router.post("/test/kindle/{kindle_id}")
-async def test_kindle_connection(kindle_id: str) -> ConnectionTestResult:
-    """Test SSH connection to a specific Kindle."""
+@router.post("/test/ereader/{ereader_id}")
+async def test_ereader_connection(ereader_id: str) -> ConnectionTestResult:
+    """Test SSH connection to a specific E-reader."""
     config = load_config()
-    kindles = config.get("kindles", [])
+    ereaders = config.get("ereaders", [])
 
-    # Find the kindle by ID
-    kindle_config = None
-    for k in kindles:
-        if k.get("id") == kindle_id:
-            kindle_config = k
+    # Find the ereader by ID
+    ereader_config = None
+    for k in ereaders:
+        if k.get("id") == ereader_id:
+            ereader_config = k
             break
 
-    if not kindle_config:
-        return ConnectionTestResult(success=False, error=f"Kindle '{kindle_id}' not found")
+    if not ereader_config:
+        return ConnectionTestResult(success=False, error=f"E-reader '{ereader_id}' not found")
 
-    if not kindle_config.get("hostname"):
+    if not ereader_config.get("hostname"):
         return ConnectionTestResult(success=False, error="Hostname not configured")
 
     try:
-        client = KindleClient.from_config(kindle_config)
+        client = EreaderClient.from_config(ereader_config)
         result = client.test_connection()
 
         if result["success"]:

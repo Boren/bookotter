@@ -2,7 +2,7 @@
 import { onMounted } from 'vue'
 import { useSyncStore } from '../stores/sync'
 import RssActivityCard from '../components/RssActivityCard.vue'
-import KindleStatusWidget from '../components/kindle/KindleStatusWidget.vue'
+import EreaderStatusWidget from '../components/ereader/EreaderStatusWidget.vue'
 
 const syncStore = useSyncStore()
 
@@ -42,7 +42,7 @@ onMounted(() => {
     <div class="page-header">
       <h1 class="page-title">Dashboard</h1>
       <p class="page-subtitle">
-        Sync your Hardcover reading list to your Kindle
+        Sync your Hardcover reading list to your E-reader
       </p>
     </div>
 
@@ -108,11 +108,11 @@ onMounted(() => {
           <p class="text-2xl font-semibold text-red-700">{{ syncStore.pipelineStats.by_status?.failed || 0 }}</p>
           <p class="text-xs font-medium uppercase tracking-wider text-red-600 mt-1">Failed</p>
         </div>
-        <div class="text-center p-3 rounded-lg bg-kindle-50 border border-kindle-200">
-          <p class="text-2xl font-semibold text-kindle-700">{{ syncStore.pipelineStats.by_kindle_delivery_status?.PENDING || 0 }}</p>
-          <p class="text-xs font-medium uppercase tracking-wider text-kindle-600 mt-1">Awaiting Kindle</p>
-          <p v-if="syncStore.pipelineStats.by_kindle_delivery_status?.SKIPPED" class="text-[10px] text-amber-600 mt-0.5">
-            {{ syncStore.pipelineStats.by_kindle_delivery_status.SKIPPED }} skipped
+        <div class="text-center p-3 rounded-lg bg-ereader-50 border border-ereader-200">
+          <p class="text-2xl font-semibold text-ereader-700">{{ syncStore.pipelineStats.by_ereader_delivery_status?.PENDING || 0 }}</p>
+          <p class="text-xs font-medium uppercase tracking-wider text-ereader-600 mt-1">Awaiting E-reader</p>
+          <p v-if="syncStore.pipelineStats.by_ereader_delivery_status?.SKIPPED" class="text-[10px] text-amber-600 mt-0.5">
+            {{ syncStore.pipelineStats.by_ereader_delivery_status.SKIPPED }} skipped
           </p>
         </div>
       </div>
@@ -151,9 +151,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Kindle Status Widget -->
+    <!-- E-reader Status Widget -->
     <div class="animate-fade-in-up stagger-3">
-      <KindleStatusWidget />
+      <EreaderStatusWidget />
     </div>
 
     <!-- RSS Activity Card -->
@@ -191,7 +191,7 @@ onMounted(() => {
             </svg>
           </div>
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-medium text-stone-800 line-clamp-1 group-hover:text-kindle-600 transition-colors">{{ book.title }}</p>
+            <p class="text-sm font-medium text-stone-800 line-clamp-1 group-hover:text-ereader-600 transition-colors">{{ book.title }}</p>
             <p class="text-xs text-stone-500 line-clamp-1">{{ book.author?.name || 'Unknown author' }}</p>
           </div>
           <span class="badge shrink-0" :class="statusBadgeClass(book.status)">

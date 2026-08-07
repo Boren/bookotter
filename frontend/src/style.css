@@ -2,16 +2,16 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-kindle-50: #fefbf6;
-  --color-kindle-100: #fdf4e7;
-  --color-kindle-200: #fae6c8;
-  --color-kindle-300: #f5d29e;
-  --color-kindle-400: #efb56a;
-  --color-kindle-500: #e89640;
-  --color-kindle-600: #d97723;
-  --color-kindle-700: #b55c1b;
-  --color-kindle-800: #91491c;
-  --color-kindle-900: #763d1b;
+  --color-ereader-50: #fefbf6;
+  --color-ereader-100: #fdf4e7;
+  --color-ereader-200: #fae6c8;
+  --color-ereader-300: #f5d29e;
+  --color-ereader-400: #efb56a;
+  --color-ereader-500: #e89640;
+  --color-ereader-600: #d97723;
+  --color-ereader-700: #b55c1b;
+  --color-ereader-800: #91491c;
+  --color-ereader-900: #763d1b;
 
   --color-stone-50: #faf9f7;
   --color-stone-100: #f4f2ef;
@@ -102,7 +102,7 @@
     135deg,
     var(--tw-gradient-stops)
   );
-  --background-image-gradient-kindle: linear-gradient(
+  --background-image-gradient-ereader: linear-gradient(
     135deg,
     #efb56a 0%,
     #d97723 50%,
@@ -197,11 +197,11 @@
   @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
 }
 @utility btn-primary {
-  @apply bg-linear-to-br from-kindle-500 via-kindle-600 to-kindle-700;
+  @apply bg-linear-to-br from-ereader-500 via-ereader-600 to-ereader-700;
   @apply text-white shadow-warm;
   @apply hover:shadow-warm-lg hover:-translate-y-0.5;
   @apply active:translate-y-0 active:shadow-warm;
-  @apply focus:ring-kindle-500;
+  @apply focus:ring-ereader-500;
 }
 @utility btn-secondary {
   @apply bg-stone-100 text-stone-700 border border-stone-200;
@@ -251,7 +251,7 @@
   @apply border border-stone-300;
   @apply text-stone-900 placeholder-stone-500;
   @apply transition-all duration-200;
-  @apply focus:outline-hidden focus:ring-2 focus:ring-kindle-500/30 focus:border-kindle-500;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-ereader-500/30 focus:border-ereader-500;
   @apply hover:border-stone-400;
   background-color: #fefdfb;
 
@@ -368,7 +368,7 @@
   /* ----- Toggle Switch ----- */
   @apply relative inline-flex h-6 w-11 items-center rounded-full;
   @apply transition-colors duration-200 ease-in-out;
-  @apply focus:outline-hidden focus:ring-2 focus:ring-kindle-500 focus:ring-offset-2;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-ereader-500 focus:ring-offset-2;
 }
 @utility toggle-off {
   @apply bg-stone-200;
@@ -378,7 +378,7 @@
   }
 }
 @utility toggle-on {
-  @apply bg-kindle-600;
+  @apply bg-ereader-600;
 
   & .toggle-knob {
     @apply translate-x-5;
@@ -468,7 +468,7 @@
   @apply bg-stone-200 text-stone-700;
 }
 @utility icon-container-primary {
-  @apply bg-kindle-100 text-kindle-800;
+  @apply bg-ereader-100 text-ereader-800;
 }
 @utility empty-state {
   /* ----- Empty States ----- */
@@ -539,7 +539,7 @@
 }
 @utility focus-ring {
   /* Focus ring utility */
-  @apply focus:outline-hidden focus:ring-2 focus:ring-kindle-500/50 focus:ring-offset-2;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-ereader-500/50 focus:ring-offset-2;
 }
 @utility line-clamp-2 {
   /* Truncate multiline */
@@ -609,9 +609,9 @@
 @layer base {
   :root {
     /* Colors */
-    --color-kindle-500: #e89640;
-    --color-kindle-600: #d97723;
-    --color-kindle-700: #b55c1b;
+    --color-ereader-500: #e89640;
+    --color-ereader-600: #d97723;
+    --color-ereader-700: #b55c1b;
     --color-stone-50: #faf9f7;
     --color-stone-100: #f4f2ef;
     --color-stone-200: #e8e4de;
@@ -672,7 +672,7 @@
 
   /* Selection color */
   ::selection {
-    @apply bg-kindle-200 text-kindle-900;
+    @apply bg-ereader-200 text-ereader-900;
   }
 }
 
@@ -682,7 +682,7 @@
   /* Custom checkbox styling */
   input[type="checkbox"] {
     @apply w-4 h-4 rounded-sm border-stone-300;
-    @apply text-kindle-600 focus:ring-kindle-500 focus:ring-offset-0;
+    @apply text-ereader-600 focus:ring-ereader-500 focus:ring-offset-0;
     @apply transition-colors duration-200;
   }
 

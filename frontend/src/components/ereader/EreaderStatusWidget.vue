@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { useKindlesStore } from '@/stores/kindles'
+import { useEreadersStore } from '@/stores/ereaders'
 import { useSyncStore } from '@/stores/sync'
 
-const kindlesStore = useKindlesStore()
+const ereadersStore = useEreadersStore()
 const syncStore = useSyncStore()
 
-const status = computed(() => kindlesStore.selectedStatus)
+const status = computed(() => ereadersStore.selectedStatus)
 const pendingCount = computed(
-  () => syncStore.pipelineStats?.by_kindle_delivery_status?.PENDING || 0
+  () => syncStore.pipelineStats?.by_ereader_delivery_status?.PENDING || 0
 )
 
 const statusDot = computed(() => {
-  if (!kindlesStore.selectedKindle) return { class: 'bg-stone-300', label: 'No device' }
+  if (!ereadersStore.selectedEreader) return { class: 'bg-stone-300', label: 'No device' }
   if (!status.value) return { class: 'bg-stone-300 animate-pulse', label: 'Checking…' }
   if (!status.value.configured) return { class: 'bg-stone-400', label: 'Not configured' }
   return status.value.reachable
@@ -23,29 +23,29 @@ const statusDot = computed(() => {
 const startSync = async (event: Event) => {
   event.preventDefault()
   event.stopPropagation()
-  if (!kindlesStore.selectedKindleId) return
+  if (!ereadersStore.selectedEreaderId) return
   try {
-    await syncStore.triggerKindleSync(kindlesStore.selectedKindleId)
+    await syncStore.triggerEreaderSync(ereadersStore.selectedEreaderId)
   } catch {
     // toast already shown by the store
   }
 }
 
 onMounted(async () => {
-  if (kindlesStore.kindles.length === 0) {
-    await kindlesStore.fetchKindles()
+  if (ereadersStore.ereaders.length === 0) {
+    await ereadersStore.fetchEreaders()
   }
-  if (kindlesStore.selectedKindleId && !kindlesStore.selectedStatus) {
-    kindlesStore.fetchStatus(kindlesStore.selectedKindleId)
+  if (ereadersStore.selectedEreaderId && !ereadersStore.selectedStatus) {
+    ereadersStore.fetchStatus(ereadersStore.selectedEreaderId)
   }
 })
 </script>
 
 <template>
   <RouterLink
-    to="/kindle"
+    to="/ereader"
     class="card block hover:shadow-warm-lg transition-shadow"
-    data-testid="kindle-status-widget"
+    data-testid="ereader-status-widget"
   >
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3 min-w-0">
@@ -57,7 +57,7 @@ onMounted(async () => {
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <h2 class="text-lg font-display font-semibold text-stone-900 truncate">
-              {{ kindlesStore.selectedKindle?.name || 'Kindle' }}
+              {{ ereadersStore.selectedEreader?.name || 'E-reader' }}
             </h2>
             <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="statusDot.class"></span>
           </div>
@@ -70,28 +70,28 @@ onMounted(async () => {
 
       <button
         class="btn btn-secondary btn-sm shrink-0"
-        :disabled="syncStore.kindleSyncing || !kindlesStore.selectedKindleId"
+        :disabled="syncStore.ereaderSyncing || !ereadersStore.selectedEreaderId"
         @click="startSync"
       >
-        <svg v-if="syncStore.kindleSyncing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+        <svg v-if="syncStore.ereaderSyncing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
         </svg>
-        {{ syncStore.kindleSyncing ? 'Syncing…' : 'Sync' }}
+        {{ syncStore.ereaderSyncing ? 'Syncing…' : 'Sync' }}
       </button>
     </div>
 
-    <div v-if="syncStore.kindleSyncing" class="mt-4 space-y-1.5">
+    <div v-if="syncStore.ereaderSyncing" class="mt-4 space-y-1.5">
       <div class="progress-bar progress-bar-animated">
         <div
           class="progress-bar-fill"
-          :style="{ width: `${syncStore.kindleSyncProgress ? Math.round(syncStore.kindleSyncProgress.percentage) : 0}%` }"
+          :style="{ width: `${syncStore.ereaderSyncProgress ? Math.round(syncStore.ereaderSyncProgress.percentage) : 0}%` }"
         ></div>
       </div>
       <p class="text-xs text-stone-500 truncate tabular-nums">
-        {{ syncStore.kindleSyncProgress?.book_title || 'Preparing…' }}
-        <template v-if="syncStore.kindleSyncProgress">
-          — {{ Math.round(syncStore.kindleSyncProgress.percentage) }}%
+        {{ syncStore.ereaderSyncProgress?.book_title || 'Preparing…' }}
+        <template v-if="syncStore.ereaderSyncProgress">
+          — {{ Math.round(syncStore.ereaderSyncProgress.percentage) }}%
         </template>
       </p>
     </div>

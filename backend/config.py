@@ -1,6 +1,6 @@
 """
 Configuration management for BookOtter.
-Handles reading and writing config.yaml with support for multi-Kindle setup.
+Handles reading and writing config.yaml with support for multi-E-reader setup.
 All configuration is stored in config.yaml as the single source of truth.
 """
 
@@ -64,10 +64,9 @@ def load_config() -> dict:
     with open(config_path) as f:
         file_config = yaml.safe_load(f) or {}
 
-    # Migrate old single-kindle format to multi-kindle if needed
-    file_config = _migrate_kindle_config(file_config)
+    _refuse_legacy_kindle_keys(file_config)
 
-    # Legacy cron schedules were replaced by the kindle_sync toggle; drop the
+    # Legacy cron schedules were replaced by the ereader_sync toggle; drop the
     # stale list so it stays inert and disappears on the next save.
     file_config.pop("schedules", None)
 
@@ -96,13 +95,29 @@ def save_config(config: dict) -> None:
     temp_path.rename(config_path)
 
 
-def _migrate_kindle_config(config: dict) -> dict:
-    """Migrate old single-kindle config to multi-kindle format."""
-    if "kindle" in config and "kindles" not in config:
-        # Old format: single kindle object
-        old_kindle = config.pop("kindle")
-        config["kindles"] = [{"id": "default", "name": "Kindle", **old_kindle}]
-    return config
+def _refuse_legacy_kindle_keys(file_config: dict) -> None:
+    """Fail fast on kindle-era config keys; the migrate-to-ereader command rewrites them."""
+    from backend.services.ereader_migration import CONFIG_KEY_RENAMES, UnmigratedKindleStateError
+
+    legacy_names = {"kindle"} | set(CONFIG_KEY_RENAMES)
+
+    def _find(node, path: str) -> str | None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in legacy_names:
+                    return f"{path}{key}"
+                found = _find(value, f"{path}{key}.")
+                if found:
+                    return found
+        return None
+
+    found = _find(file_config, "")
+    if found:
+        msg = (
+            f"config.yaml has legacy Kindle-era key '{found}'. "
+            "Run `python -m backend.cli migrate-to-ereader` before starting this version."
+        )
+        raise UnmigratedKindleStateError(msg)
 
 
 def mask_sensitive_data(config: dict) -> dict:
@@ -157,10 +172,10 @@ def get_default_config() -> dict:
             "password": "",
             "category": "books",
         },
-        "kindles": [
+        "ereaders": [
             {
                 "id": "default",
-                "name": "Kindle",
+                "name": "E-reader",
                 "hostname": "",
                 "port": 22,
                 "username": "root",
@@ -184,7 +199,7 @@ def get_default_config() -> dict:
         "transfer": {
             "dry_run": False,
             "folder_organization": "flat",  # flat, author, series, author_series
-            "sync_shelves": {  # Hardcover shelves mirrored to the Kindle
+            "sync_shelves": {  # Hardcover shelves mirrored to the E-reader
                 "want_to_read": True,
                 "currently_reading": True,
                 "read": False,
@@ -202,7 +217,7 @@ def get_default_config() -> dict:
             "enabled": True,
             "search_on_add": True,  # Auto-search Prowlarr when book added
             "import_on_complete": True,  # Auto-import when download completes
-            "kindle_sync_on_import": True,  # Auto-sync to Kindle after import
+            "ereader_sync_on_import": True,  # Auto-sync to E-reader after import
             "status_actions": {
                 "want_to_read": {"download": True},
                 "currently_reading": {"download": True},
@@ -222,51 +237,51 @@ def get_default_config() -> dict:
             "log_level": "INFO",
             "console_output": True,
         },
-        "kindle_sync": {
+        "ereader_sync": {
             "enabled": False,
             "interval_hours": 1,  # 1 | 6 | 24
         },
     }
 
 
-def get_kindle_sync_shelves(config: dict | None = None) -> set[str]:
-    """Return the Hardcover shelf names whose books are mirrored to the Kindle."""
+def get_ereader_sync_shelves(config: dict | None = None) -> set[str]:
+    """Return the Hardcover shelf names whose books are mirrored to the E-reader."""
     if config is None:
         config = load_config()
     shelves = config.get("transfer", {}).get("sync_shelves", {})
     return {name for name, enabled in shelves.items() if enabled}
 
 
-def get_kindle_by_id(kindle_id: str) -> dict | None:
-    """Get a specific Kindle configuration by ID."""
+def get_ereader_by_id(ereader_id: str) -> dict | None:
+    """Get a specific E-reader configuration by ID."""
     config = load_config()
-    kindles = config.get("kindles", [])
-    for kindle in kindles:
-        if kindle.get("id") == kindle_id:
-            return kindle
+    ereaders = config.get("ereaders", [])
+    for ereader in ereaders:
+        if ereader.get("id") == ereader_id:
+            return ereader
     return None
 
 
-def get_all_kindles() -> list[dict]:
-    """Get all configured Kindles."""
+def get_all_ereaders() -> list[dict]:
+    """Get all configured E-readers."""
     config = load_config()
-    return config.get("kindles", [])
+    return config.get("ereaders", [])
 
 
-def get_first_real_kindle(config: dict | None = None) -> dict | None:
-    """Return the first Kindle config with a non-empty hostname, or None.
+def get_first_real_ereader(config: dict | None = None) -> dict | None:
+    """Return the first E-reader config with a non-empty hostname, or None.
 
-    The default config seeds a placeholder Kindle with hostname="" — that
+    The default config seeds a placeholder E-reader with hostname="" — that
     placeholder is NOT a real device. This helper distinguishes real
     user-configured devices from the default stub. Used to gate automatic
-    per-book Kindle delivery (the bulk path takes a kindle_id and is
+    per-book E-reader delivery (the bulk path takes a ereader_id and is
     unaffected).
     """
     if config is None:
         config = load_config()
-    for kindle in config.get("kindles", []):
-        if (kindle.get("hostname") or "").strip():
-            return kindle
+    for ereader in config.get("ereaders", []):
+        if (ereader.get("hostname") or "").strip():
+            return ereader
     return None
 
 
@@ -277,46 +292,46 @@ def get_qbit_category(config: dict | None = None) -> str:
     return config.get("qbittorrent", {}).get("category", "books")
 
 
-def add_kindle(kindle: dict) -> dict:
-    """Add a new Kindle configuration."""
+def add_ereader(ereader: dict) -> dict:
+    """Add a new E-reader configuration."""
     config = load_config()
-    if "kindles" not in config:
-        config["kindles"] = []
+    if "ereaders" not in config:
+        config["ereaders"] = []
 
     # Ensure ID is unique
-    existing_ids = {k.get("id") for k in config["kindles"]}
-    if kindle.get("id") in existing_ids:
-        raise ValueError(f"Kindle with id '{kindle['id']}' already exists")
+    existing_ids = {k.get("id") for k in config["ereaders"]}
+    if ereader.get("id") in existing_ids:
+        raise ValueError(f"E-reader with id '{ereader['id']}' already exists")
 
-    config["kindles"].append(kindle)
+    config["ereaders"].append(ereader)
     save_config(config)
-    return kindle
+    return ereader
 
 
-def update_kindle(kindle_id: str, updates: dict) -> dict | None:
-    """Update a Kindle configuration."""
+def update_ereader(ereader_id: str, updates: dict) -> dict | None:
+    """Update a E-reader configuration."""
     config = load_config()
-    kindles = config.get("kindles", [])
+    ereaders = config.get("ereaders", [])
 
-    for i, kindle in enumerate(kindles):
-        if kindle.get("id") == kindle_id:
+    for i, ereader in enumerate(ereaders):
+        if ereader.get("id") == ereader_id:
             # Don't allow changing ID
             updates.pop("id", None)
-            kindles[i] = {**kindle, **updates}
+            ereaders[i] = {**ereader, **updates}
             save_config(config)
-            return kindles[i]
+            return ereaders[i]
 
     return None
 
 
-def delete_kindle(kindle_id: str) -> bool:
-    """Delete a Kindle configuration."""
+def delete_ereader(ereader_id: str) -> bool:
+    """Delete a E-reader configuration."""
     config = load_config()
-    kindles = config.get("kindles", [])
+    ereaders = config.get("ereaders", [])
 
-    for i, kindle in enumerate(kindles):
-        if kindle.get("id") == kindle_id:
-            kindles.pop(i)
+    for i, ereader in enumerate(ereaders):
+        if ereader.get("id") == ereader_id:
+            ereaders.pop(i)
             save_config(config)
             return True
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: renamed all Kindle-branded naming to vendor-agnostic "ereader" — API routes (`/api/ereaders`), config keys (`ereaders`, `ereader_sync`, `pipeline.ereader_sync_on_import`), DB columns (`ereader_*`), failure categories (`ereader_unreachable` etc.). Existing installs must run `python -m backend.cli migrate-to-ereader` once (see `docs/specs/2026-08-07-ereader-rename-design.md`); the app refuses to start on unmigrated data. Backups are written as `bookotter.db.bak-ereader` / `config.yaml.bak-ereader`.
+
 ### Added
 - feat: automatic Kindle sync — a Settings toggle with interval dropdown (hourly / every 6 hours / daily) replaces the cron-based Schedule page
   - Scheduled runs probe the Kindle first and skip cheaply when it's offline

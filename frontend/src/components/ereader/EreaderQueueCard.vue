@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import KindleDeliveryBadge from '@/components/KindleDeliveryBadge.vue'
+import EreaderDeliveryBadge from '@/components/EreaderDeliveryBadge.vue'
 import { useLibraryStore } from '@/stores/library'
 import { useSyncStore } from '@/stores/sync'
 import type { Book } from '@/types'
@@ -21,7 +21,7 @@ const fetchQueue = async () => {
     const statuses = ['IN_PROGRESS', 'PENDING', 'SKIPPED']
     const results = await Promise.all(
       statuses.map(async (s) => {
-        const res = await fetch(`/api/library/books?kindle_delivery_status=${s}&sort_by=updated_at&sort_order=desc&limit=100`)
+        const res = await fetch(`/api/library/books?ereader_delivery_status=${s}&sort_by=updated_at&sort_order=desc&limit=100`)
         if (!res.ok) return []
         const data = await res.json()
         return data.books as Book[]
@@ -33,18 +33,18 @@ const fetchQueue = async () => {
   }
 }
 
-// Kindle WS events refresh pipeline stats; piggyback on that to stay live
+// E-reader WS events refresh pipeline stats; piggyback on that to stay live
 watch(() => syncStore.pipelineStats, fetchQueue)
 
 const deliveryProgressFor = (book: Book) => {
-  const p = syncStore.kindleDeliveryProgress
+  const p = syncStore.ereaderDeliveryProgress
   return p && p.book_id === book.id ? p : null
 }
 
 const sendNow = async (book: Book) => {
   requeueingId.value = book.id
   try {
-    await libraryStore.requeueKindle(book.id)
+    await libraryStore.requeueEreader(book.id)
     await fetchQueue()
   } finally {
     requeueingId.value = null
@@ -52,14 +52,14 @@ const sendNow = async (book: Book) => {
 }
 
 const pendingCount = computed(
-  () => queueBooks.value.filter((b) => b.kindle_delivery_status === 'PENDING').length
+  () => queueBooks.value.filter((b) => b.ereader_delivery_status === 'PENDING').length
 )
 
 onMounted(fetchQueue)
 </script>
 
 <template>
-  <div class="card" data-testid="kindle-queue-card">
+  <div class="card" data-testid="ereader-queue-card">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-display font-semibold text-stone-900">Delivery Queue</h2>
       <span v-if="pendingCount > 0" class="badge badge-warning">{{ pendingCount }} waiting</span>
@@ -70,7 +70,7 @@ onMounted(fetchQueue)
     </div>
 
     <div v-else-if="queueBooks.length === 0" class="empty-state py-8">
-      <p class="text-sm text-stone-500">Nothing queued — every requested book is on the Kindle.</p>
+      <p class="text-sm text-stone-500">Nothing queued — every requested book is on the E-reader.</p>
     </div>
 
     <ul v-else class="divide-y divide-stone-100">
@@ -93,31 +93,31 @@ onMounted(fetchQueue)
           <div class="min-w-0 flex-1">
             <RouterLink
               :to="`/library/${book.id}`"
-              class="text-sm font-medium text-stone-900 hover:text-kindle-700 line-clamp-1"
+              class="text-sm font-medium text-stone-900 hover:text-ereader-700 line-clamp-1"
             >
               {{ book.title }}
             </RouterLink>
             <p class="text-xs text-stone-500 line-clamp-1">
               {{ book.author?.name || 'Unknown author' }}
-              <template v-if="book.kindle_delivery_status === 'PENDING' && book.kindle_first_pending_at">
-                · waiting since {{ formatRelativeTime(book.kindle_first_pending_at) }}
+              <template v-if="book.ereader_delivery_status === 'PENDING' && book.ereader_first_pending_at">
+                · waiting since {{ formatRelativeTime(book.ereader_first_pending_at) }}
               </template>
             </p>
           </div>
 
-          <KindleDeliveryBadge :status="book.kindle_delivery_status" class="shrink-0" />
+          <EreaderDeliveryBadge :status="book.ereader_delivery_status" class="shrink-0" />
 
           <button
-            v-if="book.kindle_delivery_status !== 'IN_PROGRESS'"
+            v-if="book.ereader_delivery_status !== 'IN_PROGRESS'"
             class="btn btn-secondary btn-sm shrink-0"
             :disabled="requeueingId === book.id"
             @click="sendNow(book)"
           >
-            {{ book.kindle_delivery_status === 'SKIPPED' ? 'Retry' : 'Send now' }}
+            {{ book.ereader_delivery_status === 'SKIPPED' ? 'Retry' : 'Send now' }}
           </button>
         </div>
 
-        <div v-if="book.kindle_delivery_status === 'IN_PROGRESS'" class="mt-2 ml-12">
+        <div v-if="book.ereader_delivery_status === 'IN_PROGRESS'" class="mt-2 ml-12">
           <div class="progress-bar progress-bar-animated">
             <div
               class="progress-bar-fill"

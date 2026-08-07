@@ -1,4 +1,4 @@
-"""Shared throttled progress callback for Kindle file transfers."""
+"""Shared throttled progress callback for E-reader file transfers."""
 
 import time
 from collections.abc import Callable

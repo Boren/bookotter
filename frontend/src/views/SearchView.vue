@@ -158,7 +158,7 @@ const filteredAndSortedResults = computed(() => {
       <h1 class="page-title">Search</h1>
       <p class="page-subtitle">
         <template v-if="bookTitle">
-          Find releases for <span class="text-kindle-600 font-medium">{{ bookTitle }}</span>
+          Find releases for <span class="text-ereader-600 font-medium">{{ bookTitle }}</span>
         </template>
         <template v-else>
           Search Prowlarr indexers for books
@@ -324,7 +324,7 @@ const filteredAndSortedResults = computed(() => {
     <!-- Loading State -->
     <div v-if="searchStore.isSearching" class="flex justify-center py-16">
       <div class="flex items-center gap-3 text-stone-500">
-        <svg class="animate-spin h-6 w-6 text-kindle-600" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-6 w-6 text-ereader-600" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -347,11 +347,11 @@ const filteredAndSortedResults = computed(() => {
         
         <div class="flex items-center gap-4 text-sm">
           <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" v-model="hideRejected" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-500" />
+            <input type="checkbox" v-model="hideRejected" class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-500" />
             <span class="text-stone-700">Hide rejected</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" v-model="hideAudiobooks" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-500" />
+            <input type="checkbox" v-model="hideAudiobooks" class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-500" />
             <span class="text-stone-700">Hide audiobooks</span>
           </label>
         </div>

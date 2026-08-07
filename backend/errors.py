@@ -34,11 +34,11 @@ class FailureReason(StrEnum):
     IMPORT_COPY_FAILED = "import_copy_failed"
     IMPORT_METADATA_WRITE_FAILED = "import_metadata_write_failed"
     CONTENT_MISMATCH_LOW_CONFIDENCE = "content_mismatch_low_confidence"
-    # Kindle
-    KINDLE_UNREACHABLE = "kindle_unreachable"
-    KINDLE_AUTH_FAILED = "kindle_auth_failed"
-    KINDLE_DISK_FULL = "kindle_disk_full"
-    KINDLE_TRANSFER_FAILED = "kindle_transfer_failed"
+    # E-reader
+    EREADER_UNREACHABLE = "ereader_unreachable"
+    EREADER_AUTH_FAILED = "ereader_auth_failed"
+    EREADER_DISK_FULL = "ereader_disk_full"
+    EREADER_TRANSFER_FAILED = "ereader_transfer_failed"
     # Pipeline
     PIPELINE_LOCK_HELD = "pipeline_lock_held"
     RETRY_BUDGET_EXHAUSTED = "retry_budget_exhausted"

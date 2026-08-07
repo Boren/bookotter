@@ -20,12 +20,12 @@ PROWLARR_TIMEOUT: Final[int] = 30  # seconds
 QBIT_RETRY_ATTEMPTS: Final[int] = 3
 QBIT_TIMEOUT: Final[int] = 30  # seconds
 
-# ─── Kindle / SSH ──────────────────────────────────────────────────────────────
-KINDLE_RETRY_ATTEMPTS: Final[int] = 3
-KINDLE_SSH_TIMEOUT: Final[int] = 10  # seconds — connection timeout
-KINDLE_PROBE_TIMEOUT: Final[int] = 3  # seconds — cheap TCP reachability probe
-KINDLE_TRANSFER_TIMEOUT: Final[int] = 300  # seconds — 5 min for large EPUBs
-KINDLE_DELIVERY_TIMEOUT_DAYS: Final[int] = 14  # days before marking SKIPPED
+# ─── E-reader / SSH ──────────────────────────────────────────────────────────────
+EREADER_RETRY_ATTEMPTS: Final[int] = 3
+EREADER_SSH_TIMEOUT: Final[int] = 10  # seconds — connection timeout
+EREADER_PROBE_TIMEOUT: Final[int] = 3  # seconds — cheap TCP reachability probe
+EREADER_TRANSFER_TIMEOUT: Final[int] = 300  # seconds — 5 min for large EPUBs
+EREADER_DELIVERY_TIMEOUT_DAYS: Final[int] = 14  # days before marking SKIPPED
 
 # ─── Download / Stall ──────────────────────────────────────────────────────────
 DOWNLOAD_STALL_THRESHOLD_MIN: Final[int] = 30  # minutes without progress

@@ -1,4 +1,4 @@
-"""Tests for HardcoverSyncService.run_kindle_sync: delivery marking + lifecycle events."""
+"""Tests for HardcoverSyncService.run_ereader_sync: delivery marking + lifecycle events."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,14 +9,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.database import Base
-from backend.models.book import BookStatus, KindleDeliveryStatus, RootFolder
+from backend.models.book import BookStatus, EreaderDeliveryStatus, RootFolder
 from backend.services.hardcover_sync_service import HardcoverSyncService
 from tests.helpers import create_test_book
 
-KINDLE_CONFIG = {
+EREADER_CONFIG = {
     "id": "abc123",
-    "name": "My Kindle",
-    "hostname": "kindle.local",
+    "name": "My E-reader",
+    "hostname": "ereader.local",
     "port": 22,
     "username": "root",
     "password": "",
@@ -74,49 +74,49 @@ def _run(db_session, transfer_result: dict, emit_callback=None) -> dict:
     mock_client = MagicMock()
     mock_client.transfer_file.return_value = transfer_result
     with (
-        patch("backend.services.hardcover_sync_service.get_kindle_by_id", return_value=KINDLE_CONFIG),
-        patch("backend.services.hardcover_sync_service.KindleClient") as client_cls,
+        patch("backend.services.hardcover_sync_service.get_ereader_by_id", return_value=EREADER_CONFIG),
+        patch("backend.services.hardcover_sync_service.EreaderClient") as client_cls,
     ):
         client_cls.from_config.return_value = mock_client
-        return service.run_kindle_sync("abc123", db_session)
+        return service.run_ereader_sync("abc123", db_session)
 
 
-class TestRunKindleSync:
+class TestRunEreaderSync:
     def test_skip_existing_marks_delivered(self, db_session, library_book):
-        """A book already on the device gets kindle_delivery_status=DELIVERED persisted."""
+        """A book already on the device gets ereader_delivery_status=DELIVERED persisted."""
         result = _run(db_session, {"success": True, "status": "skipped", "file_size": 0})
 
         assert result == {"transferred": 0, "skipped": 1, "failed": 0, "cleanup": None, "dry_run": False}
         db_session.refresh(library_book)
-        assert library_book.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
-        assert library_book.kindle_delivered_at is not None
+        assert library_book.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
+        assert library_book.ereader_delivered_at is not None
 
     def test_transferred_marks_delivered(self, db_session, library_book):
         result = _run(db_session, {"success": True, "status": "transferred", "file_size": 5})
 
         assert result == {"transferred": 1, "skipped": 0, "failed": 0, "cleanup": None, "dry_run": False}
         db_session.refresh(library_book)
-        assert library_book.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
-        assert library_book.kindle_delivered_at is not None
+        assert library_book.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
+        assert library_book.ereader_delivered_at is not None
 
     def test_per_book_delivered_event_emitted(self, db_session, library_book):
-        """Bulk sync emits kindle_delivered per book so open UIs refresh live."""
+        """Bulk sync emits ereader_delivered per book so open UIs refresh live."""
         emit = MagicMock()
         _run(db_session, {"success": True, "status": "transferred", "file_size": 5}, emit_callback=emit)
 
-        delivered = next(c[0][1] for c in emit.call_args_list if c[0][0] == "kindle_delivered")
+        delivered = next(c[0][1] for c in emit.call_args_list if c[0][0] == "ereader_delivered")
         assert delivered == {"book_id": library_book.id, "status": "transferred"}
 
     def test_lifecycle_events_emitted_synchronously(self, db_session, library_book):
-        """kindle_sync_started/completed reach a plain sync callback (no coroutine leak)."""
+        """ereader_sync_started/completed reach a plain sync callback (no coroutine leak)."""
         emit = MagicMock()
         _run(db_session, {"success": True, "status": "transferred", "file_size": 5}, emit_callback=emit)
 
         events = [c[0][0] for c in emit.call_args_list]
-        assert events[0] == "kindle_sync_started"
-        assert emit.call_args_list[0][0][1] == {"kindle_id": "abc123", "total_books": 1}
-        assert "kindle_sync_completed" in events
-        completed = next(c[0][1] for c in emit.call_args_list if c[0][0] == "kindle_sync_completed")
+        assert events[0] == "ereader_sync_started"
+        assert emit.call_args_list[0][0][1] == {"ereader_id": "abc123", "total_books": 1}
+        assert "ereader_sync_completed" in events
+        completed = next(c[0][1] for c in emit.call_args_list if c[0][0] == "ereader_sync_completed")
         assert completed == {"transferred": 1, "skipped": 0, "failed": 0}
 
     def test_failed_transfer_counted(self, db_session, library_book):
@@ -125,13 +125,13 @@ class TestRunKindleSync:
 
         assert result == {"transferred": 0, "skipped": 0, "failed": 1, "cleanup": None, "dry_run": False}
         db_session.refresh(library_book)
-        assert library_book.kindle_delivery_status is None
-        completed = next(c[0][1] for c in emit.call_args_list if c[0][0] == "kindle_sync_completed")
+        assert library_book.ereader_delivery_status is None
+        completed = next(c[0][1] for c in emit.call_args_list if c[0][0] == "ereader_sync_completed")
         assert completed["failed"] == 1
 
 
 def _run_mirror(db_session, config_transfer: dict, dry_run: bool = False, mock_client: MagicMock | None = None):
-    """Run run_kindle_sync with a configurable transfer config; returns (result, mock_client)."""
+    """Run run_ereader_sync with a configurable transfer config; returns (result, mock_client)."""
     service = HardcoverSyncService(
         hardcover_client=MagicMock(),
         config={"transfer": config_transfer},
@@ -144,11 +144,11 @@ def _run_mirror(db_session, config_transfer: dict, dry_run: bool = False, mock_c
         mock_client.find_orphaned_books.return_value = []
         mock_client.list_all_books.return_value = []
     with (
-        patch("backend.services.hardcover_sync_service.get_kindle_by_id", return_value=KINDLE_CONFIG),
-        patch("backend.services.hardcover_sync_service.KindleClient") as client_cls,
+        patch("backend.services.hardcover_sync_service.get_ereader_by_id", return_value=EREADER_CONFIG),
+        patch("backend.services.hardcover_sync_service.EreaderClient") as client_cls,
     ):
         client_cls.from_config.return_value = mock_client
-        result = service.run_kindle_sync("abc123", db_session, dry_run=dry_run)
+        result = service.run_ereader_sync("abc123", db_session, dry_run=dry_run)
     return result, mock_client
 
 
@@ -189,7 +189,7 @@ class TestMirrorSelection:
             root_folder_id=library_book.root_folder_id,
             file_path="pinned.epub",
             isbn="978-0-999-00000-2",
-            kindle_pinned=True,
+            ereader_pinned=True,
         )
         db_session.commit()
 
@@ -199,7 +199,7 @@ class TestMirrorSelection:
 
     def test_book_moved_off_shelf_removed_from_mirror(self, db_session, library_book):
         library_book.hardcover_status = None
-        library_book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+        library_book.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
         db_session.commit()
         # Another book still carries a status so the pre-backfill guard passes
         create_test_book(
@@ -218,8 +218,8 @@ class TestMirrorSelection:
         expected_arg = client.cleanup_orphaned_books.call_args[0][0]
         assert expected_arg == []
         db_session.refresh(library_book)
-        assert library_book.kindle_delivery_status is None
-        assert library_book.kindle_delivered_at is None
+        assert library_book.ereader_delivery_status is None
+        assert library_book.ereader_delivered_at is None
 
 
 class TestMirrorCleanup:
@@ -242,7 +242,7 @@ class TestMirrorCleanup:
     def test_cleanup_skipped_before_shelf_backfill(self, db_session, library_book):
         # No book anywhere has a hardcover_status → cleanup must not run
         library_book.hardcover_status = None
-        library_book.kindle_pinned = True
+        library_book.ereader_pinned = True
         db_session.commit()
 
         result, client = _run_mirror(db_session, MIRROR_TRANSFER_CFG)
@@ -255,7 +255,7 @@ class TestMirrorCleanup:
 
 class TestDryRun:
     def test_dry_run_no_side_effects(self, db_session, library_book):
-        library_book.kindle_delivery_status = None
+        library_book.ereader_delivery_status = None
         db_session.commit()
 
         result, client = _run_mirror(db_session, MIRROR_TRANSFER_CFG, dry_run=True)
@@ -263,7 +263,7 @@ class TestDryRun:
         client.transfer_file.assert_not_called()
         client.cleanup_orphaned_books.assert_not_called()
         db_session.refresh(library_book)
-        assert library_book.kindle_delivery_status is None
+        assert library_book.ereader_delivery_status is None
         assert result["dry_run"] is True
 
     def test_dry_run_reports_would_send_and_would_delete(self, db_session, library_book):

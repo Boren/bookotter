@@ -14,7 +14,7 @@ export const useLibraryStore = defineStore('library', () => {
   // Filter / sort / pagination
   const searchQuery = ref('');
   const filterStatus = ref<string | null>(null);
-  const filterKindleStatus = ref<string | null>(null);
+  const filterEreaderStatus = ref<string | null>(null);
   const filterAuthor = ref<string | null>(null);
   const sortBy = ref('created_at');
   const sortOrder = ref<'asc' | 'desc'>('desc');
@@ -36,7 +36,8 @@ export const useLibraryStore = defineStore('library', () => {
     try {
       const params = new URLSearchParams();
       if (filterStatus.value) params.set('status', filterStatus.value);
-      if (filterKindleStatus.value) params.set('kindle_delivery_status', filterKindleStatus.value);
+      if (filterEreaderStatus.value)
+        params.set('ereader_delivery_status', filterEreaderStatus.value);
       if (filterAuthor.value) params.set('author', filterAuthor.value);
       if (searchQuery.value) params.set('search', searchQuery.value);
       params.set('sort_by', sortBy.value);
@@ -171,10 +172,10 @@ export const useLibraryStore = defineStore('library', () => {
   const REFRESHING_EVENTS = new Set([
     'book_status_changed',
     'book_force_retried',
-    'kindle_delivery_started',
-    'kindle_delivered',
-    'kindle_delivery_skipped',
-    'kindle_delivery_requeued',
+    'ereader_delivery_started',
+    'ereader_delivered',
+    'ereader_delivery_skipped',
+    'ereader_delivery_requeued',
   ]);
 
   const handleBookEvent = (event: string, payload: { book_id: number; [key: string]: unknown }) => {
@@ -197,42 +198,46 @@ export const useLibraryStore = defineStore('library', () => {
     }
   };
 
-  const requeueKindle = async (bookId: number): Promise<void> => {
+  const requeueEreader = async (bookId: number): Promise<void> => {
     const toast = useToast();
-    const response = await fetch(`/api/library/books/${bookId}/kindle-requeue`, { method: 'POST' });
+    const response = await fetch(`/api/library/books/${bookId}/ereader-requeue`, {
+      method: 'POST',
+    });
     if (response.ok) {
       const body = await response.json().catch(() => ({}));
       if (body.already_queued) {
-        toast.info('Already queued for Kindle delivery.');
+        toast.info('Already queued for E-reader delivery.');
       } else if (body.kicked) {
-        toast.success('Sending to Kindle — transfers now if the Kindle is on, queued otherwise.');
+        toast.success(
+          'Sending to E-reader — transfers now if the E-reader is on, queued otherwise.'
+        );
       } else {
-        toast.success('Queued for Kindle delivery — sent automatically once the Kindle is on.');
+        toast.success('Queued for E-reader delivery — sent automatically once the E-reader is on.');
       }
       await fetchBook(bookId);
     } else if (response.status === 409) {
       toast.info('Delivery already in progress for this book.');
     } else {
       const body = await response.json().catch(() => ({}));
-      toast.error(body.detail || 'Failed to queue Kindle delivery');
+      toast.error(body.detail || 'Failed to queue E-reader delivery');
     }
   };
 
-  const unpinKindle = async (bookId: number): Promise<void> => {
+  const unpinEreader = async (bookId: number): Promise<void> => {
     const toast = useToast();
-    const response = await fetch(`/api/library/books/${bookId}/kindle-pin`, { method: 'DELETE' });
+    const response = await fetch(`/api/library/books/${bookId}/ereader-pin`, { method: 'DELETE' });
     if (response.ok) {
       const body = await response.json().catch(() => ({}));
-      const pinned = body.kindle_pinned ?? false;
+      const pinned = body.ereader_pinned ?? false;
       if (currentBook.value?.id === bookId) {
-        currentBook.value = { ...currentBook.value, kindle_pinned: pinned };
+        currentBook.value = { ...currentBook.value, ereader_pinned: pinned };
       }
       const idx = books.value.findIndex((b) => b.id === bookId);
-      if (idx !== -1) books.value[idx] = { ...books.value[idx], kindle_pinned: pinned };
+      if (idx !== -1) books.value[idx] = { ...books.value[idx], ereader_pinned: pinned };
       toast.success('Unpinned — removed from the device on the next sync.');
     } else {
       const body = await response.json().catch(() => ({}));
-      toast.error(body.detail || 'Failed to unpin from Kindle');
+      toast.error(body.detail || 'Failed to unpin from E-reader');
     }
   };
 
@@ -282,7 +287,7 @@ export const useLibraryStore = defineStore('library', () => {
     error,
     searchQuery,
     filterStatus,
-    filterKindleStatus,
+    filterEreaderStatus,
     filterAuthor,
     sortBy,
     sortOrder,
@@ -308,8 +313,8 @@ export const useLibraryStore = defineStore('library', () => {
     clearError,
     handleBookEvent,
     retryBook,
-    requeueKindle,
-    unpinKindle,
+    requeueEreader,
+    unpinEreader,
     fetchRenamePreview,
     applyRename,
   };

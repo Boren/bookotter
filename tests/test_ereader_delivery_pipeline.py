@@ -1,6 +1,6 @@
 # pyright: reportAttributeAccessIssue=false, reportGeneralTypeIssues=false, reportOptionalMemberAccess=false, reportArgumentType=false
 
-"""Tests for Kindle delivery state machine integration into run_pipeline (Fix 2)."""
+"""Tests for E-reader delivery state machine integration into run_pipeline (Fix 2)."""
 
 import os
 from pathlib import Path
@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import object_session, sessionmaker
 
 from backend.database import Base
-from backend.models.book import BookStatus, Download, DownloadStatus, KindleDeliveryStatus, RootFolder
+from backend.models.book import BookStatus, Download, DownloadStatus, EreaderDeliveryStatus, RootFolder
 from backend.services.pipeline_service import PipelineService
 from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book
@@ -56,11 +56,11 @@ def root_folder_with_file(file_db_factory, tmp_path):
     return rf_id, str(epub_file.relative_to(rf.path))
 
 
-def _real_kindle_config() -> dict:
+def _real_ereader_config() -> dict:
     return {
-        "id": "test-kindle",
+        "id": "test-ereader",
         "name": "Test",
-        "hostname": "kindle.local",
+        "hostname": "ereader.local",
         "port": 22,
         "username": "root",
         "password": "",
@@ -69,8 +69,8 @@ def _real_kindle_config() -> dict:
     }
 
 
-def _placeholder_kindle_config() -> dict:
-    return {**_real_kindle_config(), "hostname": ""}
+def _placeholder_ereader_config() -> dict:
+    return {**_real_ereader_config(), "hostname": ""}
 
 
 def _make_pending_book(db, root_folder_id, file_path, **overrides):
@@ -81,25 +81,25 @@ def _make_pending_book(db, root_folder_id, file_path, **overrides):
         file_path=file_path,
         **overrides,
     )
-    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-    book.kindle_first_pending_at = naive_utcnow()
+    book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
+    book.ereader_first_pending_at = naive_utcnow()
     db.commit()
     return book.id
 
 
-def _make_service(file_db_factory, kindle_client=None):
+def _make_service(file_db_factory, ereader_client=None):
     config_for_delivery = {"transfer": {"folder_organization": "flat"}}
     service = PipelineService(
         db_session_factory=file_db_factory,
-        kindle_client=kindle_client,
+        ereader_client=ereader_client,
     )
     service._load_config_for_delivery = lambda: config_for_delivery
     return service
 
 
 class TestImportingMarksPending:
-    def test_pending_marking_when_real_kindle_configured(self, file_db_factory, root_folder_with_file):
-        """T2.1: process_importing_books marks IN_LIBRARY books as PENDING when a real Kindle is configured."""
+    def test_pending_marking_when_real_ereader_configured(self, file_db_factory, root_folder_with_file):
+        """T2.1: process_importing_books marks IN_LIBRARY books as PENDING when a real E-reader is configured."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book = create_test_book(
@@ -131,8 +131,8 @@ class TestImportingMarksPending:
         with patch(
             "backend.config.load_config",
             return_value={
-                "kindles": [_real_kindle_config()],
-                "pipeline": {"kindle_sync_on_import": True},
+                "ereaders": [_real_ereader_config()],
+                "pipeline": {"ereader_sync_on_import": True},
                 "transfer": {"sync_shelves": {"want_to_read": True}},
             },
         ):
@@ -143,8 +143,8 @@ class TestImportingMarksPending:
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        assert refreshed.kindle_first_pending_at is not None
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        assert refreshed.ereader_first_pending_at is not None
         verify_db.close()
 
     def test_no_pending_marking_for_book_outside_sync_shelves(self, file_db_factory, root_folder_with_file):
@@ -174,8 +174,8 @@ class TestImportingMarksPending:
         with patch(
             "backend.config.load_config",
             return_value={
-                "kindles": [_real_kindle_config()],
-                "pipeline": {"kindle_sync_on_import": True},
+                "ereaders": [_real_ereader_config()],
+                "pipeline": {"ereader_sync_on_import": True},
                 "transfer": {"sync_shelves": {"want_to_read": True}},
             },
         ):
@@ -186,7 +186,7 @@ class TestImportingMarksPending:
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status is None
+        assert refreshed.ereader_delivery_status is None
         verify_db.close()
 
     def test_pending_marking_for_pinned_book_without_shelf(self, file_db_factory, root_folder_with_file):
@@ -198,7 +198,7 @@ class TestImportingMarksPending:
             status=BookStatus.IMPORTING.value,
             root_folder_id=rf_id,
             file_path=file_rel,
-            kindle_pinned=True,
+            ereader_pinned=True,
         )
         download = Download(
             book_id=book.id,
@@ -222,8 +222,8 @@ class TestImportingMarksPending:
         with patch(
             "backend.config.load_config",
             return_value={
-                "kindles": [_real_kindle_config()],
-                "pipeline": {"kindle_sync_on_import": True},
+                "ereaders": [_real_ereader_config()],
+                "pipeline": {"ereader_sync_on_import": True},
                 "transfer": {"sync_shelves": {"want_to_read": True}},
             },
         ):
@@ -234,11 +234,11 @@ class TestImportingMarksPending:
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
         verify_db.close()
 
     def test_no_pending_marking_when_disabled(self, file_db_factory, root_folder_with_file):
-        """T2.2: kindle_sync_on_import=false leaves status NULL."""
+        """T2.2: ereader_sync_on_import=false leaves status NULL."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book = create_test_book(db, status=BookStatus.IMPORTING.value, root_folder_id=rf_id, file_path=file_rel)
@@ -263,7 +263,7 @@ class TestImportingMarksPending:
         service = PipelineService(import_service=mock_imp, db_session_factory=file_db_factory)
         with patch(
             "backend.config.load_config",
-            return_value={"kindles": [_real_kindle_config()], "pipeline": {"kindle_sync_on_import": False}},
+            return_value={"ereaders": [_real_ereader_config()], "pipeline": {"ereader_sync_on_import": False}},
         ):
             service.process_importing_books()
         db.close()
@@ -272,11 +272,11 @@ class TestImportingMarksPending:
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status is None
+        assert refreshed.ereader_delivery_status is None
         verify_db.close()
 
-    def test_no_pending_marking_when_only_placeholder_kindle(self, file_db_factory, root_folder_with_file):
-        """T2.3: placeholder Kindle (empty hostname) is treated as no-Kindle — status stays NULL."""
+    def test_no_pending_marking_when_only_placeholder_ereader(self, file_db_factory, root_folder_with_file):
+        """T2.3: placeholder E-reader (empty hostname) is treated as no-E-reader — status stays NULL."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book = create_test_book(db, status=BookStatus.IMPORTING.value, root_folder_id=rf_id, file_path=file_rel)
@@ -301,7 +301,7 @@ class TestImportingMarksPending:
         service = PipelineService(import_service=mock_imp, db_session_factory=file_db_factory)
         with patch(
             "backend.config.load_config",
-            return_value={"kindles": [_placeholder_kindle_config()], "pipeline": {"kindle_sync_on_import": True}},
+            return_value={"ereaders": [_placeholder_ereader_config()], "pipeline": {"ereader_sync_on_import": True}},
         ):
             service.process_importing_books()
         db.close()
@@ -310,59 +310,59 @@ class TestImportingMarksPending:
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status is None
+        assert refreshed.ereader_delivery_status is None
         verify_db.close()
 
 
-class TestKindleDeliveryStateMachine:
+class TestEreaderDeliveryStateMachine:
     def test_successful_delivery_marks_delivered(self, file_db_factory, root_folder_with_file):
-        """T2.4: PENDING + Kindle returns success → DELIVERED, attempts=1."""
+        """T2.4: PENDING + E-reader returns success → DELIVERED, attempts=1."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
-        assert refreshed.kindle_delivery_attempts == 1
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
+        assert refreshed.ereader_delivery_attempts == 1
         verify_db.close()
 
     def test_soft_failure_keeps_pending_increments_attempts(self, file_db_factory, root_folder_with_file):
-        """T2.5: PENDING + Kindle returns success=False → stays PENDING, attempts increments."""
+        """T2.5: PENDING + E-reader returns success=False → stays PENDING, attempts increments."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.transfer_file.return_value = {"success": False, "error": "unreachable"}
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.transfer_file.return_value = {"success": False, "error": "unreachable"}
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
             verify_db = file_db_factory()
             from backend.models.book import Book
 
             after_first = verify_db.get(Book, book_id)
-            assert after_first.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-            assert after_first.kindle_delivery_attempts == 1
+            assert after_first.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+            assert after_first.ereader_delivery_attempts == 1
             verify_db.close()
 
-            service.process_kindle_delivery_books()
+            service.process_ereader_delivery_books()
             verify_db = file_db_factory()
             after_second = verify_db.get(Book, book_id)
-            assert after_second.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-            assert after_second.kindle_delivery_attempts == 2
+            assert after_second.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+            assert after_second.ereader_delivery_attempts == 2
             verify_db.close()
 
     def test_exception_keeps_pending_increments_attempts(self, file_db_factory, root_folder_with_file):
@@ -372,43 +372,43 @@ class TestKindleDeliveryStateMachine:
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.transfer_file.side_effect = ConnectionError("ssh failed")
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.transfer_file.side_effect = ConnectionError("ssh failed")
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        assert refreshed.kindle_delivery_attempts == 1
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        assert refreshed.ereader_delivery_attempts == 1
         verify_db.close()
 
     def test_book_with_missing_root_folder_left_pending(self, file_db_factory, root_folder_with_file):
         """T2.10: book without root_folder is left PENDING (no crash, no DELIVERED)."""
         db = file_db_factory()
         book = create_test_book(db, status=BookStatus.IN_LIBRARY.value, file_path="some/path.epub")
-        book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-        book.kindle_first_pending_at = naive_utcnow()
+        book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
+        book.ereader_first_pending_at = naive_utcnow()
         db.commit()
         book_id = book.id
         db.close()
 
-        kindle_client = MagicMock()
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        kindle_client.transfer_file.assert_not_called()
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        ereader_client.transfer_file.assert_not_called()
         verify_db.close()
 
     def test_book_with_missing_file_on_disk_left_pending(self, file_db_factory, root_folder_with_file):
@@ -418,18 +418,18 @@ class TestKindleDeliveryStateMachine:
         book_id = _make_pending_book(db, rf_id, "nonexistent.epub")
         db.close()
 
-        kindle_client = MagicMock()
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        kindle_client.transfer_file.assert_not_called()
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        ereader_client.transfer_file.assert_not_called()
         verify_db.close()
 
     def test_path_resolution_uses_root_folder_plus_file_path(self, file_db_factory, root_folder_with_file):
@@ -443,15 +443,15 @@ class TestKindleDeliveryStateMachine:
         verify_db.close()
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 1}
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 1}
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
-        kindle_client.transfer_file.assert_called_once()
-        call_kwargs = kindle_client.transfer_file.call_args.kwargs
+        ereader_client.transfer_file.assert_called_once()
+        call_kwargs = ereader_client.transfer_file.call_args.kwargs
         assert call_kwargs["local_path"] == expected_abs
 
 
@@ -495,18 +495,18 @@ class TestCrossSessionPersistence:
         verify_db.close()
 
 
-class TestLazyKindleClient:
-    def test_kindle_client_built_from_fresh_config_when_not_injected(self, file_db_factory, root_folder_with_file):
-        """T2.14: When kindle_client=None in constructor, KindleClient.from_config is called per-cycle.
+class TestLazyEreaderClient:
+    def test_ereader_client_built_from_fresh_config_when_not_injected(self, file_db_factory, root_folder_with_file):
+        """T2.14: When ereader_client=None in constructor, EreaderClient.from_config is called per-cycle.
 
-        Regression test for Blocker 3 (stale KindleClient after Settings change).
+        Regression test for Blocker 3 (stale EreaderClient after Settings change).
         """
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        service = _make_service(file_db_factory, kindle_client=None)
+        service = _make_service(file_db_factory, ereader_client=None)
 
         captured_configs = []
 
@@ -521,70 +521,70 @@ class TestLazyKindleClient:
                 return {"success": True, "status": "transferred", "file_size": 1}
 
         with patch(
-            "backend.clients.kindle_client.KindleClient.from_config", side_effect=lambda cfg: _CapturingClient(**cfg)
+            "backend.clients.ereader_client.EreaderClient.from_config", side_effect=lambda cfg: _CapturingClient(**cfg)
         ):
-            with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-                service.process_kindle_delivery_books()
+            with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+                service.process_ereader_delivery_books()
 
         assert len(captured_configs) == 1
-        assert captured_configs[0]["hostname"] == "kindle.local"
+        assert captured_configs[0]["hostname"] == "ereader.local"
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
         verify_db.close()
 
 
 class TestRunPipelineIntegration:
-    def test_kindle_delivery_stage_runs_via_run_pipeline(self, file_db_factory, root_folder_with_file):
-        """T2.7: process_kindle_delivery_books runs as a stage of run_pipeline."""
+    def test_ereader_delivery_stage_runs_via_run_pipeline(self, file_db_factory, root_folder_with_file):
+        """T2.7: process_ereader_delivery_books runs as a stage of run_pipeline."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
             results = service.run_pipeline(holder="manual")
 
-        assert results.get("kindle_delivery") == 1
+        assert results.get("ereader_delivery") == 1
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
         verify_db.close()
 
 
 class TestReachabilityGate:
     def test_offline_skips_transfers_and_attempts(self, file_db_factory, root_folder_with_file):
-        """Kindle unreachable → no transfer attempted, attempts unchanged, stays PENDING."""
+        """E-reader unreachable → no transfer attempted, attempts unchanged, stays PENDING."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.is_reachable.return_value = False
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.is_reachable.return_value = False
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
-        kindle_client.transfer_file.assert_not_called()
+        ereader_client.transfer_file.assert_not_called()
 
         verify_db = file_db_factory()
         from backend.models.book import Book
 
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        assert refreshed.kindle_delivery_attempts == 0
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        assert refreshed.ereader_delivery_attempts == 0
         verify_db.close()
 
     def test_offline_still_stamps_first_pending_at(self, file_db_factory, root_folder_with_file):
@@ -594,20 +594,20 @@ class TestReachabilityGate:
         book_id = _make_pending_book(db, rf_id, file_rel)
         from backend.models.book import Book
 
-        db.get(Book, book_id).kindle_first_pending_at = None
+        db.get(Book, book_id).ereader_first_pending_at = None
         db.commit()
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.is_reachable.return_value = False
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.is_reachable.return_value = False
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         verify_db = file_db_factory()
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_first_pending_at is not None
+        assert refreshed.ereader_first_pending_at is not None
         verify_db.close()
 
     def test_offline_still_applies_delivery_timeout(self, file_db_factory, root_folder_with_file):
@@ -619,32 +619,32 @@ class TestReachabilityGate:
         book_id = _make_pending_book(db, rf_id, file_rel)
         from backend.models.book import Book
 
-        db.get(Book, book_id).kindle_first_pending_at = naive_utcnow() - timedelta(days=15)
+        db.get(Book, book_id).ereader_first_pending_at = naive_utcnow() - timedelta(days=15)
         db.commit()
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.is_reachable.return_value = False
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.is_reachable.return_value = False
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         verify_db = file_db_factory()
         refreshed = verify_db.get(Book, book_id)
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.SKIPPED.value
         verify_db.close()
 
     def test_no_work_no_probe(self, file_db_factory):
         """No PENDING and no SKIPPED books → the probe is never fired."""
-        kindle_client = MagicMock()
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
-        kindle_client.is_reachable.assert_not_called()
-        kindle_client.transfer_file.assert_not_called()
+        ereader_client.is_reachable.assert_not_called()
+        ereader_client.transfer_file.assert_not_called()
 
     def test_probe_fires_once_for_mixed_workload(self, file_db_factory, root_folder_with_file):
         """Multiple PENDING + SKIPPED books → exactly one probe per cycle."""
@@ -660,50 +660,50 @@ class TestReachabilityGate:
         skipped_id = _make_pending_book(db, rf_id, extra_rels[1], title="Gate Book Three")
         from backend.models.book import Book
 
-        db.get(Book, skipped_id).kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
+        db.get(Book, skipped_id).ereader_delivery_status = EreaderDeliveryStatus.SKIPPED.value
         db.commit()
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.is_reachable.return_value = True
-        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
-        service = _make_service(file_db_factory, kindle_client=kindle_client)
+        ereader_client = MagicMock()
+        ereader_client.is_reachable.return_value = True
+        ereader_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
+        service = _make_service(file_db_factory, ereader_client=ereader_client)
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
-        assert kindle_client.is_reachable.call_count == 1
-        assert kindle_client.transfer_file.call_count == 2
+        assert ereader_client.is_reachable.call_count == 1
+        assert ereader_client.transfer_file.call_count == 2
 
     def test_ws_events_emitted_for_delivery_lifecycle(self, file_db_factory, root_folder_with_file):
-        """kindle_delivered on success; nothing emitted on an offline cycle."""
+        """ereader_delivered on success; nothing emitted on an offline cycle."""
         rf_id, file_rel = root_folder_with_file
         db = file_db_factory()
         book_id = _make_pending_book(db, rf_id, file_rel)
         db.close()
 
-        kindle_client = MagicMock()
-        kindle_client.is_reachable.return_value = False
+        ereader_client = MagicMock()
+        ereader_client.is_reachable.return_value = False
         ws_manager = MagicMock()
         service = PipelineService(
             db_session_factory=file_db_factory,
-            kindle_client=kindle_client,
+            ereader_client=ereader_client,
             ws_manager=ws_manager,
         )
         service._load_config_for_delivery = lambda: {"transfer": {"folder_organization": "flat"}}
 
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
         ws_manager.broadcast_sync.assert_not_called()
 
-        kindle_client.is_reachable.return_value = True
-        kindle_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
-        with patch.object(service, "_get_kindle_config", return_value=_real_kindle_config()):
-            service.process_kindle_delivery_books()
+        ereader_client.is_reachable.return_value = True
+        ereader_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 100}
+        with patch.object(service, "_get_ereader_config", return_value=_real_ereader_config()):
+            service.process_ereader_delivery_books()
 
         events = [c[0][0] for c in ws_manager.broadcast_sync.call_args_list]
-        assert "kindle_delivered" in events
+        assert "ereader_delivered" in events
         delivered_payload = next(
-            c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "kindle_delivered"
+            c[0][1] for c in ws_manager.broadcast_sync.call_args_list if c[0][0] == "ereader_delivered"
         )
         assert delivered_payload["book_id"] == book_id

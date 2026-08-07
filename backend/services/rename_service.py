@@ -4,7 +4,7 @@ Preview and apply share one target computation so what the preview shows is
 exactly what apply does. Apply runs under the pipeline lock (single writer),
 moves files with atomic_move, commits the DB per file so DB and filesystem
 never drift by more than the file in flight, keeps the scanner tables
-consistent, and resets Kindle delivery for renamed mirror-set books — the
+consistent, and resets E-reader delivery for renamed mirror-set books — the
 shelf-mirror sync derives device paths from the local basename, so the pipeline
 re-sends the new name and the next sync's cleanup removes the old device file.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session, joinedload
 
-from backend.config import get_first_real_kindle, get_kindle_sync_shelves, load_config
+from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 from backend.constants import MAX_COLLISION_ATTEMPTS
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus
@@ -24,8 +24,8 @@ from backend.models.scanner import DismissedScanPath, MatchProposal, MatchPropos
 from backend.services.import_service import ImportService
 from backend.utils.atomic import atomic_move
 from backend.utils.clock import naive_utcnow
+from backend.utils.ereader_delivery import rearm_ereader_delivery
 from backend.utils.events import log_event
-from backend.utils.kindle_delivery import rearm_kindle_delivery
 from backend.utils.pipeline_lock import acquire_pipeline_lock
 
 logger = logging.getLogger(__name__)
@@ -152,8 +152,8 @@ class RenameService:
             items = [item for item in items if item.book_id in wanted]
 
         config = load_config()
-        real_kindle = get_first_real_kindle(config)
-        kindle_shelves = get_kindle_sync_shelves(config)
+        real_ereader = get_first_real_ereader(config)
+        ereader_shelves = get_ereader_sync_shelves(config)
 
         renamed = skipped = failed = 0
         results: list[dict] = []
@@ -193,7 +193,7 @@ class RenameService:
 
             pruned_dirs.add((abs_old.parent, root))
             try:
-                self._sync_bookkeeping(book, item, real_kindle, kindle_shelves)
+                self._sync_bookkeeping(book, item, real_ereader, ereader_shelves)
                 self.db.commit()
             except Exception as exc:  # bookkeeping must not undo a completed move
                 self.db.rollback()
@@ -216,9 +216,9 @@ class RenameService:
         }
 
     def _sync_bookkeeping(
-        self, book: Book, item: RenameItem, real_kindle: dict | None, kindle_shelves: set[str]
+        self, book: Book, item: RenameItem, real_ereader: dict | None, ereader_shelves: set[str]
     ) -> None:
-        """Scanner-table consistency and Kindle re-delivery for a renamed book."""
+        """Scanner-table consistency and E-reader re-delivery for a renamed book."""
         self.db.query(MatchProposal).filter(
             MatchProposal.root_folder_id == item.root_folder_id,
             MatchProposal.relative_path == _nfc(item.old_path),
@@ -235,7 +235,7 @@ class RenameService:
             DismissedScanPath.relative_path == _nfc(item.new_path),
         ).delete(synchronize_session=False)
 
-        rearm_kindle_delivery(book, real_kindle, kindle_shelves)
+        rearm_ereader_delivery(book, real_ereader, ereader_shelves)
 
     @staticmethod
     def _prune_empty_dirs(directory: Path, root: Path) -> None:

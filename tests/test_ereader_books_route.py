@@ -1,4 +1,4 @@
-"""Tests for GET /api/kindles/{id}/books (on-device listing matched to library books)."""
+"""Tests for GET /api/ereaders/{id}/books (on-device listing matched to library books)."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -9,8 +9,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import backend.api.routes.kindles as kindles_routes
-from backend.clients.kindle_client import KindleClient
+import backend.api.routes.ereaders as ereaders_routes
+from backend.clients.ereader_client import EreaderClient
 from backend.database import Base, get_db
 from backend.main import app
 from tests.helpers import create_test_book
@@ -38,11 +38,11 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
-def _kindle_config():
+def _ereader_config():
     return {
         "id": "abc12345",
-        "name": "Test Kindle",
-        "hostname": "kindle.local",
+        "name": "Test E-reader",
+        "hostname": "ereader.local",
         "port": 22,
         "username": "root",
         "password": "",
@@ -58,10 +58,10 @@ def _device_files():
     ]
 
 
-class TestListKindleBooksRoute:
-    def test_unknown_kindle_404(self, client):
-        with patch.object(kindles_routes, "get_kindle_by_id", return_value=None):
-            response = client.get("/api/kindles/nope/books")
+class TestListEreaderBooksRoute:
+    def test_unknown_ereader_404(self, client):
+        with patch.object(ereaders_routes, "get_ereader_by_id", return_value=None):
+            response = client.get("/api/ereaders/nope/books")
         assert response.status_code == 404
 
     def test_matched_file_gets_book_id_and_title(self, client, db_session):
@@ -71,10 +71,10 @@ class TestListKindleBooksRoute:
         db_session.commit()
 
         with (
-            patch.object(kindles_routes, "get_kindle_by_id", return_value=_kindle_config()),
-            patch.object(kindles_routes.KindleClient, "list_books", return_value=_device_files()),
+            patch.object(ereaders_routes, "get_ereader_by_id", return_value=_ereader_config()),
+            patch.object(ereaders_routes.EreaderClient, "list_books", return_value=_device_files()),
         ):
-            response = client.get("/api/kindles/abc12345/books")
+            response = client.get("/api/ereaders/abc12345/books")
 
         assert response.status_code == 200
         data = response.json()
@@ -89,10 +89,10 @@ class TestListKindleBooksRoute:
 
     def test_listing_failure_keeps_error_envelope(self, client):
         with (
-            patch.object(kindles_routes, "get_kindle_by_id", return_value=_kindle_config()),
-            patch.object(kindles_routes.KindleClient, "list_books", side_effect=RuntimeError("offline")),
+            patch.object(ereaders_routes, "get_ereader_by_id", return_value=_ereader_config()),
+            patch.object(ereaders_routes.EreaderClient, "list_books", side_effect=RuntimeError("offline")),
         ):
-            response = client.get("/api/kindles/abc12345/books")
+            response = client.get("/api/ereaders/abc12345/books")
 
         assert response.status_code == 200
         data = response.json()
@@ -105,7 +105,7 @@ class TestListBooksModifiedTimestamp:
         return SimpleNamespace(filename=filename, st_size=st_size, st_mtime=st_mtime)
 
     def _client_with_entries(self, entries):
-        client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+        client = EreaderClient(hostname="test-ereader", destination_path="/mnt/us/books/")
         sftp = MagicMock()
         sftp.listdir_attr.return_value = entries
         ssh = MagicMock()

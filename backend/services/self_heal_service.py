@@ -10,10 +10,10 @@ RenameService.apply_locked(); the metadata pass settles each book's
 epub_meta_state from NULL ("unknown") into synced / drm / failed. Books are
 verified before being rewritten — an EPUB whose embedded metadata already
 matches the DB is marked synced without touching the file or re-queuing
-Kindle delivery, so the first pass over an existing library doesn't trigger
+E-reader delivery, so the first pass over an existing library doesn't trigger
 a mass re-delivery.
 
-Bulk Kindle sync (hardcover_sync_service.run_kindle_sync) does not hold the
+Bulk E-reader sync (hardcover_sync_service.run_ereader_sync) does not hold the
 pipeline lock, so a rename here can race an in-flight transfer; the sync
 tolerates missing files and orphaned device copies are removed by its next
 cleanup pass.
@@ -24,15 +24,15 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session, joinedload
 
-from backend.config import get_first_real_kindle, get_kindle_sync_shelves, load_config
+from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 from backend.constants import SELF_HEAL_META_BATCH_SIZE, SELF_HEAL_META_MAX_ATTEMPTS
 from backend.models.book import Book, BookStatus, EpubMetaState
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.import_service import ImportService
 from backend.services.rename_service import RenameService
 from backend.utils.clock import naive_utcnow
+from backend.utils.ereader_delivery import rearm_ereader_delivery
 from backend.utils.events import log_event
-from backend.utils.kindle_delivery import rearm_kindle_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,11 @@ class SelfHealService:
 
     def run(self) -> dict:
         config = load_config()
-        real_kindle = get_first_real_kindle(config)
-        kindle_shelves = get_kindle_sync_shelves(config)
+        real_ereader = get_first_real_ereader(config)
+        ereader_shelves = get_ereader_sync_shelves(config)
 
         rename_result = RenameService(self.db, self.import_service).apply_locked()
-        meta = self._sync_metadata_batch(real_kindle, kindle_shelves)
+        meta = self._sync_metadata_batch(real_ereader, ereader_shelves)
 
         result = {"renamed": rename_result["renamed"], **meta}
         log_event("self_heal_completed", **result)
@@ -70,7 +70,7 @@ class SelfHealService:
             Book.epub_meta_state.is_(None),
         )
 
-    def _sync_metadata_batch(self, real_kindle: dict | None, kindle_shelves: set[str]) -> dict:
+    def _sync_metadata_batch(self, real_ereader: dict | None, ereader_shelves: set[str]) -> dict:
         books = (
             self._needs_meta_query()
             .options(joinedload(Book.author), joinedload(Book.root_folder))
@@ -83,7 +83,7 @@ class SelfHealService:
         for book in books:
             book_id = book.id
             try:
-                outcome = self._heal_one(book, real_kindle, kindle_shelves)
+                outcome = self._heal_one(book, real_ereader, ereader_shelves)
                 self.db.commit()
             except Exception as exc:
                 self.db.rollback()
@@ -97,7 +97,7 @@ class SelfHealService:
         counts["meta_remaining"] = self._needs_meta_query().count()
         return counts
 
-    def _heal_one(self, book: Book, real_kindle: dict | None, kindle_shelves: set[str]) -> str:
+    def _heal_one(self, book: Book, real_ereader: dict | None, ereader_shelves: set[str]) -> str:
         """Settle one book's epub_meta_state; returns the counts key for the outcome."""
         assert book.root_folder is not None and book.file_path is not None  # query guarantees
         abs_path = Path(book.root_folder.path) / book.file_path
@@ -121,7 +121,7 @@ class SelfHealService:
         book.epub_meta_state = EpubMetaState.SYNCED.value
         book.epub_meta_synced_at = naive_utcnow()
         book.epub_meta_attempts = 0
-        rearm_kindle_delivery(book, real_kindle, kindle_shelves)
+        rearm_ereader_delivery(book, real_ereader, ereader_shelves)
         return "meta_rewritten"
 
     def _record_failure(self, book: Book, reason: str) -> None:

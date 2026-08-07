@@ -4,7 +4,7 @@ import { computed, ref, onMounted } from 'vue'
 import PathBrowserModal from '@/components/PathBrowserModal.vue'
 import RenamePreviewModal from '@/components/RenamePreviewModal.vue'
 
-import type { Config, Kindle, RootFolder, FolderOrganization, PathBrowserMode } from '../types'
+import type { Config, Ereader, RootFolder, FolderOrganization, PathBrowserMode } from '../types'
 
 const config = ref<Config | null>(null)
 const loading = ref(true)
@@ -13,10 +13,10 @@ const saveError = ref<string | null>(null)
 const testResults = ref<Record<string, { success: boolean; message?: string; error?: string }>>({})
 const testingService = ref<string | null>(null)
 
-// Kindle form
-const showKindleForm = ref(false)
-const editingKindleId = ref<string | null>(null)
-const kindleForm = ref({
+// E-reader form
+const showEreaderForm = ref(false)
+const editingEreaderId = ref<string | null>(null)
+const ereaderForm = ref({
   name: '',
   hostname: '',
   port: 22,
@@ -39,10 +39,10 @@ const rootFolderError = ref<string | null>(null)
 const showPathBrowser = ref(false)
 const pathBrowserMode = ref<PathBrowserMode>('local')
 const pathBrowserSelectMode = ref<'directory' | 'file'>('directory')
-const pathBrowserKindleId = ref<string | undefined>(undefined)
+const pathBrowserEreaderId = ref<string | undefined>(undefined)
 const pathBrowserInitialPath = ref('/')
 const pathBrowserTitle = ref('Browse')
-const pathBrowserTarget = ref<'rootFolder' | 'kindleSshKey' | 'kindleDestination' | null>(null)
+const pathBrowserTarget = ref<'rootFolder' | 'ereaderSshKey' | 'ereaderDestination' | null>(null)
 
 // Drop stale keys from older configs and fill in defaults for new ones so
 // saving never sends removed fields and loading never hits missing ones.
@@ -73,9 +73,9 @@ const normalizeConfig = (raw: Config): Config => ({
     cleanup_sdr_folders: raw.transfer.cleanup_sdr_folders,
     cleanup_protected_paths: raw.transfer.cleanup_protected_paths ?? [],
   },
-  kindle_sync: {
-    enabled: raw.kindle_sync?.enabled ?? false,
-    interval_hours: raw.kindle_sync?.interval_hours ?? 1,
+  ereader_sync: {
+    enabled: raw.ereader_sync?.enabled ?? false,
+    interval_hours: raw.ereader_sync?.interval_hours ?? 1,
   },
 })
 
@@ -180,8 +180,8 @@ const namingExampleStandalone = computed(() => {
   return `${renderNamingExample(template, { author: 'Andy Weir', title: 'Project Hail Mary' })}.epub`
 })
 
-const testConnection = async (service: string, kindleId?: string) => {
-  const key = kindleId ? `kindle_${kindleId}` : service
+const testConnection = async (service: string, ereaderId?: string) => {
+  const key = ereaderId ? `ereader_${ereaderId}` : service
   testingService.value = key
 
   try {
@@ -198,8 +198,8 @@ const testConnection = async (service: string, kindleId?: string) => {
       url = '/api/prowlarr/test'
     } else if (service === 'qbittorrent') {
       url = '/api/qbittorrent/test'
-    } else if (kindleId) {
-      url = `/api/config/test/kindle/${kindleId}`
+    } else if (ereaderId) {
+      url = `/api/config/test/ereader/${ereaderId}`
     } else {
       url = `/api/config/test/${service}`
     }
@@ -217,22 +217,22 @@ const testConnection = async (service: string, kindleId?: string) => {
   }
 }
 
-// Kindle management
-const openKindleForm = (kindle?: Kindle) => {
-  if (kindle) {
-    editingKindleId.value = kindle.id
-    kindleForm.value = {
-      name: kindle.name,
-      hostname: kindle.hostname,
-      port: kindle.port,
-      username: kindle.username,
+// E-reader management
+const openEreaderForm = (ereader?: Ereader) => {
+  if (ereader) {
+    editingEreaderId.value = ereader.id
+    ereaderForm.value = {
+      name: ereader.name,
+      hostname: ereader.hostname,
+      port: ereader.port,
+      username: ereader.username,
       password: '',
-      ssh_key_path: kindle.ssh_key_path || '',
-      destination_path: kindle.destination_path,
+      ssh_key_path: ereader.ssh_key_path || '',
+      destination_path: ereader.destination_path,
     }
   } else {
-    editingKindleId.value = null
-    kindleForm.value = {
+    editingEreaderId.value = null
+    ereaderForm.value = {
       name: '',
       hostname: '',
       port: 22,
@@ -242,44 +242,44 @@ const openKindleForm = (kindle?: Kindle) => {
       destination_path: '/mnt/us/books/',
     }
   }
-  showKindleForm.value = true
+  showEreaderForm.value = true
 }
 
-const closeKindleForm = () => {
-  showKindleForm.value = false
-  editingKindleId.value = null
+const closeEreaderForm = () => {
+  showEreaderForm.value = false
+  editingEreaderId.value = null
 }
 
-const saveKindle = async () => {
+const saveEreader = async () => {
   try {
-    const url = editingKindleId.value
-      ? `/api/kindles/${editingKindleId.value}`
-      : '/api/kindles'
-    const method = editingKindleId.value ? 'PUT' : 'POST'
+    const url = editingEreaderId.value
+      ? `/api/ereaders/${editingEreaderId.value}`
+      : '/api/ereaders'
+    const method = editingEreaderId.value ? 'PUT' : 'POST'
 
     const response = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(kindleForm.value),
+      body: JSON.stringify(ereaderForm.value),
     })
 
     if (response.ok) {
-      closeKindleForm()
+      closeEreaderForm()
       fetchConfig()
     }
   } catch (e) {
-    console.error('Failed to save kindle:', e)
+    console.error('Failed to save ereader:', e)
   }
 }
 
-const deleteKindle = async (id: string) => {
-  if (!confirm('Delete this Kindle?')) return
+const deleteEreader = async (id: string) => {
+  if (!confirm('Delete this E-reader?')) return
 
   try {
-    await fetch(`/api/kindles/${id}`, { method: 'DELETE' })
+    await fetch(`/api/ereaders/${id}`, { method: 'DELETE' })
     fetchConfig()
   } catch (e) {
-    console.error('Failed to delete kindle:', e)
+    console.error('Failed to delete ereader:', e)
   }
 }
 
@@ -316,22 +316,22 @@ function openPathBrowser(target: typeof pathBrowserTarget.value) {
 
   if (target === 'rootFolder') {
     pathBrowserMode.value = 'local'
-    pathBrowserKindleId.value = undefined
+    pathBrowserEreaderId.value = undefined
     pathBrowserInitialPath.value = rootFolderForm.value.path || '/'
     pathBrowserTitle.value = 'Pick library root folder'
-  } else if (target === 'kindleSshKey') {
+  } else if (target === 'ereaderSshKey') {
     pathBrowserMode.value = 'local'
-    pathBrowserKindleId.value = undefined
-    const current = kindleForm.value.ssh_key_path || ''
+    pathBrowserEreaderId.value = undefined
+    const current = ereaderForm.value.ssh_key_path || ''
     const lastSlash = current.lastIndexOf('/')
     pathBrowserInitialPath.value = current.startsWith('/') && lastSlash > 0 ? current.substring(0, lastSlash) : '/root/.ssh'
     pathBrowserSelectMode.value = 'file'
     pathBrowserTitle.value = 'Pick SSH key file'
-  } else if (target === 'kindleDestination') {
-    pathBrowserMode.value = 'kindle'
-    pathBrowserKindleId.value = editingKindleId.value || undefined
-    pathBrowserInitialPath.value = kindleForm.value.destination_path || '/mnt/us/'
-    pathBrowserTitle.value = 'Pick destination folder on Kindle'
+  } else if (target === 'ereaderDestination') {
+    pathBrowserMode.value = 'ereader'
+    pathBrowserEreaderId.value = editingEreaderId.value || undefined
+    pathBrowserInitialPath.value = ereaderForm.value.destination_path || '/mnt/us/'
+    pathBrowserTitle.value = 'Pick destination folder on E-reader'
   }
 
   showPathBrowser.value = true
@@ -340,10 +340,10 @@ function openPathBrowser(target: typeof pathBrowserTarget.value) {
 function onPathSelected(path: string) {
   if (pathBrowserTarget.value === 'rootFolder') {
     rootFolderForm.value.path = path
-  } else if (pathBrowserTarget.value === 'kindleSshKey') {
-    kindleForm.value.ssh_key_path = path
-  } else if (pathBrowserTarget.value === 'kindleDestination') {
-    kindleForm.value.destination_path = path
+  } else if (pathBrowserTarget.value === 'ereaderSshKey') {
+    ereaderForm.value.ssh_key_path = path
+  } else if (pathBrowserTarget.value === 'ereaderDestination') {
+    ereaderForm.value.destination_path = path
   }
 
   pathBrowserTarget.value = null
@@ -381,7 +381,7 @@ const deleteRootFolder = async (id: number) => {
   }
 }
 
-// Protected paths (Kindle cleanup)
+// Protected paths (E-reader cleanup)
 const addProtectedPath = () => {
   config.value?.transfer.cleanup_protected_paths.push('')
 }
@@ -417,7 +417,7 @@ onMounted(() => {
     <!-- Loading -->
     <div v-if="loading" class="flex justify-center py-16">
       <div class="flex items-center gap-3 text-stone-500">
-        <svg class="animate-spin h-6 w-6 text-kindle-600" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-6 w-6 text-ereader-600" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -464,7 +464,7 @@ onMounted(() => {
             <label class="label">API Token</label>
             <input v-model="config.hardcover.api_token" type="password" class="input" />
             <p class="mt-1.5 text-xs text-stone-500">
-              Get from <a href="https://hardcover.app/account/api" target="_blank" class="text-kindle-600 hover:text-kindle-700 underline underline-offset-2">hardcover.app/account/api</a>
+              Get from <a href="https://hardcover.app/account/api" target="_blank" class="text-ereader-600 hover:text-ereader-700 underline underline-offset-2">hardcover.app/account/api</a>
             </p>
           </div>
           <div>
@@ -604,7 +604,7 @@ onMounted(() => {
 
         <div v-if="loadingFolders" class="flex justify-center py-8">
           <div class="flex items-center gap-3 text-stone-500">
-            <svg class="animate-spin h-5 w-5 text-kindle-600" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin h-5 w-5 text-ereader-600" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
@@ -690,7 +690,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Kindle -->
+      <!-- E-reader -->
       <div class="card">
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-3">
@@ -700,51 +700,51 @@ onMounted(() => {
               </svg>
             </div>
             <div>
-              <h2 class="text-lg font-display font-semibold text-stone-900">Kindle</h2>
+              <h2 class="text-lg font-display font-semibold text-stone-900">E-reader</h2>
               <p class="text-sm text-stone-500">Devices and shelf-mirror sync behavior</p>
             </div>
           </div>
-          <button @click="openKindleForm()" class="btn btn-primary">
+          <button @click="openEreaderForm()" class="btn btn-primary">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>
-            Add Kindle
+            Add E-reader
           </button>
         </div>
 
-        <div v-if="config.kindles.length === 0" class="text-center py-8 text-stone-500">
-          <p class="text-sm">No Kindle devices configured</p>
+        <div v-if="config.ereaders.length === 0" class="text-center py-8 text-stone-500">
+          <p class="text-sm">No E-reader devices configured</p>
         </div>
 
         <div v-else class="space-y-4">
           <div
-            v-for="kindle in config.kindles"
-            :key="kindle.id"
+            v-for="ereader in config.ereaders"
+            :key="ereader.id"
             class="border border-stone-200 rounded-xl p-4 hover:border-stone-300 transition-colors"
           >
             <div class="flex items-center justify-between">
               <div>
-                <p class="font-medium text-stone-900">{{ kindle.name }}</p>
-                <p class="text-sm text-stone-500 font-mono">{{ kindle.hostname }}:{{ kindle.port }}</p>
+                <p class="font-medium text-stone-900">{{ ereader.name }}</p>
+                <p class="text-sm text-stone-500 font-mono">{{ ereader.hostname }}:{{ ereader.port }}</p>
               </div>
               <div class="flex items-center gap-2">
                 <button
-                  @click="testConnection('kindle', kindle.id)"
-                  :disabled="testingService === `kindle_${kindle.id}`"
+                  @click="testConnection('ereader', ereader.id)"
+                  :disabled="testingService === `ereader_${ereader.id}`"
                   class="btn btn-secondary btn-sm"
                 >
-                  <svg v-if="testingService === `kindle_${kindle.id}`" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <svg v-if="testingService === `ereader_${ereader.id}`" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                   </svg>
                   <span v-else>Test</span>
                 </button>
-                <button @click="openKindleForm(kindle)" class="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors">
+                <button @click="openEreaderForm(ereader)" class="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors">
                   <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
                 </button>
-                <button @click="deleteKindle(kindle.id)" class="p-2 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors">
+                <button @click="deleteEreader(ereader.id)" class="p-2 rounded-lg text-stone-500 hover:text-error-600 hover:bg-error-50 transition-colors">
                   <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
@@ -752,17 +752,17 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-if="testResults[`kindle_${kindle.id}`]" class="mt-3 p-3 rounded-lg text-sm animate-fade-in" :class="testResults[`kindle_${kindle.id}`].success ? 'bg-success-50 text-success-700' : 'bg-error-50 text-error-700'">
-              {{ testResults[`kindle_${kindle.id}`].success ? 'Connected!' : testResults[`kindle_${kindle.id}`].error }}
+            <div v-if="testResults[`ereader_${ereader.id}`]" class="mt-3 p-3 rounded-lg text-sm animate-fade-in" :class="testResults[`ereader_${ereader.id}`].success ? 'bg-success-50 text-success-700' : 'bg-error-50 text-error-700'">
+              {{ testResults[`ereader_${ereader.id}`].success ? 'Connected!' : testResults[`ereader_${ereader.id}`].error }}
             </div>
           </div>
         </div>
 
         <div class="mt-6 pt-6 border-t border-stone-200 space-y-4">
-          <!-- Keep on Kindle -->
+          <!-- Keep on E-reader -->
           <div>
-            <p class="text-sm font-medium text-stone-700">Keep on Kindle</p>
-            <p class="text-xs text-stone-500">The Kindle mirrors these shelves; everything else is removed on sync.</p>
+            <p class="text-sm font-medium text-stone-700">Keep on E-reader</p>
+            <p class="text-xs text-stone-500">The E-reader mirrors these shelves; everything else is removed on sync.</p>
           </div>
           <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
             <input type="checkbox" v-model="config.transfer.sync_shelves.want_to_read" class="sr-only peer" />
@@ -788,25 +788,25 @@ onMounted(() => {
 
           <!-- Auto-send on import -->
           <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
-            <input type="checkbox" v-model="config.pipeline.kindle_sync_on_import" class="sr-only peer" />
-            <div class="toggle" :class="config.pipeline.kindle_sync_on_import ? 'toggle-on' : 'toggle-off'">
+            <input type="checkbox" v-model="config.pipeline.ereader_sync_on_import" class="sr-only peer" />
+            <div class="toggle" :class="config.pipeline.ereader_sync_on_import ? 'toggle-on' : 'toggle-off'">
               <span class="toggle-knob"></span>
             </div>
             <div>
-              <span class="text-sm font-medium text-stone-700">Send new imports to Kindle automatically</span>
+              <span class="text-sm font-medium text-stone-700">Send new imports to E-reader automatically</span>
               <p class="text-xs text-stone-500">Delivers each book as soon as it lands in the library</p>
             </div>
           </label>
 
           <!-- Automatic scheduled sync -->
           <label class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors">
-            <input type="checkbox" v-model="config.kindle_sync.enabled" class="sr-only peer" />
-            <div class="toggle" :class="config.kindle_sync.enabled ? 'toggle-on' : 'toggle-off'">
+            <input type="checkbox" v-model="config.ereader_sync.enabled" class="sr-only peer" />
+            <div class="toggle" :class="config.ereader_sync.enabled ? 'toggle-on' : 'toggle-off'">
               <span class="toggle-knob"></span>
             </div>
             <div>
-              <span class="text-sm font-medium text-stone-700">Sync Kindle automatically</span>
-              <p class="text-xs text-stone-500">Runs a full shelf sync on a schedule whenever the Kindle is online</p>
+              <span class="text-sm font-medium text-stone-700">Sync E-reader automatically</span>
+              <p class="text-xs text-stone-500">Runs a full shelf sync on a schedule whenever the E-reader is online</p>
             </div>
           </label>
 
@@ -819,22 +819,22 @@ onMounted(() => {
             leave-from-class="opacity-100 translate-y-0"
             leave-to-class="opacity-0 -translate-y-2"
           >
-            <div v-if="config.kindle_sync.enabled" class="ml-4">
+            <div v-if="config.ereader_sync.enabled" class="ml-4">
               <label class="label">Sync interval</label>
-              <select v-model.number="config.kindle_sync.interval_hours" class="input">
+              <select v-model.number="config.ereader_sync.interval_hours" class="input">
                 <option :value="1">Every hour</option>
                 <option :value="6">Every 6 hours</option>
                 <option :value="24">Once a day</option>
               </select>
               <p class="mt-1.5 text-xs text-stone-500">
-                Offline Kindles are skipped and picked up on the next run
+                Offline E-readers are skipped and picked up on the next run
               </p>
             </div>
           </Transition>
 
-          <!-- Kindle folder layout -->
+          <!-- E-reader folder layout -->
           <div>
-            <label class="label">Kindle folder layout</label>
+            <label class="label">E-reader folder layout</label>
             <select v-model="config.transfer.folder_organization" class="input">
               <option value="flat">Flat (all books in root)</option>
               <option value="author">By Author</option>
@@ -842,7 +842,7 @@ onMounted(() => {
               <option value="author_series">Author / Series</option>
             </select>
             <p class="mt-1.5 text-xs text-stone-500">
-              How books are organized on the Kindle. KOReader works best with simple folder structures.
+              How books are organized on the E-reader. KOReader works best with simple folder structures.
             </p>
           </div>
 
@@ -859,7 +859,7 @@ onMounted(() => {
             </div>
             <div>
               <span class="text-sm font-medium text-stone-700">Remove books not on synced shelves (mirror mode)</span>
-              <p class="text-xs text-stone-500">Deletes files from the Kindle that aren't on a synced shelf or pinned</p>
+              <p class="text-xs text-stone-500">Deletes files from the E-reader that aren't on a synced shelf or pinned</p>
             </div>
           </label>
 
@@ -887,7 +887,7 @@ onMounted(() => {
           <!-- Protected Paths -->
           <div>
             <label class="label">Protected paths</label>
-            <p class="mb-2 text-xs text-stone-500">Files and folders on the Kindle that cleanup never touches</p>
+            <p class="mb-2 text-xs text-stone-500">Files and folders on the E-reader that cleanup never touches</p>
             <div v-if="config.transfer.cleanup_protected_paths.length > 0" class="space-y-2">
               <div
                 v-for="(_, index) in config.transfer.cleanup_protected_paths"
@@ -954,7 +954,7 @@ onMounted(() => {
             <div class="space-y-3">
               <h3 class="text-sm font-medium text-stone-900">Want to Read</h3>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                <input type="checkbox" v-model="config.pipeline.status_actions.want_to_read.download" class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-600" />
                 <span class="text-sm text-stone-700">Auto-download</span>
               </label>
             </div>
@@ -962,7 +962,7 @@ onMounted(() => {
             <div class="space-y-3">
               <h3 class="text-sm font-medium text-stone-900">Currently Reading</h3>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                <input type="checkbox" v-model="config.pipeline.status_actions.currently_reading.download" class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-600" />
                 <span class="text-sm text-stone-700">Auto-download</span>
               </label>
             </div>
@@ -970,7 +970,7 @@ onMounted(() => {
             <div class="space-y-3">
               <h3 class="text-sm font-medium text-stone-900">Read</h3>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" v-model="config.pipeline.status_actions.read.download" class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-600" />
+                <input type="checkbox" v-model="config.pipeline.status_actions.read.download" class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-600" />
                 <span class="text-sm text-stone-700">Auto-download</span>
               </label>
             </div>
@@ -995,12 +995,12 @@ onMounted(() => {
           <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-3">Shelves are imported in priority order</p>
           <label class="flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all duration-200"
             :class="config.sync.include_statuses.currently_reading
-              ? 'bg-kindle-50 border-kindle-300 ring-1 ring-kindle-300'
+              ? 'bg-ereader-50 border-ereader-300 ring-1 ring-ereader-300'
               : 'bg-white border-stone-200 hover:border-stone-300'"
           >
             <input type="checkbox" v-model="config.sync.include_statuses.currently_reading" class="sr-only" />
             <div class="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-              :class="config.sync.include_statuses.currently_reading ? 'bg-kindle-600 text-white' : 'bg-stone-200 text-stone-500'">1</div>
+              :class="config.sync.include_statuses.currently_reading ? 'bg-ereader-600 text-white' : 'bg-stone-200 text-stone-500'">1</div>
             <div class="flex-1">
               <span class="text-sm font-medium text-stone-800">Currently Reading</span>
               <p class="text-xs text-stone-500">Books you're actively reading — imported first</p>
@@ -1011,12 +1011,12 @@ onMounted(() => {
           </label>
           <label class="flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all duration-200"
             :class="config.sync.include_statuses.want_to_read
-              ? 'bg-kindle-50 border-kindle-300 ring-1 ring-kindle-300'
+              ? 'bg-ereader-50 border-ereader-300 ring-1 ring-ereader-300'
               : 'bg-white border-stone-200 hover:border-stone-300'"
           >
             <input type="checkbox" v-model="config.sync.include_statuses.want_to_read" class="sr-only" />
             <div class="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-              :class="config.sync.include_statuses.want_to_read ? 'bg-kindle-600 text-white' : 'bg-stone-200 text-stone-500'">2</div>
+              :class="config.sync.include_statuses.want_to_read ? 'bg-ereader-600 text-white' : 'bg-stone-200 text-stone-500'">2</div>
             <div class="flex-1">
               <span class="text-sm font-medium text-stone-800">Want to Read</span>
               <p class="text-xs text-stone-500">Your reading wishlist</p>
@@ -1027,12 +1027,12 @@ onMounted(() => {
           </label>
           <label class="flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all duration-200"
             :class="config.sync.include_statuses.read
-              ? 'bg-kindle-50 border-kindle-300 ring-1 ring-kindle-300'
+              ? 'bg-ereader-50 border-ereader-300 ring-1 ring-ereader-300'
               : 'bg-white border-stone-200 hover:border-stone-300'"
           >
             <input type="checkbox" v-model="config.sync.include_statuses.read" class="sr-only" />
             <div class="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-              :class="config.sync.include_statuses.read ? 'bg-kindle-600 text-white' : 'bg-stone-200 text-stone-500'">3</div>
+              :class="config.sync.include_statuses.read ? 'bg-ereader-600 text-white' : 'bg-stone-200 text-stone-500'">3</div>
             <div class="flex-1">
               <span class="text-sm font-medium text-stone-800">Read</span>
               <p class="text-xs text-stone-500">Completed books</p>
@@ -1101,7 +1101,7 @@ onMounted(() => {
 
     <RenamePreviewModal v-model="showRenamePreview" />
 
-    <!-- Kindle Form Modal -->
+    <!-- E-reader Form Modal -->
     <Transition
       enter-active-class="transition-opacity duration-200"
       enter-from-class="opacity-0"
@@ -1110,13 +1110,13 @@ onMounted(() => {
       leave-from-class="opacity-100"
       leave-to-class="opacity-0"
     >
-      <div v-if="showKindleForm" class="modal-overlay" @click.self="closeKindleForm">
+      <div v-if="showEreaderForm" class="modal-overlay" @click.self="closeEreaderForm">
         <div class="modal-content max-w-lg">
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-xl font-display font-semibold text-stone-900">
-              {{ editingKindleId ? 'Edit Kindle' : 'Add Kindle' }}
+              {{ editingEreaderId ? 'Edit E-reader' : 'Add E-reader' }}
             </h2>
-            <button @click="closeKindleForm" class="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors">
+            <button @click="closeEreaderForm" class="p-2 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
               </svg>
@@ -1126,56 +1126,56 @@ onMounted(() => {
           <div class="space-y-4">
             <div>
               <label class="label">Name</label>
-              <input v-model="kindleForm.name" type="text" class="input" placeholder="My Kindle" />
+              <input v-model="ereaderForm.name" type="text" class="input" placeholder="My E-reader" />
             </div>
             <div>
               <label class="label">Hostname</label>
-              <input v-model="kindleForm.hostname" type="text" class="input" placeholder="kindle.tailnet" />
+              <input v-model="ereaderForm.hostname" type="text" class="input" placeholder="ereader.tailnet" />
             </div>
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="label">Port</label>
-                <input v-model.number="kindleForm.port" type="number" class="input" />
+                <input v-model.number="ereaderForm.port" type="number" class="input" />
               </div>
               <div>
                 <label class="label">Username</label>
-                <input v-model="kindleForm.username" type="text" class="input" />
+                <input v-model="ereaderForm.username" type="text" class="input" />
               </div>
             </div>
             <div>
               <label class="label">Password (optional)</label>
-              <input v-model="kindleForm.password" type="password" class="input" placeholder="Leave blank for SSH key auth" />
+              <input v-model="ereaderForm.password" type="password" class="input" placeholder="Leave blank for SSH key auth" />
             </div>
             <div>
               <label class="label">SSH Key Path</label>
               <div class="flex gap-2">
-                <input v-model="kindleForm.ssh_key_path" type="text" class="input font-mono text-sm flex-1" />
-                <button type="button" class="btn btn-secondary shrink-0" @click="openPathBrowser('kindleSshKey')">Browse</button>
+                <input v-model="ereaderForm.ssh_key_path" type="text" class="input font-mono text-sm flex-1" />
+                <button type="button" class="btn btn-secondary shrink-0" @click="openPathBrowser('ereaderSshKey')">Browse</button>
               </div>
               <p class="mt-1.5 text-xs text-stone-500">Browse to pick your SSH private key file</p>
             </div>
             <div>
               <label class="label">Destination Path</label>
               <div class="flex gap-2">
-                <input v-model="kindleForm.destination_path" type="text" class="input font-mono text-sm flex-1" />
+                <input v-model="ereaderForm.destination_path" type="text" class="input font-mono text-sm flex-1" />
                 <button
                   type="button"
                   class="btn btn-secondary shrink-0"
-                  :disabled="!editingKindleId"
-                  :title="editingKindleId ? 'Browse paths on this Kindle' : 'Save the Kindle first to browse its filesystem'"
-                  @click="openPathBrowser('kindleDestination')"
+                  :disabled="!editingEreaderId"
+                  :title="editingEreaderId ? 'Browse paths on this E-reader' : 'Save the E-reader first to browse its filesystem'"
+                  @click="openPathBrowser('ereaderDestination')"
                 >
                   Browse
                 </button>
               </div>
-              <p v-if="editingKindleId" class="mt-1.5 text-xs text-stone-500">Browse to pick a folder on this Kindle</p>
+              <p v-if="editingEreaderId" class="mt-1.5 text-xs text-stone-500">Browse to pick a folder on this E-reader</p>
             </div>
           </div>
 
           <div class="mt-6 flex justify-end gap-3">
-            <button @click="closeKindleForm" class="btn btn-secondary">Cancel</button>
-            <button @click="saveKindle" class="btn btn-primary">
-              {{ editingKindleId ? 'Save Changes' : 'Add Kindle' }}
+            <button @click="closeEreaderForm" class="btn btn-secondary">Cancel</button>
+            <button @click="saveEreader" class="btn btn-primary">
+              {{ editingEreaderId ? 'Save Changes' : 'Add E-reader' }}
             </button>
           </div>
         </div>
@@ -1243,7 +1243,7 @@ onMounted(() => {
     <PathBrowserModal
       v-model="showPathBrowser"
       :mode="pathBrowserMode"
-      :kindle-id="pathBrowserKindleId"
+      :ereader-id="pathBrowserEreaderId"
       :initial-path="pathBrowserInitialPath"
       :title="pathBrowserTitle"
       :select-mode="pathBrowserSelectMode"

@@ -116,7 +116,7 @@ const methodLabel = (method: string | null): string => {
 const scoreClass = (score: number | null): string => {
   if (score === null) return 'bg-stone-100 text-stone-600';
   if (score >= 99) return 'bg-success-100 text-success-700';
-  if (score >= 90) return 'bg-kindle-100 text-kindle-700';
+  if (score >= 90) return 'bg-ereader-100 text-ereader-700';
   return 'bg-amber-100 text-amber-700';
 };
 
@@ -199,7 +199,7 @@ const visibleUnmatched = computed(() => store.unmatchedProposals.slice(0, unmatc
     <!-- Scan Progress -->
     <div v-if="store.isScanning" class="card p-5">
       <div class="flex items-center gap-3 mb-3">
-        <svg class="animate-spin h-5 w-5 text-kindle-600" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-5 w-5 text-ereader-600" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -257,7 +257,7 @@ const visibleUnmatched = computed(() => store.unmatchedProposals.slice(0, unmatc
     <!-- Loading -->
     <div v-if="store.isLoading" class="flex justify-center py-16">
       <div class="flex items-center gap-3 text-stone-500">
-        <svg class="animate-spin h-6 w-6 text-kindle-600" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-6 w-6 text-ereader-600" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -294,7 +294,7 @@ const visibleUnmatched = computed(() => store.unmatchedProposals.slice(0, unmatc
                     type="checkbox"
                     :checked="allMatchedSelected"
                     @change="toggleSelectAll"
-                    class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-500"
+                    class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-500"
                   />
                 </th>
                 <th class="px-4 py-3 text-xs font-medium text-stone-500 uppercase tracking-wider">File</th>
@@ -315,7 +315,7 @@ const visibleUnmatched = computed(() => store.unmatchedProposals.slice(0, unmatc
                     type="checkbox"
                     :checked="selectedIds.has(proposal.id)"
                     @change="toggleSelected(proposal.id)"
-                    class="rounded border-stone-300 text-kindle-600 focus:ring-kindle-500"
+                    class="rounded border-stone-300 text-ereader-600 focus:ring-ereader-500"
                   />
                 </td>
                 <td class="px-4 py-3 max-w-xs">
@@ -330,7 +330,7 @@ const visibleUnmatched = computed(() => store.unmatchedProposals.slice(0, unmatc
                   <router-link
                     v-if="proposal.candidate_book_id"
                     :to="{ name: 'book-detail', params: { id: proposal.candidate_book_id } }"
-                    class="text-sm font-medium text-stone-900 hover:text-kindle-600 transition-colors block truncate"
+                    class="text-sm font-medium text-stone-900 hover:text-ereader-600 transition-colors block truncate"
                     :title="proposal.candidate_title ?? undefined"
                   >
                     {{ proposal.candidate_title }}

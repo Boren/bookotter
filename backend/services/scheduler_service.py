@@ -1,5 +1,5 @@
 """
-Scheduler service for background jobs (RSS sync, automatic Kindle sync).
+Scheduler service for background jobs (RSS sync, automatic E-reader sync).
 Uses APScheduler with in-memory job storage; jobs are registered at startup
 and re-registered when their config sections change.
 """

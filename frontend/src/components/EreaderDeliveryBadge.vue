@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { KindleDeliveryStatus } from '@/types'
+import type { EreaderDeliveryStatus } from '@/types'
 
 const props = defineProps<{
-  status: KindleDeliveryStatus | string | null
+  status: EreaderDeliveryStatus | string | null
   compact?: boolean
 }>()
 
@@ -11,9 +11,9 @@ const badgeConfig = computed(() => {
   switch (props.status) {
     case 'PENDING':
       return {
-        label: 'Waiting for Kindle',
-        colorClass: 'bg-kindle-100 text-kindle-800 border-kindle-200',
-        dotClass: 'bg-kindle-500',
+        label: 'Waiting for E-reader',
+        colorClass: 'bg-ereader-100 text-ereader-800 border-ereader-200',
+        dotClass: 'bg-ereader-500',
         showDot: true,
         animateDot: true
       }
@@ -27,7 +27,7 @@ const badgeConfig = computed(() => {
       }
     case 'DELIVERED':
       return {
-        label: 'On Kindle',
+        label: 'On E-reader',
         colorClass: 'bg-success-100 text-success-800 border-success-200',
         dotClass: 'bg-success-500',
         showDot: false,
@@ -47,7 +47,7 @@ const badgeConfig = computed(() => {
 })
 
 // The compact corner dot renders for every delivery state so "is this on my
-// Kindle?" is answerable straight from the library grid.
+// E-reader?" is answerable straight from the library grid.
 const showCompact = computed(
   () =>
     props.status === 'PENDING' ||
@@ -61,7 +61,7 @@ const showCompact = computed(
   <span
     v-if="compact && badgeConfig && showCompact"
     :title="badgeConfig.label"
-    data-testid="kindle-delivery-dot"
+    data-testid="ereader-delivery-dot"
     class="flex items-center justify-center w-6 h-6 rounded-full border shadow-warm-sm bg-white"
     :class="badgeConfig.colorClass"
   >
@@ -74,7 +74,7 @@ const showCompact = computed(
     v-else-if="!compact && badgeConfig"
     class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border"
     :class="badgeConfig.colorClass"
-    data-testid="kindle-delivery-badge"
+    data-testid="ereader-delivery-badge"
   >
     <span
       v-if="badgeConfig.showDot"
