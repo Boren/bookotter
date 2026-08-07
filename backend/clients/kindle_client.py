@@ -393,14 +393,23 @@ class KindleClient:
             if channel is not None:
                 channel.settimeout(KINDLE_TRANSFER_TIMEOUT)
 
-            # Check if file already exists
-            if skip_existing and self._file_exists_sftp(ssh, remote_path):
-                logger.info(f"File already exists on Kindle, skipping: {filename}")
-                return {
-                    "success": True,
-                    "status": "skipped",
-                    "file_size": 0,
-                }
+            # Skip only when the Kindle copy matches the local file byte-for-byte
+            # in size — an existence check alone would keep stale copies (e.g.
+            # pre-metadata-rewrite EPUBs) on the device forever.
+            if skip_existing:
+                remote_size = self._remote_size_sftp(sftp, remote_path)
+                if remote_size == local_size:
+                    logger.info(f"File already on Kindle with matching size, skipping: {filename}")
+                    return {
+                        "success": True,
+                        "status": "skipped",
+                        "file_size": 0,
+                    }
+                if remote_size is not None:
+                    logger.info(
+                        f"Stale copy on Kindle (remote={remote_size}, local={local_size} bytes), "
+                        f"overwriting: {filename}"
+                    )
 
             # Ensure directory exists (for folder organization)
             dir_path = os.path.dirname(remote_path)
@@ -509,14 +518,13 @@ class KindleClient:
                 except Exception:
                     pass
 
-    def _file_exists_sftp(self, ssh: paramiko.SSHClient, remote_path: str) -> bool:
-        """Check if file exists using existing SSH connection."""
+    @staticmethod
+    def _remote_size_sftp(sftp: paramiko.SFTPClient, remote_path: str) -> int | None:
+        """Size of the remote file in bytes, or None if it doesn't exist."""
         try:
-            stdin, stdout, stderr = ssh.exec_command(f"test -f {shlex.quote(remote_path)} && echo 'exists'")
-            output = stdout.read().decode().strip()
-            return output == "exists"
-        except Exception:
-            return False
+            return sftp.stat(remote_path).st_size
+        except OSError:
+            return None
 
     def cleanup_kindle_tmp_files(self, max_age_hours: int = TMP_FILE_MAX_AGE_HOURS) -> int:
         """

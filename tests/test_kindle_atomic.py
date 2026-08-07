@@ -32,6 +32,26 @@ def _mv_calls(mock_ssh: MagicMock) -> list:
     return [c for c in mock_ssh.exec_command.call_args_list if c[0][0].startswith("mv ")]
 
 
+def _stat_side_effect(remote_size: int | None, tmp_size: int):
+    """sftp.stat side_effect: final path has remote_size (None → missing), .tmp has tmp_size."""
+
+    def _stat(path):
+        st = MagicMock()
+        if path.endswith(".tmp"):
+            st.st_size = tmp_size
+            return st
+        if remote_size is None:
+            raise FileNotFoundError(path)
+        st.st_size = remote_size
+        return st
+
+    return _stat
+
+
+def _stat_missing_remote(tmp_size: int):
+    return _stat_side_effect(remote_size=None, tmp_size=tmp_size)
+
+
 class TestAtomicTransfer:
     def test_normal_transfer_no_tmp_on_kindle(self, tmp_path):
         """Normal transfer uploads to .tmp then renames — final file at dest, no .tmp lingering."""
@@ -39,13 +59,10 @@ class TestAtomicTransfer:
         src.write_bytes(b"X" * 1024)
 
         # Sequence of exec_command calls:
-        #   1. _file_exists_sftp test -f → "" (does not exist)
-        #   2. df → 100 MB available (in 1K-blocks)
-        #   3. mv → exit 0
-        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0), (b"", 0)])
-        mock_stat = MagicMock()
-        mock_stat.st_size = 1024
-        mock_sftp.stat.return_value = mock_stat
+        #   1. df → 100 MB available (in 1K-blocks)
+        #   2. mv → exit 0
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0), (b"", 0)])
+        mock_sftp.stat.side_effect = _stat_missing_remote(tmp_size=1024)
 
         client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
 
@@ -70,8 +87,9 @@ class TestAtomicTransfer:
         src = tmp_path / "book.epub"
         src.write_bytes(b"X" * 200 * 1024)
 
-        # Sequence: test -f → "", df → 100 KB available (need 220 KB with 1.1x margin)
-        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"100", 0)])
+        # Sequence: df → 100 KB available (need 220 KB with 1.1x margin)
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"100", 0)])
+        mock_sftp.stat.side_effect = _stat_missing_remote(tmp_size=200 * 1024)
 
         client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
 
@@ -90,7 +108,8 @@ class TestAtomicTransfer:
         src = tmp_path / "book.epub"
         src.write_bytes(b"X" * 1024)
 
-        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0)])
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0)])
+        mock_sftp.stat.side_effect = _stat_missing_remote(tmp_size=1024)
         mock_sftp.put.side_effect = OSError("connection lost")
 
         client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
@@ -109,11 +128,9 @@ class TestAtomicTransfer:
         src = tmp_path / "book.epub"
         src.write_bytes(b"X" * 1024)
 
-        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0)])
-        # sftp.stat reports 999 bytes — does not match local 1024
-        mock_stat = MagicMock()
-        mock_stat.st_size = 999
-        mock_sftp.stat.return_value = mock_stat
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0)])
+        # .tmp lands at 999 bytes — does not match local 1024
+        mock_sftp.stat.side_effect = _stat_side_effect(remote_size=None, tmp_size=999)
 
         client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
 
@@ -128,6 +145,62 @@ class TestAtomicTransfer:
         assert _mv_calls(mock_ssh) == []
 
 
+class TestStaleRemoteOverwrite:
+    """skip_existing must compare remote size, not mere existence — a metadata
+    rewrite changes the local file, and the stale Kindle copy must be replaced."""
+
+    def test_same_size_remote_is_skipped(self, tmp_path):
+        """Remote file with identical size → skipped, nothing uploaded."""
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"X" * 1024)
+
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0), (b"", 0)])
+        mock_sftp.stat.side_effect = _stat_side_effect(remote_size=1024, tmp_size=1024)
+
+        client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+
+        with patch.object(client, "_create_ssh_client", return_value=mock_ssh):
+            result = client.transfer_file(str(src), skip_existing=True, folder_organization="flat")
+
+        assert result == {"success": True, "status": "skipped", "file_size": 0}
+        mock_sftp.put.assert_not_called()
+        assert _mv_calls(mock_ssh) == []
+
+    def test_stale_remote_is_overwritten(self, tmp_path):
+        """Remote file exists but size differs (stale metadata) → full transfer replaces it."""
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"X" * 1024)
+
+        # Sequence: df → 100 MB, mv → exit 0
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0), (b"", 0)])
+        mock_sftp.stat.side_effect = _stat_side_effect(remote_size=999, tmp_size=1024)
+
+        client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+
+        with patch.object(client, "_create_ssh_client", return_value=mock_ssh):
+            result = client.transfer_file(str(src), skip_existing=True, folder_organization="flat")
+
+        assert result == {"success": True, "status": "transferred", "file_size": 1024}
+        mock_sftp.put.assert_called_once()
+        assert len(_mv_calls(mock_ssh)) == 1
+
+    def test_missing_remote_is_transferred(self, tmp_path):
+        """No remote file at all → normal transfer."""
+        src = tmp_path / "book.epub"
+        src.write_bytes(b"X" * 1024)
+
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0), (b"", 0)])
+        mock_sftp.stat.side_effect = _stat_side_effect(remote_size=None, tmp_size=1024)
+
+        client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
+
+        with patch.object(client, "_create_ssh_client", return_value=mock_ssh):
+            result = client.transfer_file(str(src), skip_existing=True, folder_organization="flat")
+
+        assert result == {"success": True, "status": "transferred", "file_size": 1024}
+        mock_sftp.put.assert_called_once()
+
+
 class TestTransferTimeout:
     def test_channel_timeout_set_before_put(self, tmp_path):
         """The SFTP channel gets KINDLE_TRANSFER_TIMEOUT applied before the upload starts."""
@@ -136,10 +209,8 @@ class TestTransferTimeout:
         src = tmp_path / "book.epub"
         src.write_bytes(b"X" * 1024)
 
-        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0), (b"", 0)])
-        mock_stat = MagicMock()
-        mock_stat.st_size = 1024
-        mock_sftp.stat.return_value = mock_stat
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0), (b"", 0)])
+        mock_sftp.stat.side_effect = _stat_missing_remote(tmp_size=1024)
 
         calls: list[str] = []
         mock_sftp.get_channel.return_value.settimeout.side_effect = lambda t: calls.append(("settimeout", t))
@@ -159,7 +230,8 @@ class TestTransferTimeout:
         src = tmp_path / "book.epub"
         src.write_bytes(b"X" * 1024)
 
-        mock_ssh, mock_sftp = _make_mock_ssh([(b"", 0), (b"102400", 0)])
+        mock_ssh, mock_sftp = _make_mock_ssh([(b"102400", 0)])
+        mock_sftp.stat.side_effect = _stat_missing_remote(tmp_size=1024)
         mock_sftp.put.side_effect = TimeoutError("timed out")
 
         client = KindleClient(hostname="test-kindle", destination_path="/mnt/us/books/")
