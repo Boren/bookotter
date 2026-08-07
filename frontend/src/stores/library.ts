@@ -113,6 +113,19 @@ export const useLibraryStore = defineStore('library', () => {
     }
   };
 
+  const fetchSeriesBooks = async (seriesName: string): Promise<Book[]> => {
+    const params = new URLSearchParams({
+      series: seriesName,
+      sort_by: 'series_position',
+      sort_order: 'asc',
+      limit: '100',
+    });
+    const response = await fetch(`/api/library/books?${params}`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.books;
+  };
+
   const deleteBook = async (id: number) => {
     error.value = null;
     try {
@@ -286,6 +299,7 @@ export const useLibraryStore = defineStore('library', () => {
     // Actions
     fetchBooks,
     fetchBook,
+    fetchSeriesBooks,
     createBook,
     updateBook,
     deleteBook,
