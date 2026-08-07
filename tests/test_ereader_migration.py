@@ -22,10 +22,10 @@ def legacy_data_dir(tmp_path):
     db = tmp_path / "bookotter.db"
     conn = sqlite3.connect(db)
     conn.execute(
-        f"CREATE TABLE books (id INTEGER PRIMARY KEY, failure_reason TEXT, failure_history TEXT, {', '.join(OLD_COLS)})"
+        f"CREATE TABLE book (id INTEGER PRIMARY KEY, failure_reason TEXT, failure_history TEXT, {', '.join(OLD_COLS)})"
     )
     conn.execute(
-        "INSERT INTO books (id, failure_reason, failure_history, kindle_delivery_status, kindle_pinned) "
+        "INSERT INTO book (id, failure_reason, failure_history, kindle_delivery_status, kindle_pinned) "
         "VALUES (1, 'kindle_unreachable', ?, 'delivered', 1)",
         (json.dumps([{"category": "kindle_unreachable", "message": "Kindle unreachable"}]),),
     )
@@ -47,9 +47,16 @@ def legacy_data_dir(tmp_path):
 def _columns(data_dir):
     conn = sqlite3.connect(data_dir / "bookotter.db")
     try:
-        return {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        return {row[1] for row in conn.execute("PRAGMA table_info(book)")}
     finally:
         conn.close()
+
+
+def test_fixture_table_name_matches_model():
+    """The migration targets the real ORM table; keep the fixture honest."""
+    from backend.models.book import Book
+
+    assert Book.__tablename__ == "book"
 
 
 def test_migrates_columns_and_data(legacy_data_dir):
@@ -59,7 +66,7 @@ def test_migrates_columns_and_data(legacy_data_dir):
     assert not any(c.startswith("kindle_") for c in cols)
     conn = sqlite3.connect(legacy_data_dir / "bookotter.db")
     reason, history, status, pinned = conn.execute(
-        "SELECT failure_reason, failure_history, ereader_delivery_status, ereader_pinned FROM books WHERE id=1"
+        "SELECT failure_reason, failure_history, ereader_delivery_status, ereader_pinned FROM book WHERE id=1"
     ).fetchone()
     conn.close()
     assert reason == "ereader_unreachable"
@@ -126,7 +133,7 @@ def test_existing_backup_blocks_without_force(legacy_data_dir):
 
 def test_half_migrated_resumes(legacy_data_dir):
     conn = sqlite3.connect(legacy_data_dir / "bookotter.db")
-    conn.execute('ALTER TABLE books RENAME COLUMN "kindle_pinned" TO "ereader_pinned"')
+    conn.execute('ALTER TABLE book RENAME COLUMN "kindle_pinned" TO "ereader_pinned"')
     conn.commit()
     conn.close()
     report = run_migration(legacy_data_dir)
