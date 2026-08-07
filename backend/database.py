@@ -63,9 +63,9 @@ def _refuse_legacy_kindle_schema(db_engine) -> None:
     from backend.services.ereader_migration import COLUMN_RENAMES, UnmigratedKindleStateError
 
     inspector = inspect(db_engine)
-    if "books" not in inspector.get_table_names():
+    if "book" not in inspector.get_table_names():
         return
-    legacy = {column["name"] for column in inspector.get_columns("books")} & set(COLUMN_RENAMES)
+    legacy = {column["name"] for column in inspector.get_columns("book")} & set(COLUMN_RENAMES)
     if legacy:
         msg = (
             f"Database has legacy Kindle-era columns {sorted(legacy)}. "

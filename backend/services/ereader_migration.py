@@ -71,13 +71,13 @@ def _plan_db_actions(db_path: Path) -> list[str]:
         return []
     conn = sqlite3.connect(db_path)
     try:
-        has_books = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='books'").fetchone()
+        has_books = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='book'").fetchone()
         if not has_books:
             return []
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
-        actions = [f"rename column books.{old} -> {new}" for old, new in COLUMN_RENAMES.items() if old in cols]
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(book)")}
+        actions = [f"rename column book.{old} -> {new}" for old, new in COLUMN_RENAMES.items() if old in cols]
         stale_reasons = sum(
-            conn.execute("SELECT COUNT(*) FROM books WHERE failure_reason = ?", (old,)).fetchone()[0]
+            conn.execute("SELECT COUNT(*) FROM book WHERE failure_reason = ?", (old,)).fetchone()[0]
             for old in CATEGORY_RENAMES
         )
         if stale_reasons:
@@ -87,7 +87,7 @@ def _plan_db_actions(db_path: Path) -> list[str]:
             # Escape underscores: in LIKE, a bare `_` matches any character.
             pattern = '%"' + old.replace("_", r"\_") + '"%'
             history_rows += conn.execute(
-                "SELECT COUNT(*) FROM books WHERE failure_history LIKE ? ESCAPE '\\'", (pattern,)
+                "SELECT COUNT(*) FROM book WHERE failure_history LIKE ? ESCAPE '\\'", (pattern,)
             ).fetchone()[0]
         if history_rows:
             actions.append(f"rewrite legacy failure_history categories in {history_rows} row(s)")
@@ -99,14 +99,14 @@ def _plan_db_actions(db_path: Path) -> list[str]:
 def _apply_db_migration(db_path: Path) -> None:
     conn = sqlite3.connect(db_path)
     try:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(book)")}
         for old, new in COLUMN_RENAMES.items():
             if old in cols:
-                conn.execute(f'ALTER TABLE books RENAME COLUMN "{old}" TO "{new}"')
+                conn.execute(f'ALTER TABLE book RENAME COLUMN "{old}" TO "{new}"')
         for old, new in CATEGORY_RENAMES.items():
-            conn.execute("UPDATE books SET failure_reason = ? WHERE failure_reason = ?", (new, old))
+            conn.execute("UPDATE book SET failure_reason = ? WHERE failure_reason = ?", (new, old))
             conn.execute(
-                "UPDATE books SET failure_history = REPLACE(failure_history, ?, ?) WHERE failure_history LIKE ?",
+                "UPDATE book SET failure_history = REPLACE(failure_history, ?, ?) WHERE failure_history LIKE ?",
                 (f'"{old}"', f'"{new}"', f'%"{old}"%'),
             )
         conn.commit()
