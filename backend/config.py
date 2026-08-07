@@ -64,6 +64,8 @@ def load_config() -> dict:
     with open(config_path) as f:
         file_config = yaml.safe_load(f) or {}
 
+    _refuse_legacy_kindle_keys(file_config)
+
     # Legacy cron schedules were replaced by the ereader_sync toggle; drop the
     # stale list so it stays inert and disappears on the next save.
     file_config.pop("schedules", None)
@@ -91,6 +93,31 @@ def save_config(config: dict) -> None:
 
     # Atomic rename (POSIX guarantees atomicity)
     temp_path.rename(config_path)
+
+
+def _refuse_legacy_kindle_keys(file_config: dict) -> None:
+    """Fail fast on kindle-era config keys; the migrate-to-ereader command rewrites them."""
+    from backend.services.ereader_migration import CONFIG_KEY_RENAMES, UnmigratedKindleStateError
+
+    legacy_names = {"kindle"} | set(CONFIG_KEY_RENAMES)
+
+    def _find(node, path: str) -> str | None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in legacy_names:
+                    return f"{path}{key}"
+                found = _find(value, f"{path}{key}.")
+                if found:
+                    return found
+        return None
+
+    found = _find(file_config, "")
+    if found:
+        msg = (
+            f"config.yaml has legacy Kindle-era key '{found}'. "
+            "Run `python -m backend.cli migrate-to-ereader` before starting this version."
+        )
+        raise UnmigratedKindleStateError(msg)
 
 
 def mask_sensitive_data(config: dict) -> dict:

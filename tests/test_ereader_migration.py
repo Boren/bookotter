@@ -142,6 +142,38 @@ def test_fresh_install_noop(tmp_path):
     assert report.already_migrated
 
 
+def test_init_db_refuses_legacy_columns(legacy_data_dir, monkeypatch):
+    from sqlalchemy import create_engine
+
+    import backend.database as database
+    from backend.services.ereader_migration import UnmigratedKindleStateError
+
+    engine = create_engine(f"sqlite:///{legacy_data_dir / 'bookotter.db'}")
+    monkeypatch.setattr(database, "engine", engine)
+    with pytest.raises(UnmigratedKindleStateError, match="migrate-to-ereader"):
+        database.init_db()
+
+
+def test_load_config_refuses_legacy_keys(legacy_data_dir, monkeypatch):
+    from backend import config as config_module
+    from backend.services.ereader_migration import UnmigratedKindleStateError
+
+    monkeypatch.setenv("BOOKOTTER_CONFIG_PATH", str(legacy_data_dir / "config.yaml"))
+    with pytest.raises(UnmigratedKindleStateError, match="migrate-to-ereader"):
+        config_module.load_config()
+
+
+def test_load_config_refuses_nested_legacy_key(legacy_data_dir, monkeypatch):
+    from backend import config as config_module
+    from backend.services.ereader_migration import UnmigratedKindleStateError
+
+    cfg_path = legacy_data_dir / "config.yaml"
+    cfg_path.write_text(yaml.safe_dump({"pipeline": {"kindle_sync_on_import": True}}))
+    monkeypatch.setenv("BOOKOTTER_CONFIG_PATH", str(cfg_path))
+    with pytest.raises(UnmigratedKindleStateError, match="migrate-to-ereader"):
+        config_module.load_config()
+
+
 def test_cli_dry_run(legacy_data_dir, monkeypatch, capsys):
     import sys
 

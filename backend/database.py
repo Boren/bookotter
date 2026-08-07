@@ -56,10 +56,29 @@ def get_db():
         db.close()
 
 
+def _refuse_legacy_kindle_schema(db_engine) -> None:
+    """Fail fast before create_all/column-add can plant empty ereader_* columns
+    next to legacy kindle_* data, which would reset delivery state and trigger
+    a mass re-send/delete in the mirror sync."""
+    from backend.services.ereader_migration import COLUMN_RENAMES, UnmigratedKindleStateError
+
+    inspector = inspect(db_engine)
+    if "books" not in inspector.get_table_names():
+        return
+    legacy = {column["name"] for column in inspector.get_columns("books")} & set(COLUMN_RENAMES)
+    if legacy:
+        msg = (
+            f"Database has legacy Kindle-era columns {sorted(legacy)}. "
+            "Run `python -m backend.cli migrate-to-ereader` before starting this version."
+        )
+        raise UnmigratedKindleStateError(msg)
+
+
 def init_db():
     """Create all database tables."""
     from backend.models import blocklist, book  # noqa: F401 - Import models to register them
 
+    _refuse_legacy_kindle_schema(engine)
     Base.metadata.create_all(bind=engine)
     _apply_pending_column_migrations(engine)
     backfill_missing_status()
