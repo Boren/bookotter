@@ -37,12 +37,8 @@ def client(db_session):
 def seeded(db_session):
     """Three books in one series (messy casing/whitespace), one other series, one no series."""
     books = {
-        "second": create_test_book(
-            db_session, title="Caliban's War", series_name="The Expanse", series_position=2.0
-        ),
-        "first": create_test_book(
-            db_session, title="Leviathan Wakes", series_name="the expanse", series_position=1.0
-        ),
+        "second": create_test_book(db_session, title="Caliban's War", series_name="The Expanse", series_position=2.0),
+        "first": create_test_book(db_session, title="Leviathan Wakes", series_name="the expanse", series_position=1.0),
         "unpositioned": create_test_book(
             db_session, title="Expanse Novella", series_name="  The Expanse  ", series_position=None
         ),
