@@ -86,6 +86,30 @@ class TestRejections:
         assert results[0].rejections == ["Size too large"]
 
 
+class TestOmnibusSignals:
+    def test_phrase_signals_detected(self):
+        from backend.services.search_service import omnibus_signals
+
+        assert omnibus_signals("The First Law Trilogy EPUB") == {"trilogy"}
+        assert omnibus_signals("Sherlock Holmes Omnibus") == {"omnibus"}
+        assert omnibus_signals("The Cosmere Collection") == {"collection"}
+        assert omnibus_signals("Complete Series Boxed Set") == {"complete-series", "box-set"}
+
+    def test_numeric_range_signals_detected(self):
+        from backend.services.search_service import omnibus_signals
+
+        assert omnibus_signals("Dungeon Crawler Carl Books 1-7") == {"book-range"}
+        assert omnibus_signals("First Law #1-3 EPUB") == {"hash-range"}
+        assert omnibus_signals("Mistborn Vols. 1-3") == {"vol-range"}
+
+    def test_clean_titles_have_no_signals(self):
+        from backend.services.search_service import omnibus_signals
+
+        assert omnibus_signals("The Blade Itself (2006) EPUB") == set()
+        assert omnibus_signals("This Inevitable Ruin - Book 7") == set()
+        assert omnibus_signals("") == set()
+
+
 class TestAutoSearch:
     def test_auto_search_skips_rejected(self, db_session):
         book = create_test_book(db_session, title="Great Book", author_name="Author")
