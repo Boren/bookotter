@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_EPUB_SIZE_BYTES = 100 * 1024 * 1024
+MAX_EPUB_SIZE_BYTES = 512 * 1024 * 1024  # large illustrated EPUBs can exceed 400 MB
 STALE_SCAN_WINDOW = timedelta(hours=2)
 EMBEDDED_HARDCOVER_URN_RE = re.compile(r"^urn:hardcover:(\d+)$")
 
