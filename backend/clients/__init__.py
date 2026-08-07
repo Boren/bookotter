@@ -158,7 +158,7 @@ def classify_ssh_error(e: Exception, hostname: str = "") -> ConnectionTestResult
     if "no route to host" in error_str or "network is unreachable" in error_str:
         return ConnectionTestResult(
             success=False,
-            error=f"Cannot reach Kindle{host_info}. Is it powered on and connected?",
+            error=f"Cannot reach E-reader{host_info}. Is it powered on and connected?",
             error_type="network_error",
         )
 
@@ -166,7 +166,7 @@ def classify_ssh_error(e: Exception, hostname: str = "") -> ConnectionTestResult
     if "connection refused" in error_str:
         return ConnectionTestResult(
             success=False,
-            error=f"Connection refused{host_info}. SSH may not be enabled on the Kindle.",
+            error=f"Connection refused{host_info}. SSH may not be enabled on the E-reader.",
             error_type="network_error",
         )
 
@@ -174,7 +174,7 @@ def classify_ssh_error(e: Exception, hostname: str = "") -> ConnectionTestResult
     if "name or service not known" in error_str or "nodename nor servname" in error_str:
         return ConnectionTestResult(
             success=False,
-            error=f"Could not resolve hostname{host_info}. Check the Kindle hostname.",
+            error=f"Could not resolve hostname{host_info}. Check the E-reader hostname.",
             error_type="network_error",
         )
 
@@ -182,7 +182,7 @@ def classify_ssh_error(e: Exception, hostname: str = "") -> ConnectionTestResult
     if "timed out" in error_str:
         return ConnectionTestResult(
             success=False,
-            error=f"Connection timed out{host_info}. Kindle may be slow or unreachable.",
+            error=f"Connection timed out{host_info}. E-reader may be slow or unreachable.",
             error_type="timeout",
         )
 

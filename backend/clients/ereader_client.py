@@ -1,6 +1,6 @@
 """
-Kindle SSH/SFTP Client
-Handles SSH connections and file transfers to Kindle devices.
+E-reader SSH/SFTP Client
+Handles SSH connections and file transfers to E-reader devices.
 """
 
 import logging
@@ -17,10 +17,10 @@ import paramiko
 
 from backend.clients import ConnectionTestResult, classify_ssh_error
 from backend.constants import (
-    KINDLE_PROBE_TIMEOUT,
-    KINDLE_RETRY_ATTEMPTS,
-    KINDLE_SSH_TIMEOUT,
-    KINDLE_TRANSFER_TIMEOUT,
+    EREADER_PROBE_TIMEOUT,
+    EREADER_RETRY_ATTEMPTS,
+    EREADER_SSH_TIMEOUT,
+    EREADER_TRANSFER_TIMEOUT,
     TMP_FILE_MAX_AGE_HOURS,
 )
 from backend.errors import FailureReason, PipelineError
@@ -30,24 +30,24 @@ from backend.utils.retry import retry_with_backoff
 logger = logging.getLogger(__name__)
 
 
-class KindleNotFoundError(Exception):
+class EreaderNotFoundError(Exception):
     pass
 
 
-class KindlePermissionError(Exception):
+class EreaderPermissionError(Exception):
     pass
 
 
-class KindleConnectionError(Exception):
+class EreaderConnectionError(Exception):
     pass
 
 
-class KindleTimeoutError(Exception):
+class EreaderTimeoutError(Exception):
     pass
 
 
-class KindleClient:
-    """Client for interacting with Kindle devices via SSH/SFTP."""
+class EreaderClient:
+    """Client for interacting with E-reader devices via SSH/SFTP."""
 
     def __init__(
         self,
@@ -59,15 +59,15 @@ class KindleClient:
         destination_path: str = "/mnt/us/books/",
     ):
         """
-        Initialize the Kindle client.
+        Initialize the E-reader client.
 
         Args:
-            hostname: Kindle's hostname or IP (e.g., Tailscale hostname)
-            username: SSH username (usually 'root' for jailbroken Kindles)
+            hostname: E-reader's hostname or IP (e.g., Tailscale hostname)
+            username: SSH username (usually 'root' for jailbroken E-readers)
             port: SSH port (default: 22)
             password: SSH password (if using password auth)
             ssh_key_path: Path to SSH private key (if using key auth)
-            destination_path: Destination folder on Kindle for books
+            destination_path: Destination folder on E-reader for books
         """
         self.hostname = hostname
         self.username = username
@@ -78,8 +78,8 @@ class KindleClient:
         self._ssh_pool: dict[str, paramiko.SSHClient] = {}
 
     @classmethod
-    def from_config(cls, config: dict) -> KindleClient:
-        """Create a KindleClient from a configuration dictionary."""
+    def from_config(cls, config: dict) -> EreaderClient:
+        """Create a EreaderClient from a configuration dictionary."""
         return cls(
             hostname=config.get("hostname", ""),
             username=config.get("username", "root"),
@@ -91,7 +91,7 @@ class KindleClient:
 
     def _create_ssh_client(self) -> paramiko.SSHClient:
         """
-        Create and connect an SSH client to the Kindle.
+        Create and connect an SSH client to the E-reader.
 
         Returns:
             Connected SSH client
@@ -106,7 +106,7 @@ class KindleClient:
             "hostname": self.hostname,
             "port": self.port,
             "username": self.username,
-            "timeout": KINDLE_SSH_TIMEOUT,
+            "timeout": EREADER_SSH_TIMEOUT,
         }
 
         # Use either password or key authentication
@@ -120,30 +120,30 @@ class KindleClient:
         return ssh
 
     @retry_with_backoff(
-        attempts=KINDLE_RETRY_ATTEMPTS,
+        attempts=EREADER_RETRY_ATTEMPTS,
         exceptions=(paramiko.SSHException, OSError, socket.error),
-        failure_reason=FailureReason.KINDLE_UNREACHABLE,
+        failure_reason=FailureReason.EREADER_UNREACHABLE,
     )
-    def _connect_ssh(self, kindle_config: dict) -> paramiko.SSHClient:
+    def _connect_ssh(self, ereader_config: dict) -> paramiko.SSHClient:
         """
-        Open a fresh SSH connection to the Kindle described by kindle_config.
+        Open a fresh SSH connection to the E-reader described by ereader_config.
 
         Retries on transient errors (SSHException, OSError, socket.error) per
-        KINDLE_RETRY_ATTEMPTS with exponential backoff. Authentication failures
-        are converted to PipelineError(KINDLE_AUTH_FAILED) and NOT retried.
+        EREADER_RETRY_ATTEMPTS with exponential backoff. Authentication failures
+        are converted to PipelineError(EREADER_AUTH_FAILED) and NOT retried.
         """
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         connect_kwargs: dict = {
-            "hostname": kindle_config["hostname"],
-            "port": kindle_config.get("port", 22),
-            "username": kindle_config.get("username", "root"),
-            "timeout": KINDLE_SSH_TIMEOUT,
+            "hostname": ereader_config["hostname"],
+            "port": ereader_config.get("port", 22),
+            "username": ereader_config.get("username", "root"),
+            "timeout": EREADER_SSH_TIMEOUT,
         }
 
-        password = kindle_config.get("password")
-        ssh_key_path = kindle_config.get("ssh_key_path")
+        password = ereader_config.get("password")
+        ssh_key_path = ereader_config.get("ssh_key_path")
         if password:
             connect_kwargs["password"] = password
         elif ssh_key_path:
@@ -154,17 +154,17 @@ class KindleClient:
         except paramiko.AuthenticationException as e:
             # AuthenticationException is a subclass of SSHException; catch it FIRST
             # so the retry decorator (which catches SSHException) never sees it.
-            raise PipelineError(str(e), FailureReason.KINDLE_AUTH_FAILED) from e
+            raise PipelineError(str(e), FailureReason.EREADER_AUTH_FAILED) from e
 
         return ssh
 
-    def _get_or_create_ssh(self, kindle_config: dict) -> paramiko.SSHClient:
+    def _get_or_create_ssh(self, ereader_config: dict) -> paramiko.SSHClient:
         """
-        Return a live SSH connection for kindle_config["hostname"], reusing
+        Return a live SSH connection for ereader_config["hostname"], reusing
         a pooled connection when its transport is still active. Reconnects
         when the cached connection is stale.
         """
-        hostname = kindle_config["hostname"]
+        hostname = ereader_config["hostname"]
         existing = self._ssh_pool.get(hostname)
         if existing is not None:
             transport = existing.get_transport()
@@ -176,7 +176,7 @@ class KindleClient:
                 pass
             self._ssh_pool.pop(hostname, None)
 
-        ssh = self._connect_ssh(kindle_config)
+        ssh = self._connect_ssh(ereader_config)
         self._ssh_pool[hostname] = ssh
         return ssh
 
@@ -195,8 +195,8 @@ class KindleClient:
         except Exception:
             pass
 
-    def is_reachable(self, timeout: float = KINDLE_PROBE_TIMEOUT) -> bool:
-        """Cheap TCP probe — is the Kindle awake and accepting connections on the SSH port?
+    def is_reachable(self, timeout: float = EREADER_PROBE_TIMEOUT) -> bool:
+        """Cheap TCP probe — is the E-reader awake and accepting connections on the SSH port?
 
         No SSH handshake: the only question is whether the device is on and
         listening. OSError covers refused connections, timeouts, and DNS
@@ -206,12 +206,12 @@ class KindleClient:
             with socket.create_connection((self.hostname, self.port), timeout=timeout):
                 return True
         except OSError:
-            logger.debug("Kindle %s:%s unreachable: TCP probe failed", self.hostname, self.port)
+            logger.debug("E-reader %s:%s unreachable: TCP probe failed", self.hostname, self.port)
             return False
 
     def test_connection(self) -> ConnectionTestResult:
         """
-        Test the SSH connection to Kindle.
+        Test the SSH connection to E-reader.
 
         Returns:
             ConnectionTestResult with success status and error details
@@ -219,21 +219,21 @@ class KindleClient:
         try:
             ssh = self._create_ssh_client()
             ssh.close()
-            logger.info(f"Successfully connected to Kindle at {self.hostname}")
+            logger.info(f"Successfully connected to E-reader at {self.hostname}")
             return ConnectionTestResult(
                 success=True,
-                message=f"Connected to Kindle ({self.hostname})",
+                message=f"Connected to E-reader ({self.hostname})",
             )
         except Exception as e:
-            logger.error(f"Kindle SSH connection failed: {e}")
+            logger.error(f"E-reader SSH connection failed: {e}")
             return classify_ssh_error(e, self.hostname)
 
     def file_exists(self, remote_path: str) -> bool:
         """
-        Check if a file already exists on the Kindle.
+        Check if a file already exists on the E-reader.
 
         Args:
-            remote_path: Path to check on Kindle
+            remote_path: Path to check on E-reader
 
         Returns:
             True if file exists, False otherwise
@@ -336,18 +336,18 @@ class KindleClient:
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict:
         """
-        Transfer a file to Kindle via SFTP using atomic write semantics.
+        Transfer a file to E-reader via SFTP using atomic write semantics.
 
         Strategy:
-        1. Free-space check via `df` BEFORE transfer (10% margin) → KINDLE_DISK_FULL on shortage.
+        1. Free-space check via `df` BEFORE transfer (10% margin) → EREADER_DISK_FULL on shortage.
         2. Upload to `<remote_path>.tmp` (so a partial file never appears at the final path).
-        3. Verify .tmp size matches local size; on mismatch → KINDLE_TRANSFER_FAILED + cleanup.
-        4. Atomic rename `.tmp` → final path via SSH `mv` (atomic on Kindle ext4 per probe).
+        3. Verify .tmp size matches local size; on mismatch → EREADER_TRANSFER_FAILED + cleanup.
+        4. Atomic rename `.tmp` → final path via SSH `mv` (atomic on E-reader ext4 per probe).
         5. On any exception during transfer, attempt best-effort cleanup of the .tmp file.
 
         Args:
             local_path: Path to local file
-            skip_existing: Skip if file already exists on Kindle
+            skip_existing: Skip if file already exists on E-reader
             author: Author name for folder organization
             series: Series name for folder organization
             folder_organization: How to organize files ('flat', 'author', 'series', 'author_series')
@@ -361,8 +361,8 @@ class KindleClient:
             - error: str (if failed)
 
         Raises:
-            PipelineError(KINDLE_DISK_FULL): Insufficient free space on Kindle.
-            PipelineError(KINDLE_TRANSFER_FAILED): Size mismatch or atomic rename failure.
+            PipelineError(EREADER_DISK_FULL): Insufficient free space on E-reader.
+            PipelineError(EREADER_TRANSFER_FAILED): Size mismatch or atomic rename failure.
         """
         filename = os.path.basename(local_path)
         remote_path = self.generate_remote_path(filename, author, series, folder_organization)
@@ -387,19 +387,19 @@ class KindleClient:
             ssh = self._create_ssh_client()
             sftp = ssh.open_sftp()
 
-            # Bound every SFTP I/O op so a Kindle sleeping mid-transfer raises
+            # Bound every SFTP I/O op so a E-reader sleeping mid-transfer raises
             # socket.timeout instead of hanging the pipeline job forever.
             channel = sftp.get_channel()
             if channel is not None:
-                channel.settimeout(KINDLE_TRANSFER_TIMEOUT)
+                channel.settimeout(EREADER_TRANSFER_TIMEOUT)
 
-            # Skip only when the Kindle copy matches the local file byte-for-byte
+            # Skip only when the E-reader copy matches the local file byte-for-byte
             # in size — an existence check alone would keep stale copies (e.g.
             # pre-metadata-rewrite EPUBs) on the device forever.
             if skip_existing:
                 remote_size = self._remote_size_sftp(sftp, remote_path)
                 if remote_size == local_size:
-                    logger.info(f"File already on Kindle with matching size, skipping: {filename}")
+                    logger.info(f"File already on E-reader with matching size, skipping: {filename}")
                     return {
                         "success": True,
                         "status": "skipped",
@@ -407,7 +407,7 @@ class KindleClient:
                     }
                 if remote_size is not None:
                     logger.info(
-                        f"Stale copy on Kindle (remote={remote_size}, local={local_size} bytes), "
+                        f"Stale copy on E-reader (remote={remote_size}, local={local_size} bytes), "
                         f"overwriting: {filename}"
                     )
 
@@ -421,10 +421,10 @@ class KindleClient:
                     ssh.exec_command(f'mkdir -p "{dir_path}"')
                     logger.debug(f"Created directory: {dir_path}")
 
-            # Free-space check BEFORE transfer (df reports 1K-blocks on Kindle/POSIX)
+            # Free-space check BEFORE transfer (df reports 1K-blocks on E-reader/POSIX)
             df_target = dir_path or self.destination_path.rstrip("/") or "/mnt/us"
             df_cmd = f"df {shlex.quote(df_target)} | tail -1 | awk '{{print $4}}'"
-            _, df_stdout, _ = ssh.exec_command(df_cmd, timeout=KINDLE_SSH_TIMEOUT)
+            _, df_stdout, _ = ssh.exec_command(df_cmd, timeout=EREADER_SSH_TIMEOUT)
             df_output = df_stdout.read().decode().strip()
             try:
                 available_kb = int(df_output) if df_output else 0
@@ -436,9 +436,9 @@ class KindleClient:
             required_bytes = int(local_size * 1.1)
             if available_bytes < required_bytes:
                 raise PipelineError(
-                    f"Insufficient Kindle space: {available_bytes} bytes available, "
+                    f"Insufficient E-reader space: {available_bytes} bytes available, "
                     f"need {required_bytes} (file={local_size}, +10% margin)",
-                    FailureReason.KINDLE_DISK_FULL,
+                    FailureReason.EREADER_DISK_FULL,
                 )
 
             logger.info(f"Uploading (atomic): {filename}")
@@ -460,7 +460,7 @@ class KindleClient:
                     pass
                 raise PipelineError(
                     f"Failed to stat remote tmp file after transfer: {e}",
-                    FailureReason.KINDLE_TRANSFER_FAILED,
+                    FailureReason.EREADER_TRANSFER_FAILED,
                 ) from e
 
             if remote_size != local_size:
@@ -471,12 +471,12 @@ class KindleClient:
                     pass
                 raise PipelineError(
                     f"Transfer size mismatch: local={local_size}, remote={remote_size}",
-                    FailureReason.KINDLE_TRANSFER_FAILED,
+                    FailureReason.EREADER_TRANSFER_FAILED,
                 )
 
-            # mv is atomic on Kindle ext4 (verified via docs/probes/kindle-rename.md)
+            # mv is atomic on E-reader ext4 (verified via docs/probes/ereader-rename.md)
             mv_cmd = f"mv {shlex.quote(remote_tmp)} {shlex.quote(remote_path)}"
-            _, mv_stdout, mv_stderr = ssh.exec_command(mv_cmd, timeout=KINDLE_SSH_TIMEOUT)
+            _, mv_stdout, mv_stderr = ssh.exec_command(mv_cmd, timeout=EREADER_SSH_TIMEOUT)
             exit_status = mv_stdout.channel.recv_exit_status()
             if exit_status != 0:
                 err = mv_stderr.read().decode().strip()
@@ -486,7 +486,7 @@ class KindleClient:
                     pass
                 raise PipelineError(
                     f"Atomic rename failed (exit={exit_status}): {err}",
-                    FailureReason.KINDLE_TRANSFER_FAILED,
+                    FailureReason.EREADER_TRANSFER_FAILED,
                 )
 
             logger.info(f"Successfully transferred: {filename} ({local_size} bytes)")
@@ -526,9 +526,9 @@ class KindleClient:
         except OSError:
             return None
 
-    def cleanup_kindle_tmp_files(self, max_age_hours: int = TMP_FILE_MAX_AGE_HOURS) -> int:
+    def cleanup_ereader_tmp_files(self, max_age_hours: int = TMP_FILE_MAX_AGE_HOURS) -> int:
         """
-        Remove orphan ``.tmp`` files older than ``max_age_hours`` from the Kindle
+        Remove orphan ``.tmp`` files older than ``max_age_hours`` from the E-reader
         destination path. These are leftovers from interrupted atomic transfers.
 
         Returns:
@@ -546,7 +546,7 @@ class KindleClient:
             logger.info(f"Cleaned up {len(deleted)} orphan .tmp files from {dest_path}")
             return len(deleted)
         except Exception as e:
-            logger.error(f"Failed to cleanup .tmp files on Kindle: {e}")
+            logger.error(f"Failed to cleanup .tmp files on E-reader: {e}")
             return 0
         finally:
             if ssh is not None:
@@ -565,9 +565,9 @@ class KindleClient:
         try:
             ssh = self._create_ssh_client()
         except TimeoutError as e:
-            raise KindleTimeoutError(str(e)) from e
+            raise EreaderTimeoutError(str(e)) from e
         except (paramiko.SSHException, OSError) as e:
-            raise KindleConnectionError(str(e)) from e
+            raise EreaderConnectionError(str(e)) from e
 
         sftp = None
         try:
@@ -579,16 +579,16 @@ class KindleClient:
             try:
                 entries = sftp.listdir_attr(normalized_path)
             except PermissionError as e:
-                raise KindlePermissionError(f"Permission denied: {normalized_path}") from e
+                raise EreaderPermissionError(f"Permission denied: {normalized_path}") from e
             except TimeoutError as e:
-                raise KindleTimeoutError(str(e)) from e
+                raise EreaderTimeoutError(str(e)) from e
             except OSError as e:
                 errno_value = getattr(e, "errno", None)
                 if errno_value in {2, None}:
-                    raise KindleNotFoundError(f"Path not found: {normalized_path}") from e
-                raise KindleConnectionError(str(e)) from e
+                    raise EreaderNotFoundError(f"Path not found: {normalized_path}") from e
+                raise EreaderConnectionError(str(e)) from e
             except paramiko.SSHException as e:
-                raise KindleConnectionError(str(e)) from e
+                raise EreaderConnectionError(str(e)) from e
 
             browse_entries: list[DirectoryEntry] = []
             for entry in entries:
@@ -641,11 +641,11 @@ class KindleClient:
                 "truncated": len(browse_entries) > effective_max_entries,
             }
         except TimeoutError as e:
-            raise KindleTimeoutError(str(e)) from e
+            raise EreaderTimeoutError(str(e)) from e
         except paramiko.SSHException as e:
-            raise KindleConnectionError(str(e)) from e
+            raise EreaderConnectionError(str(e)) from e
         except OSError as e:
-            raise KindleConnectionError(str(e)) from e
+            raise EreaderConnectionError(str(e)) from e
         finally:
             if sftp is not None:
                 sftp.close()
@@ -653,7 +653,7 @@ class KindleClient:
 
     def list_books(self) -> list[dict]:
         """
-        List books currently on the Kindle.
+        List books currently on the E-reader.
 
         Returns:
             List of file dictionaries with name and size
@@ -681,16 +681,16 @@ class KindleClient:
             sftp.close()
             ssh.close()
 
-            logger.info(f"Found {len(files)} books on Kindle")
+            logger.info(f"Found {len(files)} books on E-reader")
             return files
 
         except Exception as e:
-            logger.error(f"Failed to list books on Kindle: {e}")
+            logger.error(f"Failed to list books on E-reader: {e}")
             return []
 
     def delete_file(self, filename: str) -> bool:
         """
-        Delete a file from the Kindle.
+        Delete a file from the E-reader.
 
         Args:
             filename: Name of file to delete
@@ -706,7 +706,7 @@ class KindleClient:
             sftp.remove(remote_path)
             sftp.close()
             ssh.close()
-            logger.info(f"Deleted file from Kindle: {filename}")
+            logger.info(f"Deleted file from E-reader: {filename}")
             return True
         except Exception as e:
             logger.error(f"Failed to delete file: {e}")
@@ -714,7 +714,7 @@ class KindleClient:
 
     def list_all_books(self, protected_paths: list[str] | None = None) -> list[str]:
         """
-        List all books on Kindle recursively, including subdirectories.
+        List all books on E-reader recursively, including subdirectories.
 
         Args:
             protected_paths: List of paths to exclude from listing
@@ -745,7 +745,7 @@ class KindleClient:
                 if not is_protected:
                     files.append(line)
 
-            logger.debug(f"Found {len(files)} books on Kindle (recursive)")
+            logger.debug(f"Found {len(files)} books on E-reader (recursive)")
             return files
 
         except Exception as e:
@@ -758,7 +758,7 @@ class KindleClient:
         protected_paths: list[str] | None = None,
     ) -> list[str]:
         """
-        Find books on Kindle that are not in the expected list.
+        Find books on E-reader that are not in the expected list.
 
         Args:
             expected_filenames: List of filenames that should be on the device
@@ -776,7 +776,7 @@ class KindleClient:
             if filename not in expected_names:
                 orphans.append(filepath)
 
-        logger.info(f"Found {len(orphans)} orphaned books on Kindle")
+        logger.info(f"Found {len(orphans)} orphaned books on E-reader")
         return orphans
 
     def delete_book_with_sdr(

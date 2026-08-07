@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.config import load_config
 from backend.database import get_db
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Author, Book, BookStatus, EpubMetaState, KindleDeliveryStatus, RootFolder
+from backend.models.book import Author, Book, BookStatus, EpubMetaState, EreaderDeliveryStatus, RootFolder
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.rename_service import RenameService
 from backend.utils.clock import naive_utcnow
@@ -73,10 +73,10 @@ def _resolve_author(db: Session, author_name: str | None) -> Author | None:
 @router.get("/books")
 async def list_books(
     status: str | None = Query(default=None, description="Filter by book status"),
-    kindle_delivery_status: str | None = Query(
+    ereader_delivery_status: str | None = Query(
         default=None,
         pattern="^(PENDING|IN_PROGRESS|DELIVERED|SKIPPED|NONE)$",
-        description="Filter by Kindle delivery status; NONE matches books never queued",
+        description="Filter by E-reader delivery status; NONE matches books never queued",
     ),
     author: str | None = Query(default=None, description="Filter by author name (partial match)"),
     series: str | None = Query(default=None, description="Filter by exact series name (case-insensitive, trimmed)"),
@@ -92,11 +92,11 @@ async def list_books(
     if status:
         query = query.filter(Book.status == status)
 
-    if kindle_delivery_status:
-        if kindle_delivery_status == "NONE":
-            query = query.filter(Book.kindle_delivery_status.is_(None))
+    if ereader_delivery_status:
+        if ereader_delivery_status == "NONE":
+            query = query.filter(Book.ereader_delivery_status.is_(None))
         else:
-            query = query.filter(Book.kindle_delivery_status == kindle_delivery_status)
+            query = query.filter(Book.ereader_delivery_status == ereader_delivery_status)
 
     if author:
         query = query.join(Author).filter(Author.name.ilike(f"%{author}%"))
@@ -165,14 +165,14 @@ async def get_library_stats(db: Session = Depends(get_db)):
         or 0
     )
 
-    kindle_counts = {}
-    for kstatus in KindleDeliveryStatus:
-        kindle_counts[kstatus.value] = db.query(Book).filter(Book.kindle_delivery_status == kstatus.value).count()
+    ereader_counts = {}
+    for kstatus in EreaderDeliveryStatus:
+        ereader_counts[kstatus.value] = db.query(Book).filter(Book.ereader_delivery_status == kstatus.value).count()
 
     return {
         "total_books": total_books,
         "by_status": status_counts,
-        "by_kindle_delivery_status": kindle_counts,
+        "by_ereader_delivery_status": ereader_counts,
         "author_count": author_count,
         "total_size_bytes": total_size,
     }
@@ -380,21 +380,21 @@ def force_retry_book(book_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/books/{book_id}/kindle-requeue", status_code=202)
-def requeue_kindle_delivery(
+@router.post("/books/{book_id}/ereader-requeue", status_code=202)
+def requeue_ereader_delivery(
     book_id: int,
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    """Queue a book for Kindle delivery ("Send to Kindle").
+    """Queue a book for E-reader delivery ("Send to E-reader").
 
     Allowed from any state except an active transfer: never-queued (NULL),
     SKIPPED (gave up after the delivery window) and DELIVERED (send again,
     e.g. after deleting it from the device) all reset to PENDING. PENDING is
     idempotent (double-clicks are harmless); IN_PROGRESS returns 409.
 
-    After queueing, kicks the Kindle delivery pipeline stage in the background
+    After queueing, kicks the E-reader delivery pipeline stage in the background
     so the transfer starts within seconds when the device is online; when it
     is off, the book waits in the queue and the scheduled tick delivers later.
     """
@@ -402,8 +402,8 @@ def requeue_kindle_delivery(
     if book is None:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
 
-    if book.kindle_delivery_status == KindleDeliveryStatus.IN_PROGRESS.value:
-        raise HTTPException(status_code=409, detail="Kindle delivery already in progress for this book")
+    if book.ereader_delivery_status == EreaderDeliveryStatus.IN_PROGRESS.value:
+        raise HTTPException(status_code=409, detail="E-reader delivery already in progress for this book")
     if not book.file_path or book.root_folder_id is None:
         raise HTTPException(status_code=400, detail="Book has no library file to deliver")
 
@@ -411,23 +411,23 @@ def requeue_kindle_delivery(
 
     # A manual send is a pin: mirror cleanup keeps this book on the device
     # regardless of its Hardcover shelf, until the user unpins it.
-    if not book.kindle_pinned:
-        book.kindle_pinned = True
+    if not book.ereader_pinned:
+        book.ereader_pinned = True
         db.commit()
 
-    if book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value:
+    if book.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value:
         return {
             "book_id": book_id,
-            "previous_status": KindleDeliveryStatus.PENDING.value,
-            "new_status": KindleDeliveryStatus.PENDING.value,
+            "previous_status": EreaderDeliveryStatus.PENDING.value,
+            "new_status": EreaderDeliveryStatus.PENDING.value,
             "already_queued": True,
             "kicked": False,
         }
 
-    previous_status = book.kindle_delivery_status
-    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-    book.kindle_first_pending_at = naive_utcnow()
-    book.kindle_delivery_attempts = 0
+    previous_status = book.ereader_delivery_status
+    book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
+    book.ereader_first_pending_at = naive_utcnow()
+    book.ereader_delivery_attempts = 0
     book.updated_at = naive_utcnow()
     db.commit()
 
@@ -435,23 +435,23 @@ def requeue_kindle_delivery(
         from backend.services.websocket_manager import manager as ws_manager
 
         ws_manager.broadcast_sync(
-            "kindle_delivery_requeued",
+            "ereader_delivery_requeued",
             {
                 "book_id": book_id,
                 "previous_status": previous_status,
-                "new_status": KindleDeliveryStatus.PENDING.value,
+                "new_status": EreaderDeliveryStatus.PENDING.value,
             },
         )
     except Exception as e:
-        logger.debug("WS broadcast failed for kindle-requeue(%s): %s", book_id, e)
+        logger.debug("WS broadcast failed for ereader-requeue(%s): %s", book_id, e)
 
     if pipeline is not None:
-        background_tasks.add_task(pipeline.kick_kindle_delivery)
+        background_tasks.add_task(pipeline.kick_ereader_delivery)
 
     return {
         "book_id": book_id,
         "previous_status": previous_status,
-        "new_status": KindleDeliveryStatus.PENDING.value,
+        "new_status": EreaderDeliveryStatus.PENDING.value,
         "already_queued": False,
         "kicked": pipeline is not None,
     }
@@ -483,20 +483,20 @@ async def rename_apply(body: RenameApplyRequest, db: Session = Depends(get_db)):
         raise
 
 
-@router.delete("/books/{book_id}/kindle-pin")
-def unpin_kindle_delivery(book_id: int, db: Session = Depends(get_db)):
-    """Clear a book's Kindle pin; the next mirror sync removes it from the device."""
+@router.delete("/books/{book_id}/ereader-pin")
+def unpin_ereader_delivery(book_id: int, db: Session = Depends(get_db)):
+    """Clear a book's E-reader pin; the next mirror sync removes it from the device."""
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
 
-    was_pinned = book.kindle_pinned
+    was_pinned = book.ereader_pinned
     if was_pinned:
-        book.kindle_pinned = False
+        book.ereader_pinned = False
         book.updated_at = naive_utcnow()
         db.commit()
 
-    return {"book_id": book_id, "was_pinned": was_pinned, "kindle_pinned": False}
+    return {"book_id": book_id, "was_pinned": was_pinned, "ereader_pinned": False}
 
 
 @router.delete("/books/{book_id}")

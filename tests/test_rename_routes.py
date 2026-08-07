@@ -19,8 +19,8 @@ def _fixed_template(monkeypatch):
         "backend.services.rename_service.load_config",
         lambda: {"library": {"naming_template": "{Author} - {Title}"}},
     )
-    monkeypatch.setattr("backend.services.rename_service.get_first_real_kindle", lambda config=None: None)
-    monkeypatch.setattr("backend.services.rename_service.get_kindle_sync_shelves", lambda config=None: set())
+    monkeypatch.setattr("backend.services.rename_service.get_first_real_ereader", lambda config=None: None)
+    monkeypatch.setattr("backend.services.rename_service.get_ereader_sync_shelves", lambda config=None: set())
 
 
 def _seed_book(db, tmp_path, rel_path: str, *, title: str, author_name: str):

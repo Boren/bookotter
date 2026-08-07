@@ -8,7 +8,7 @@ from backend.errors import FailureReason, PipelineError
 from backend.models.book import (
     BookStatus,
     FolderOrganization,
-    KindleDeliveryStatus,
+    EreaderDeliveryStatus,
     PipelineLock,
     RootFolder,
 )
@@ -34,10 +34,10 @@ def _fixed_template(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_kindle(monkeypatch):
-    """Default: no real Kindle configured; individual tests override."""
-    monkeypatch.setattr("backend.services.rename_service.get_first_real_kindle", lambda config=None: None)
-    monkeypatch.setattr("backend.services.rename_service.get_kindle_sync_shelves", lambda config=None: set())
+def _no_ereader(monkeypatch):
+    """Default: no real E-reader configured; individual tests override."""
+    monkeypatch.setattr("backend.services.rename_service.get_first_real_ereader", lambda config=None: None)
+    monkeypatch.setattr("backend.services.rename_service.get_ereader_sync_shelves", lambda config=None: set())
 
 
 def _library_book(
@@ -225,22 +225,22 @@ class TestApply:
             == 0
         )
 
-    def test_kindle_delivered_mirror_book_reset(self, db_session, tmp_path, monkeypatch):
+    def test_ereader_delivered_mirror_book_reset(self, db_session, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "backend.services.rename_service.get_first_real_kindle",
-            lambda config=None: {"id": "k1", "hostname": "kindle.local"},
+            "backend.services.rename_service.get_first_real_ereader",
+            lambda config=None: {"id": "k1", "hostname": "ereader.local"},
         )
         monkeypatch.setattr(
-            "backend.services.rename_service.get_kindle_sync_shelves",
+            "backend.services.rename_service.get_ereader_sync_shelves",
             lambda config=None: {"want_to_read"},
         )
         rf = _make_root_folder(db_session, tmp_path, FolderOrganization.FLAT.value)
         mirror = _library_book(db_session, rf, "m.epub", title="Mirror", author_name="Author F")
-        mirror.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
-        mirror.kindle_delivery_attempts = 3
+        mirror.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
+        mirror.ereader_delivery_attempts = 3
         mirror.hardcover_status = "want_to_read"
         other = _library_book(db_session, rf, "o.epub", title="Other", author_name="Author G")
-        other.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+        other.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
         other.hardcover_status = "read"
         db_session.commit()
 
@@ -248,7 +248,7 @@ class TestApply:
 
         db_session.refresh(mirror)
         db_session.refresh(other)
-        assert mirror.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        assert mirror.kindle_delivery_attempts == 0
-        assert mirror.kindle_first_pending_at is not None
-        assert other.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert mirror.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        assert mirror.ereader_delivery_attempts == 0
+        assert mirror.ereader_first_pending_at is not None
+        assert other.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value

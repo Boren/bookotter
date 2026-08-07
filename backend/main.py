@@ -21,7 +21,7 @@ from backend.api.routes import (
     browse,
     config,
     downloads,
-    kindles,
+    ereaders,
     library,
     logs,
     root_folders,
@@ -32,7 +32,7 @@ from backend.api.routes import (
     sync,
     wanted,
 )
-from backend.api.routes.sync import _run_hardcover_sync_background, apply_kindle_sync_schedule
+from backend.api.routes.sync import _run_hardcover_sync_background, apply_ereader_sync_schedule
 from backend.config import DATA_DIR, load_config
 from backend.database import init_db
 from backend.services.scheduler_service import scheduler
@@ -46,7 +46,7 @@ def validate_config(cfg: dict) -> list[str]:
     Validate required configuration fields.
 
     Returns a list of fatal error messages. If the list is non-empty, startup should abort.
-    Warnings (e.g., missing kindle hostname) are logged but not returned.
+    Warnings (e.g., missing ereader hostname) are logged but not returned.
     """
     errors = []
 
@@ -79,12 +79,12 @@ def validate_config(cfg: dict) -> list[str]:
     elif not (qbt_url.startswith("http://") or qbt_url.startswith("https://")):
         errors.append(f"qbittorrent.base_url must start with http:// or https://, got: {qbt_url}")
 
-    # Kindles: warn if any has empty hostname (non-fatal)
-    kindles = cfg.get("kindles", [])
-    for i, kindle in enumerate(kindles):
-        hostname = kindle.get("hostname", "").strip()
+    # E-readers: warn if any has empty hostname (non-fatal)
+    ereaders = cfg.get("ereaders", [])
+    for i, ereader in enumerate(ereaders):
+        hostname = ereader.get("hostname", "").strip()
         if not hostname:
-            logger.warning(f"kindles[{i}] has empty hostname — Kindle sync will fail for this device")
+            logger.warning(f"ereaders[{i}] has empty hostname — E-reader sync will fail for this device")
 
     return errors
 
@@ -280,9 +280,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to register Hardcover poller: {e}")
 
     try:
-        apply_kindle_sync_schedule(app_config)
+        apply_ereader_sync_schedule(app_config)
     except Exception as e:
-        logger.error(f"Failed to register automatic Kindle sync: {e}")
+        logger.error(f"Failed to register automatic E-reader sync: {e}")
 
     yield
 
@@ -297,7 +297,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title=__app_name__,
-    description="Sync books from Hardcover reading lists to Kindle",
+    description="Sync books from Hardcover reading lists to E-reader",
     version=__version__,
     lifespan=lifespan,
 )
@@ -316,7 +316,7 @@ app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(services.router, prefix="/api", tags=["services"])
 app.include_router(browse.router, prefix="/api/browse", tags=["browse"])
-app.include_router(kindles.router, prefix="/api/kindles", tags=["kindles"])
+app.include_router(ereaders.router, prefix="/api/ereaders", tags=["ereaders"])
 app.include_router(root_folders.router, prefix="/api/root-folders", tags=["root-folders"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"])

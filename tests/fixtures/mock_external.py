@@ -33,8 +33,8 @@ class MockProwlarrClient:
         self._results = list(results)
 
 
-class MockKindleClient:
-    """In-memory mock for KindleClient."""
+class MockEreaderClient:
+    """In-memory mock for EreaderClient."""
 
     def __init__(self, reachable: bool = True):
         self.reachable = reachable
@@ -46,7 +46,7 @@ class MockKindleClient:
 
     def transfer_file(self, local_path: str, remote_path: str) -> None:
         if not self.reachable:
-            raise ConnectionError("Kindle unreachable")
+            raise ConnectionError("E-reader unreachable")
         self.transfer_count += 1
         self.transferred_files.append((local_path, remote_path))
 
@@ -62,5 +62,5 @@ def mock_prowlarr():
 
 
 @pytest.fixture
-def mock_kindle():
-    return MockKindleClient()
+def mock_ereader():
+    return MockEreaderClient()

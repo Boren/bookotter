@@ -2,7 +2,7 @@
 
 """
 Hardcover sync service: polls Hardcover lists and adds new books to the library DB.
-Also handles Kindle sync from library DB (books with IN_LIBRARY status).
+Also handles E-reader sync from library DB (books with IN_LIBRARY status).
 """
 
 import logging
@@ -16,9 +16,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.clients.hardcover_client import HardcoverClient
-from backend.clients.kindle_client import KindleClient
-from backend.config import get_kindle_by_id, get_kindle_sync_shelves
-from backend.models.book import Author, Book, BookStatus, KindleDeliveryStatus
+from backend.clients.ereader_client import EreaderClient
+from backend.config import get_ereader_by_id, get_ereader_sync_shelves
+from backend.models.book import Author, Book, BookStatus, EreaderDeliveryStatus
 from backend.utils.clock import naive_utcnow
 from backend.utils.events import log_event
 from backend.utils.transfer_progress import make_progress_callback
@@ -54,7 +54,7 @@ def _get_or_create_author(db: Session, name: str) -> Author:
 
 
 class HardcoverSyncService:
-    """Syncs books from Hardcover lists into the local library DB and transfers to Kindle."""
+    """Syncs books from Hardcover lists into the local library DB and transfers to E-reader."""
 
     def __init__(
         self,
@@ -164,7 +164,7 @@ class HardcoverSyncService:
         # Absence pass: a book that previously had a shelf but appeared on none
         # this run has left every Hardcover shelf — clear its mirror status.
         # Guarded so a pathological empty API response can never blank the whole
-        # mirror set (which would make the next Kindle sync wipe the device).
+        # mirror set (which would make the next E-reader sync wipe the device).
         if hc_books:
             cleared = (
                 db.query(Book)
@@ -185,46 +185,46 @@ class HardcoverSyncService:
             "errors": errors,
         }
 
-    def run_kindle_sync(self, kindle_device_id: str, db: Session, dry_run: bool = False) -> dict:
-        """Mirror the kindle-sync shelves (plus pinned books) onto a Kindle device.
+    def run_ereader_sync(self, ereader_device_id: str, db: Session, dry_run: bool = False) -> dict:
+        """Mirror the ereader-sync shelves (plus pinned books) onto a E-reader device.
 
         Sends shelf/pinned IN_LIBRARY books missing from the device, then (when
         cleanup is enabled) deletes every other book file from the device. With
         dry_run=True nothing is transferred, deleted, or written to the DB; the
         returned dict carries would_send / would_delete previews instead.
         """
-        kindle_config = get_kindle_by_id(kindle_device_id)
-        if not kindle_config:
-            logger.error(f"Kindle device not found: {kindle_device_id}")
+        ereader_config = get_ereader_by_id(ereader_device_id)
+        if not ereader_config:
+            logger.error(f"E-reader device not found: {ereader_device_id}")
             return {
-                "error": f"Kindle device '{kindle_device_id}' not found",
+                "error": f"E-reader device '{ereader_device_id}' not found",
                 "transferred": 0,
                 "skipped": 0,
                 "failed": 0,
             }
 
-        kindle_client = KindleClient.from_config(kindle_config)
+        ereader_client = EreaderClient.from_config(ereader_config)
 
-        sync_shelves = get_kindle_sync_shelves(self.config)
+        sync_shelves = get_ereader_sync_shelves(self.config)
         books = (
             db.query(Book)
             .filter(
                 Book.status == BookStatus.IN_LIBRARY,
                 Book.file_path.isnot(None),
-                or_(Book.hardcover_status.in_(sync_shelves), Book.kindle_pinned.is_(True)),
+                or_(Book.hardcover_status.in_(sync_shelves), Book.ereader_pinned.is_(True)),
             )
             .all()
         )
 
         logger.info(
-            f"Kindle sync: {len(books)} book(s) in mirror set "
+            f"E-reader sync: {len(books)} book(s) in mirror set "
             f"(shelves={sorted(sync_shelves) or 'none'} + pinned){' [dry run]' if dry_run else ''}"
         )
 
         if self.emit_callback and not dry_run:
             self.emit_callback(
-                "kindle_sync_started",
-                {"kindle_id": kindle_device_id, "total_books": len(books)},
+                "ereader_sync_started",
+                {"ereader_id": ereader_device_id, "total_books": len(books)},
             )
 
         transfer_cfg = self.config.get("transfer", {})
@@ -234,7 +234,7 @@ class HardcoverSyncService:
         # The mirror set as remote paths: every selected book, whether or not it
         # still transfers this run — cleanup must never delete a mirror-set book.
         expected_remote_paths = [
-            kindle_client.generate_remote_path(
+            ereader_client.generate_remote_path(
                 os.path.basename(book.file_path or ""),
                 author=book.author.name if book.author else "",
                 series=book.series_name or "",
@@ -250,11 +250,11 @@ class HardcoverSyncService:
         cleanup_wanted = transfer_cfg.get("cleanup_enabled", True)
         if cleanup_wanted and not statuses_backfilled:
             logger.warning(
-                "Kindle cleanup skipped: no book has a Hardcover shelf status yet (run a Hardcover sync first)"
+                "E-reader cleanup skipped: no book has a Hardcover shelf status yet (run a Hardcover sync first)"
             )
 
         if dry_run:
-            device_basenames = {os.path.basename(p) for p in kindle_client.list_all_books()}
+            device_basenames = {os.path.basename(p) for p in ereader_client.list_all_books()}
             would_send = [
                 {"book_id": book.id, "title": book.title, "remote_path": remote_path}
                 for book, remote_path in zip(books, expected_remote_paths, strict=True)
@@ -262,8 +262,8 @@ class HardcoverSyncService:
             ]
             would_delete = []
             if cleanup_wanted and statuses_backfilled:
-                would_delete = kindle_client.find_orphaned_books(expected_remote_paths, protected_paths)
-            logger.info(f"Kindle sync dry run: would send {len(would_send)}, would delete {len(would_delete)}")
+                would_delete = ereader_client.find_orphaned_books(expected_remote_paths, protected_paths)
+            logger.info(f"E-reader sync dry run: would send {len(would_send)}, would delete {len(would_delete)}")
             return {
                 "transferred": 0,
                 "skipped": 0,
@@ -281,7 +281,7 @@ class HardcoverSyncService:
         for book in books:
             try:
                 if not book.root_folder or not book.file_path:
-                    logger.warning(f"Book '{book.title}' has no root_folder or file_path, skipping Kindle transfer")
+                    logger.warning(f"Book '{book.title}' has no root_folder or file_path, skipping E-reader transfer")
                     skipped += 1
                     continue
 
@@ -305,7 +305,7 @@ class HardcoverSyncService:
                     )
 
                 transfer_start = time.monotonic()
-                result = kindle_client.transfer_file(
+                result = ereader_client.transfer_file(
                     local_path=abs_path,
                     skip_existing=True,
                     author=author_name,
@@ -319,22 +319,22 @@ class HardcoverSyncService:
                     if result["status"] == "skipped":
                         skipped += 1
                         # File is already on the device — record that fact
-                        book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+                        book.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
                     else:
                         transferred += 1
-                        book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
-                        logger.info(f"Transferred '{book.title}' to Kindle ({result.get('file_size', 0)} bytes)")
+                        book.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
+                        logger.info(f"Transferred '{book.title}' to E-reader ({result.get('file_size', 0)} bytes)")
                         log_event(
-                            "kindle_delivered",
+                            "ereader_delivered",
                             book_id=book.id,
-                            kindle_id=kindle_device_id,
+                            ereader_id=ereader_device_id,
                             duration_ms=transfer_duration_ms,
                             size_bytes=result.get("file_size", 0),
                         )
-                    book.kindle_delivered_at = naive_utcnow()
+                    book.ereader_delivered_at = naive_utcnow()
                     if self.emit_callback:
                         self.emit_callback(
-                            "kindle_delivered",
+                            "ereader_delivered",
                             {"book_id": book.id, "status": result["status"]},
                         )
                 else:
@@ -342,19 +342,19 @@ class HardcoverSyncService:
                     logger.error(f"Failed to transfer '{book.title}': {result.get('error')}")
 
             except Exception as e:
-                logger.error(f"Error transferring '{book.title}' to Kindle: {e}")
+                logger.error(f"Error transferring '{book.title}' to E-reader: {e}")
                 failed += 1
 
         db.commit()
 
         cleanup_result = None
         if cleanup_wanted and statuses_backfilled:
-            cleanup_result = kindle_client.cleanup_orphaned_books(
+            cleanup_result = ereader_client.cleanup_orphaned_books(
                 expected_remote_paths,
                 protected_paths,
                 delete_sdr=transfer_cfg.get("cleanup_sdr_folders", True),
             )
-            log_event("kindle_cleanup", kindle_id=kindle_device_id, **cleanup_result)
+            log_event("ereader_cleanup", ereader_id=ereader_device_id, **cleanup_result)
 
         # Reconcile delivery state: books that left the mirror set were (or will
         # be) removed from the device — clear their delivery tracking so the UI
@@ -362,25 +362,25 @@ class HardcoverSyncService:
         mirror_ids = [book.id for book in books]
         reconciled = (
             db.query(Book)
-            .filter(Book.kindle_delivery_status.isnot(None), Book.id.notin_(mirror_ids))
+            .filter(Book.ereader_delivery_status.isnot(None), Book.id.notin_(mirror_ids))
             .update(
                 {
-                    Book.kindle_delivery_status: None,
-                    Book.kindle_delivered_at: None,
-                    Book.kindle_first_pending_at: None,
-                    Book.kindle_delivery_attempts: 0,
+                    Book.ereader_delivery_status: None,
+                    Book.ereader_delivered_at: None,
+                    Book.ereader_first_pending_at: None,
+                    Book.ereader_delivery_attempts: 0,
                 },
                 synchronize_session=False,
             )
         )
         db.commit()
         if reconciled:
-            logger.info(f"Reset Kindle delivery state for {reconciled} book(s) no longer in the mirror set")
+            logger.info(f"Reset E-reader delivery state for {reconciled} book(s) no longer in the mirror set")
 
-        logger.info(f"Kindle sync complete: {transferred} transferred, {skipped} skipped, {failed} failed")
+        logger.info(f"E-reader sync complete: {transferred} transferred, {skipped} skipped, {failed} failed")
         if self.emit_callback:
             self.emit_callback(
-                "kindle_sync_completed",
+                "ereader_sync_completed",
                 {"transferred": transferred, "skipped": skipped, "failed": failed},
             )
         return {

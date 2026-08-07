@@ -94,9 +94,9 @@ def test_failure_history_migration_from_pre_t6_db(tmp_path, monkeypatch):
             "failure_reason": None,
             "retry_count": 0,
             "low_confidence": 0,
-            "kindle_delivery_status": None,
-            "kindle_delivery_attempts": 0,
-            "kindle_first_pending_at": None,
+            "ereader_delivery_status": None,
+            "ereader_delivery_attempts": 0,
+            "ereader_first_pending_at": None,
         },
         {
             "id": 2,
@@ -124,9 +124,9 @@ def test_failure_history_migration_from_pre_t6_db(tmp_path, monkeypatch):
             "failure_reason": None,
             "retry_count": 0,
             "low_confidence": 0,
-            "kindle_delivery_status": None,
-            "kindle_delivery_attempts": 0,
-            "kindle_first_pending_at": None,
+            "ereader_delivery_status": None,
+            "ereader_delivery_attempts": 0,
+            "ereader_first_pending_at": None,
         },
         {
             "id": 3,
@@ -154,9 +154,9 @@ def test_failure_history_migration_from_pre_t6_db(tmp_path, monkeypatch):
             "failure_reason": None,
             "retry_count": 0,
             "low_confidence": 0,
-            "kindle_delivery_status": None,
-            "kindle_delivery_attempts": 0,
-            "kindle_first_pending_at": None,
+            "ereader_delivery_status": None,
+            "ereader_delivery_attempts": 0,
+            "ereader_first_pending_at": None,
         },
     ]
 
@@ -198,9 +198,9 @@ def test_failure_history_migration_from_pre_t6_db(tmp_path, monkeypatch):
                 failure_reason TEXT,
                 retry_count INTEGER NOT NULL,
                 low_confidence INTEGER NOT NULL,
-                kindle_delivery_status TEXT,
-                kindle_delivery_attempts INTEGER NOT NULL,
-                kindle_first_pending_at DATETIME,
+                ereader_delivery_status TEXT,
+                ereader_delivery_attempts INTEGER NOT NULL,
+                ereader_first_pending_at DATETIME,
                 PRIMARY KEY (id)
             );
             """
@@ -211,13 +211,13 @@ def test_failure_history_migration_from_pre_t6_db(tmp_path, monkeypatch):
                 id, title, author_id, hardcover_id, isbn, description, publisher, language, tags, rating,
                 read_date, cover_url, series_name, series_position, status, root_folder_id, file_path,
                 file_size, search_attempts, last_searched_at, created_at, updated_at, failure_reason,
-                retry_count, low_confidence, kindle_delivery_status, kindle_delivery_attempts, kindle_first_pending_at
+                retry_count, low_confidence, ereader_delivery_status, ereader_delivery_attempts, ereader_first_pending_at
             ) VALUES (
                 :id, :title, :author_id, :hardcover_id, :isbn, :description, :publisher, :language, :tags,
                 :rating, :read_date, :cover_url, :series_name, :series_position, :status, :root_folder_id,
                 :file_path, :file_size, :search_attempts, :last_searched_at, :created_at, :updated_at,
-                :failure_reason, :retry_count, :low_confidence, :kindle_delivery_status, :kindle_delivery_attempts,
-                :kindle_first_pending_at
+                :failure_reason, :retry_count, :low_confidence, :ereader_delivery_status, :ereader_delivery_attempts,
+                :ereader_first_pending_at
             )
         """
         conn.executemany(insert_sql, seeded_rows)

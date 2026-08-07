@@ -1,6 +1,6 @@
 """
-Kindle management API routes.
-Handles CRUD operations for Kindle device configurations.
+E-reader management API routes.
+Handles CRUD operations for E-reader device configurations.
 """
 
 import asyncio
@@ -14,35 +14,35 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.api.routes.browse import BrowseResponse
-from backend.clients.kindle_client import (
-    KindleClient,
-    KindleConnectionError,
-    KindleNotFoundError,
-    KindlePermissionError,
-    KindleTimeoutError,
+from backend.clients.ereader_client import (
+    EreaderClient,
+    EreaderConnectionError,
+    EreaderNotFoundError,
+    EreaderPermissionError,
+    EreaderTimeoutError,
 )
 from backend.config import (
-    add_kindle,
-    delete_kindle,
-    get_all_kindles,
-    get_kindle_by_id,
+    add_ereader,
+    delete_ereader,
+    get_all_ereaders,
+    get_ereader_by_id,
     mask_sensitive_data,
-    update_kindle,
+    update_ereader,
 )
 from backend.database import get_db
 from backend.models.book import Book
 
 router = APIRouter()
 
-# Reachability cache: kindle_id -> (monotonic_checked_at, reachable, checked_at_iso).
-# The TCP probe takes up to 3s; the dashboard widget and Kindle page poll this
+# Reachability cache: ereader_id -> (monotonic_checked_at, reachable, checked_at_iso).
+# The TCP probe takes up to 3s; the dashboard widget and E-reader page poll this
 # endpoint, so cache briefly to avoid hammering a sleeping device.
 _status_cache: dict[str, tuple[float, bool, str]] = {}
 STATUS_CACHE_TTL_SECONDS = 10.0
 
 
-class KindleCreate(BaseModel):
-    """Request body for creating a Kindle."""
+class EreaderCreate(BaseModel):
+    """Request body for creating a E-reader."""
 
     name: str
     hostname: str
@@ -53,8 +53,8 @@ class KindleCreate(BaseModel):
     destination_path: str = "/mnt/us/books/"
 
 
-class KindleUpdate(BaseModel):
-    """Request body for updating a Kindle."""
+class EreaderUpdate(BaseModel):
+    """Request body for updating a E-reader."""
 
     name: str | None = None
     hostname: str | None = None
@@ -66,30 +66,30 @@ class KindleUpdate(BaseModel):
 
 
 @router.get("")
-async def list_kindles():
-    """List all configured Kindle devices."""
-    kindles = get_all_kindles()
+async def list_ereaders():
+    """List all configured E-reader devices."""
+    ereaders = get_all_ereaders()
     # Mask sensitive data in response
-    return [mask_sensitive_data(k) for k in kindles]
+    return [mask_sensitive_data(k) for k in ereaders]
 
 
-@router.get("/{kindle_id}")
-async def get_kindle(kindle_id: str):
-    """Get a specific Kindle configuration."""
-    kindle = get_kindle_by_id(kindle_id)
-    if not kindle:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
-    return mask_sensitive_data(kindle)
+@router.get("/{ereader_id}")
+async def get_ereader(ereader_id: str):
+    """Get a specific E-reader configuration."""
+    ereader = get_ereader_by_id(ereader_id)
+    if not ereader:
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
+    return mask_sensitive_data(ereader)
 
 
 @router.post("")
-async def create_kindle(body: KindleCreate):
-    """Create a new Kindle configuration."""
+async def create_ereader(body: EreaderCreate):
+    """Create a new E-reader configuration."""
     # Generate unique ID
-    kindle_id = str(uuid.uuid4())[:8]
+    ereader_id = str(uuid.uuid4())[:8]
 
-    kindle_config = {
-        "id": kindle_id,
+    ereader_config = {
+        "id": ereader_id,
         "name": body.name,
         "hostname": body.hostname,
         "port": body.port,
@@ -100,17 +100,17 @@ async def create_kindle(body: KindleCreate):
     }
 
     try:
-        added = add_kindle(kindle_config)
-        return {"success": True, "kindle": mask_sensitive_data(added)}
+        added = add_ereader(ereader_config)
+        return {"success": True, "ereader": mask_sensitive_data(added)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/{kindle_id}")
-async def update_kindle_endpoint(kindle_id: str, body: KindleUpdate):
-    """Update a Kindle configuration."""
+@router.put("/{ereader_id}")
+async def update_ereader_endpoint(ereader_id: str, body: EreaderUpdate):
+    """Update a E-reader configuration."""
     # Build updates dict, excluding None values
     updates: dict[str, str | int] = {}
     if body.name is not None:
@@ -128,76 +128,76 @@ async def update_kindle_endpoint(kindle_id: str, body: KindleUpdate):
     if body.destination_path is not None:
         updates["destination_path"] = body.destination_path
 
-    result = update_kindle(kindle_id, updates)
+    result = update_ereader(ereader_id, updates)
     if not result:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
 
-    return {"success": True, "kindle": mask_sensitive_data(result)}
+    return {"success": True, "ereader": mask_sensitive_data(result)}
 
 
-@router.delete("/{kindle_id}")
-async def delete_kindle_endpoint(kindle_id: str):
-    """Delete a Kindle configuration."""
-    if delete_kindle(kindle_id):
-        return {"success": True, "message": f"Kindle '{kindle_id}' deleted"}
+@router.delete("/{ereader_id}")
+async def delete_ereader_endpoint(ereader_id: str):
+    """Delete a E-reader configuration."""
+    if delete_ereader(ereader_id):
+        return {"success": True, "message": f"E-reader '{ereader_id}' deleted"}
     else:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
 
 
-@router.post("/{kindle_id}/test")
-async def test_kindle_endpoint(kindle_id: str):
-    """Test SSH connection to a Kindle."""
-    kindle_config = get_kindle_by_id(kindle_id)
-    if not kindle_config:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+@router.post("/{ereader_id}/test")
+async def test_ereader_endpoint(ereader_id: str):
+    """Test SSH connection to a E-reader."""
+    ereader_config = get_ereader_by_id(ereader_id)
+    if not ereader_config:
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
 
-    if not kindle_config.get("hostname"):
+    if not ereader_config.get("hostname"):
         return {"success": False, "error": "Hostname not configured"}
 
     try:
-        client = KindleClient.from_config(kindle_config)
+        client = EreaderClient.from_config(ereader_config)
         result = client.test_connection()
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-@router.get("/{kindle_id}/status")
-async def get_kindle_status(kindle_id: str, refresh: bool = False):
-    """Reachability of a Kindle device (cached TCP probe, no SSH handshake)."""
-    kindle_config = get_kindle_by_id(kindle_id)
-    if not kindle_config:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+@router.get("/{ereader_id}/status")
+async def get_ereader_status(ereader_id: str, refresh: bool = False):
+    """Reachability of a E-reader device (cached TCP probe, no SSH handshake)."""
+    ereader_config = get_ereader_by_id(ereader_id)
+    if not ereader_config:
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
 
     base = {
-        "kindle_id": kindle_id,
-        "name": kindle_config.get("name", ""),
-        "hostname": kindle_config.get("hostname", ""),
+        "ereader_id": ereader_id,
+        "name": ereader_config.get("name", ""),
+        "hostname": ereader_config.get("hostname", ""),
     }
 
-    if not kindle_config.get("hostname"):
+    if not ereader_config.get("hostname"):
         return {**base, "configured": False, "reachable": False, "checked_at": None, "cached": False}
 
-    cached = _status_cache.get(kindle_id)
+    cached = _status_cache.get(ereader_id)
     if cached and not refresh and (time.monotonic() - cached[0]) < STATUS_CACHE_TTL_SECONDS:
         return {**base, "configured": True, "reachable": cached[1], "checked_at": cached[2], "cached": True}
 
-    client = KindleClient.from_config(kindle_config)
+    client = EreaderClient.from_config(ereader_config)
     reachable = await asyncio.to_thread(client.is_reachable)
     checked_at = datetime.now(UTC).isoformat()
-    _status_cache[kindle_id] = (time.monotonic(), reachable, checked_at)
+    _status_cache[ereader_id] = (time.monotonic(), reachable, checked_at)
     return {**base, "configured": True, "reachable": reachable, "checked_at": checked_at, "cached": False}
 
 
-@router.get("/{kindle_id}/books")
-async def list_kindle_books(kindle_id: str, db: Session = Depends(get_db)):
-    """List books currently on a Kindle, matched to library books by filename."""
-    kindle_config = get_kindle_by_id(kindle_id)
-    if not kindle_config:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+@router.get("/{ereader_id}/books")
+async def list_ereader_books(ereader_id: str, db: Session = Depends(get_db)):
+    """List books currently on a E-reader, matched to library books by filename."""
+    ereader_config = get_ereader_by_id(ereader_id)
+    if not ereader_config:
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
 
     try:
-        client = KindleClient.from_config(kindle_config)
+        client = EreaderClient.from_config(ereader_config)
         books = client.list_books()
     except Exception as e:
         return {"success": False, "error": str(e), "books": []}
@@ -212,24 +212,24 @@ async def list_kindle_books(kindle_id: str, db: Session = Depends(get_db)):
     return {"success": True, "books": books, "count": len(books)}
 
 
-@router.get("/{kindle_id}/browse", response_model=BrowseResponse)
-async def browse_kindle_directory(kindle_id: str, path: str, show_hidden: bool = False):
-    kindle_config = get_kindle_by_id(kindle_id)
-    if not kindle_config:
-        raise HTTPException(status_code=404, detail=f"Kindle '{kindle_id}' not found")
+@router.get("/{ereader_id}/browse", response_model=BrowseResponse)
+async def browse_ereader_directory(ereader_id: str, path: str, show_hidden: bool = False):
+    ereader_config = get_ereader_by_id(ereader_id)
+    if not ereader_config:
+        raise HTTPException(status_code=404, detail=f"E-reader '{ereader_id}' not found")
 
     try:
-        client = KindleClient.from_config(kindle_config)
+        client = EreaderClient.from_config(ereader_config)
         return client.list_directory(path, show_hidden=show_hidden, max_entries=1000)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except KindleNotFoundError as e:
+    except EreaderNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except KindlePermissionError as e:
+    except EreaderPermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
-    except KindleTimeoutError as e:
+    except EreaderTimeoutError as e:
         raise HTTPException(status_code=408, detail=str(e)) from e
-    except KindleConnectionError as e:
+    except EreaderConnectionError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

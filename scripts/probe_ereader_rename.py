@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Kindle Rename Atomicity Probe
+E-reader Rename Atomicity Probe
 
-One-shot probe script that SSHes to the user's Kindle, tests whether `mv` is atomic,
+One-shot probe script that SSHes to the user's E-reader, tests whether `mv` is atomic,
 and documents the result. This task gates Task 22's atomic-transfer strategy.
 
 Exit codes:
   0: Probe completed successfully (atomicity verdict documented)
-  1: Kindle unreachable or probe failed
+  1: E-reader unreachable or probe failed
 """
 
 import os
@@ -26,7 +26,7 @@ from backend.config import load_config
 def create_ssh_client(
     hostname: str, port: int, username: str, password: str | None, ssh_key_path: str | None, timeout: int = 10
 ) -> paramiko.SSHClient:
-    """Create and connect an SSH client to the Kindle."""
+    """Create and connect an SSH client to the E-reader."""
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -56,28 +56,28 @@ def run_probe() -> int:
         print(f"Failed to load config: {e}", file=sys.stderr)
         return 1
 
-    # Get Kindle config (support both old and new format)
-    kindle_config = None
-    if "kindles" in config and config["kindles"]:
-        kindle_config = config["kindles"][0]
-    elif "kindle" in config:
-        kindle_config = config["kindle"]
+    # Get E-reader config (support both old and new format)
+    ereader_config = None
+    if "ereaders" in config and config["ereaders"]:
+        ereader_config = config["ereaders"][0]
+    elif "ereader" in config:
+        ereader_config = config["ereader"]
 
-    if not kindle_config or not kindle_config.get("hostname"):
-        print("Kindle unreachable: no Kindle configured", file=sys.stderr)
+    if not ereader_config or not ereader_config.get("hostname"):
+        print("E-reader unreachable: no E-reader configured", file=sys.stderr)
         return 1
 
-    hostname = kindle_config.get("hostname")
-    port = kindle_config.get("port", 22)
-    username = kindle_config.get("username", "root")
-    password = kindle_config.get("password")
-    ssh_key_path = kindle_config.get("ssh_key_path")
+    hostname = ereader_config.get("hostname")
+    port = ereader_config.get("port", 22)
+    username = ereader_config.get("username", "root")
+    password = ereader_config.get("password")
+    ssh_key_path = ereader_config.get("ssh_key_path")
 
-    # Connect to Kindle
+    # Connect to E-reader
     try:
         ssh = create_ssh_client(hostname, port, username, password, ssh_key_path, timeout=10)
     except Exception as e:
-        print(f"Kindle unreachable: {e}", file=sys.stderr)
+        print(f"E-reader unreachable: {e}", file=sys.stderr)
         return 1
 
     try:
@@ -108,7 +108,7 @@ def run_probe() -> int:
                 src_stat = sftp.stat(test_src)
                 src_size = src_stat.st_size
             except OSError:
-                print("Failed to create test file on Kindle", file=sys.stderr)
+                print("Failed to create test file on E-reader", file=sys.stderr)
                 sftp.close()
                 ssh.close()
                 return 1
@@ -168,9 +168,9 @@ def run_probe() -> int:
                 else "cp+verify+rm (transfer + size verify + delete tmp)"
             )
 
-            markdown_content = f"""# Kindle Rename Atomicity Probe Results
+            markdown_content = f"""# E-reader Rename Atomicity Probe Results
 
-## Kindle System Information
+## E-reader System Information
 
 - **Firmware/Shell**: {uname_output}
 - **mv Command**: {mv_version}
@@ -198,7 +198,7 @@ After rename:
 """
 
             if is_atomic:
-                markdown_content += """The Kindle's `mv` command is atomic, meaning the rename operation is guaranteed to complete fully or not at all. This is the expected behavior on POSIX-compliant filesystems (ext4, etc.).
+                markdown_content += """The E-reader's `mv` command is atomic, meaning the rename operation is guaranteed to complete fully or not at all. This is the expected behavior on POSIX-compliant filesystems (ext4, etc.).
 
 **Strategy**: Use atomic rename for Task 22:
 1. Transfer file to temporary location (e.g., `/mnt/us/books/.tmp-filename.epub`)
@@ -211,7 +211,7 @@ After rename:
 - Faster (no redundant verification)
 """
             else:
-                markdown_content += """The Kindle's `mv` command is NOT atomic, meaning the rename operation could fail partway through, leaving both source and destination in an inconsistent state.
+                markdown_content += """The E-reader's `mv` command is NOT atomic, meaning the rename operation could fail partway through, leaving both source and destination in an inconsistent state.
 
 **Strategy**: Use transfer + verify + cleanup for Task 22:
 1. Transfer file to temporary location (e.g., `/mnt/us/books/.tmp-filename.epub`)
@@ -227,14 +227,14 @@ After rename:
 **Fallback**: If `mv` fails, use `cp` + `rm` instead.
 """
 
-            markdown_content += "\n## Probe Execution\n\n- **Timestamp**: Generated by probe_kindle_rename.py\n- **Status**: Completed successfully\n- **Cleanup**: All test files removed from Kindle\n"
+            markdown_content += "\n## Probe Execution\n\n- **Timestamp**: Generated by probe_ereader_rename.py\n- **Status**: Completed successfully\n- **Cleanup**: All test files removed from E-reader\n"
 
             # Create docs/probes directory if needed
             docs_dir = Path(__file__).parent.parent / "docs" / "probes"
             docs_dir.mkdir(parents=True, exist_ok=True)
 
             # Write markdown
-            markdown_path = docs_dir / "kindle-rename.md"
+            markdown_path = docs_dir / "ereader-rename.md"
             with open(markdown_path, "w") as f:
                 f.write(markdown_content)
 
@@ -247,7 +247,7 @@ After rename:
 
             evidence_path = evidence_dir / "task-2-probe-output.txt"
             with open(evidence_path, "w") as f:
-                f.write("Kindle Rename Atomicity Probe Output\n")
+                f.write("E-reader Rename Atomicity Probe Output\n")
                 f.write("====================================\n\n")
                 f.write(f"Firmware/Shell: {uname_output}\n")
                 f.write(f"mv Command: {mv_version}\n\n")

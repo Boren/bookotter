@@ -41,8 +41,8 @@ class BookStatus(StrEnum):
     PERMANENT_FAILED = "PERMANENT_FAILED"
 
 
-class KindleDeliveryStatus(StrEnum):
-    """Status of Kindle delivery for a book."""
+class EreaderDeliveryStatus(StrEnum):
+    """Status of E-reader delivery for a book."""
 
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
@@ -164,15 +164,15 @@ class Book(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failure_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True, default=None)
     low_confidence: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    kindle_delivery_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    kindle_delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    kindle_first_pending_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    kindle_delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ereader_delivery_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ereader_delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ereader_first_pending_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ereader_delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Current Hardcover shelf ('want_to_read' | 'currently_reading' | 'read'), None when
-    # the book is on no shelf (or never came from Hardcover). Drives the Kindle mirror set.
+    # the book is on no shelf (or never came from Hardcover). Drives the E-reader mirror set.
     hardcover_status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
-    # Manually sent to Kindle; mirror cleanup keeps pinned books regardless of shelf.
-    kindle_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Manually sent to E-reader; mirror cleanup keeps pinned books regardless of shelf.
+    ereader_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # EpubMetaState value, or NULL when the EPUB's embedded metadata has not
     # been verified against the DB yet (self-heal picks NULL rows up).
     epub_meta_state: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
@@ -220,14 +220,14 @@ class Book(Base):
             "retry_count": self.retry_count,
             "failure_history": self.failure_history,
             "low_confidence": self.low_confidence,
-            "kindle_delivery_status": self.kindle_delivery_status,
-            "kindle_delivery_attempts": self.kindle_delivery_attempts,
-            "kindle_first_pending_at": self.kindle_first_pending_at.isoformat()
-            if self.kindle_first_pending_at
+            "ereader_delivery_status": self.ereader_delivery_status,
+            "ereader_delivery_attempts": self.ereader_delivery_attempts,
+            "ereader_first_pending_at": self.ereader_first_pending_at.isoformat()
+            if self.ereader_first_pending_at
             else None,
-            "kindle_delivered_at": self.kindle_delivered_at.isoformat() if self.kindle_delivered_at else None,
+            "ereader_delivered_at": self.ereader_delivered_at.isoformat() if self.ereader_delivered_at else None,
             "hardcover_status": self.hardcover_status,
-            "kindle_pinned": self.kindle_pinned,
+            "ereader_pinned": self.ereader_pinned,
             "epub_meta_state": self.epub_meta_state,
         }
 

@@ -8,7 +8,7 @@ def make_valid_config():
         "hardcover": {"api_token": "tok123", "api_url": "https://api.hardcover.app/v1/graphql"},
         "prowlarr": {"api_key": "key123", "base_url": "http://localhost:9696"},
         "qbittorrent": {"password": "pass123", "base_url": "http://localhost:8080", "username": "admin"},
-        "kindles": [],
+        "ereaders": [],
         "library": {"root_folders": []},
     }
 
@@ -42,9 +42,9 @@ class TestValidateConfig:
         errors = validate_config(cfg)
         assert any("qbittorrent" in e.lower() for e in errors)
 
-    def test_kindle_bad_hostname_is_warning_not_fatal(self):
+    def test_ereader_bad_hostname_is_warning_not_fatal(self):
         cfg = make_valid_config()
-        cfg["kindles"] = [{"id": "k1", "hostname": "", "port": 22, "username": "root"}]
+        cfg["ereaders"] = [{"id": "k1", "hostname": "", "port": 22, "username": "root"}]
         errors = validate_config(cfg)
         assert errors == []
 

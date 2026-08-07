@@ -10,7 +10,7 @@ from backend.models.book import (
     BookStatus,
     EpubMetaState,
     FolderOrganization,
-    KindleDeliveryStatus,
+    EreaderDeliveryStatus,
     PipelineLock,
     RootFolder,
 )
@@ -31,11 +31,11 @@ def _fixed_template(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_kindle(monkeypatch):
-    """Default: no real Kindle configured; individual tests override."""
+def _no_ereader(monkeypatch):
+    """Default: no real E-reader configured; individual tests override."""
     for module in ("rename_service", "self_heal_service"):
-        monkeypatch.setattr(f"backend.services.{module}.get_first_real_kindle", lambda config=None: None)
-        monkeypatch.setattr(f"backend.services.{module}.get_kindle_sync_shelves", lambda config=None: set())
+        monkeypatch.setattr(f"backend.services.{module}.get_first_real_ereader", lambda config=None: None)
+        monkeypatch.setattr(f"backend.services.{module}.get_ereader_sync_shelves", lambda config=None: set())
 
 
 def _epub_book(
@@ -81,7 +81,7 @@ class TestMetadataPass:
         assert book.epub_meta_state == EpubMetaState.SYNCED.value
         assert book.epub_meta_synced_at is not None
         assert (tmp_path / book.file_path).read_bytes() == original_bytes
-        assert book.kindle_delivery_status is None
+        assert book.ereader_delivery_status is None
         assert result["meta_verified"] == 1
         assert result["meta_rewritten"] == 0
 
@@ -162,27 +162,27 @@ class TestMetadataPass:
         assert second["meta_remaining"] == 0
 
 
-class TestKindleRearm:
+class TestEreaderRearm:
     @pytest.fixture(autouse=True)
-    def _real_kindle(self, monkeypatch):
+    def _real_ereader(self, monkeypatch):
         for module in ("rename_service", "self_heal_service"):
             monkeypatch.setattr(
-                f"backend.services.{module}.get_first_real_kindle",
-                lambda config=None: {"id": "k1", "hostname": "kindle.local"},
+                f"backend.services.{module}.get_first_real_ereader",
+                lambda config=None: {"id": "k1", "hostname": "ereader.local"},
             )
             monkeypatch.setattr(
-                f"backend.services.{module}.get_kindle_sync_shelves",
+                f"backend.services.{module}.get_ereader_sync_shelves",
                 lambda config=None: {"want_to_read"},
             )
 
     def test_rewrite_rearms_mirror_set_book(self, db_session, tmp_path):
         rf = _make_root_folder(db_session, tmp_path, FolderOrganization.FLAT.value)
         pinned = _epub_book(db_session, rf, title="Pinned", author_name="Author H", epub_title="Wrong Pinned")
-        pinned.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
-        pinned.kindle_delivery_attempts = 2
-        pinned.kindle_pinned = True
+        pinned.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
+        pinned.ereader_delivery_attempts = 2
+        pinned.ereader_pinned = True
         off_shelf = _epub_book(db_session, rf, title="Off Shelf", author_name="Author I", epub_title="Wrong Off")
-        off_shelf.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
+        off_shelf.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
         off_shelf.hardcover_status = "read"
         db_session.commit()
 
@@ -190,22 +190,22 @@ class TestKindleRearm:
 
         db_session.refresh(pinned)
         db_session.refresh(off_shelf)
-        assert pinned.kindle_delivery_status == KindleDeliveryStatus.PENDING.value
-        assert pinned.kindle_delivery_attempts == 0
-        assert pinned.kindle_first_pending_at is not None
-        assert off_shelf.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert pinned.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value
+        assert pinned.ereader_delivery_attempts == 0
+        assert pinned.ereader_first_pending_at is not None
+        assert off_shelf.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
 
     def test_verified_match_does_not_rearm(self, db_session, tmp_path):
         rf = _make_root_folder(db_session, tmp_path, FolderOrganization.FLAT.value)
         book = _epub_book(db_session, rf, title="Fine", author_name="Author J")
-        book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
-        book.kindle_pinned = True
+        book.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
+        book.ereader_pinned = True
         db_session.commit()
 
         SelfHealService(db_session).run()
 
         db_session.refresh(book)
-        assert book.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert book.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
 
 
 class TestRenamePass:

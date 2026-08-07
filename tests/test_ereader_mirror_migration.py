@@ -1,4 +1,4 @@
-"""Migration + defaults tests for the Kindle shelf-mirror columns and config."""
+"""Migration + defaults tests for the E-reader shelf-mirror columns and config."""
 
 import sqlite3
 from pathlib import Path
@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 from backend import database
-from backend.config import get_default_config, get_kindle_sync_shelves
+from backend.config import get_default_config, get_ereader_sync_shelves
 from backend.database import Base
 from backend.models import blocklist, rss  # noqa: F401 - register metadata tables
 from backend.models.book import Book, BookStatus  # noqa: F401 - register book metadata tables
@@ -22,7 +22,7 @@ def _configure_test_database(monkeypatch, db_path: Path):
 
 
 def test_init_db_adds_mirror_columns_to_existing_db(tmp_path, monkeypatch):
-    """A pre-mirror database gains hardcover_status and kindle_pinned without data loss."""
+    """A pre-mirror database gains hardcover_status and ereader_pinned without data loss."""
     db_path = tmp_path / "pre_mirror.db"
     engine, session_local = _configure_test_database(monkeypatch, db_path)
 
@@ -32,14 +32,14 @@ def test_init_db_adds_mirror_columns_to_existing_db(tmp_path, monkeypatch):
     with sqlite3.connect(db_path) as conn:
         conn.execute("DROP INDEX IF EXISTS ix_book_hardcover_status")
         conn.execute("ALTER TABLE book DROP COLUMN hardcover_status")
-        conn.execute("ALTER TABLE book DROP COLUMN kindle_pinned")
+        conn.execute("ALTER TABLE book DROP COLUMN ereader_pinned")
         conn.execute("DROP INDEX IF EXISTS ix_book_epub_meta_state")
         conn.execute("ALTER TABLE book DROP COLUMN epub_meta_state")
         conn.execute("ALTER TABLE book DROP COLUMN epub_meta_synced_at")
         conn.execute("ALTER TABLE book DROP COLUMN epub_meta_attempts")
         conn.execute(
             "INSERT INTO book (title, hardcover_id, status, created_at, updated_at,"
-            " retry_count, low_confidence, kindle_delivery_attempts)"
+            " retry_count, low_confidence, ereader_delivery_attempts)"
             " VALUES ('Old Book', 'hc-old', 'in_library', '2025-01-01', '2025-01-01', 0, 0, 0)"
         )
         conn.commit()
@@ -48,7 +48,7 @@ def test_init_db_adds_mirror_columns_to_existing_db(tmp_path, monkeypatch):
 
     columns = {c["name"] for c in inspect(engine).get_columns("book")}
     assert "hardcover_status" in columns
-    assert "kindle_pinned" in columns
+    assert "ereader_pinned" in columns
     assert "epub_meta_state" in columns
     assert "epub_meta_synced_at" in columns
     assert "epub_meta_attempts" in columns
@@ -57,7 +57,7 @@ def test_init_db_adds_mirror_columns_to_existing_db(tmp_path, monkeypatch):
     try:
         book = session.query(Book).filter(Book.hardcover_id == "hc-old").one()
         assert book.hardcover_status is None
-        assert book.kindle_pinned is False
+        assert book.ereader_pinned is False
         assert book.epub_meta_state is None
         assert book.epub_meta_attempts == 0
     finally:
@@ -75,13 +75,13 @@ def test_default_config_contains_sync_shelves():
     assert cfg["transfer"]["cleanup_enabled"] is True
     assert "skip_existing" not in cfg["transfer"]
     for actions in cfg["pipeline"]["status_actions"].values():
-        assert "kindle_sync" not in actions
+        assert "ereader_sync" not in actions
 
 
-def test_get_kindle_sync_shelves_reads_enabled_names():
+def test_get_ereader_sync_shelves_reads_enabled_names():
     cfg = {"transfer": {"sync_shelves": {"want_to_read": True, "currently_reading": False, "read": True}}}
-    assert get_kindle_sync_shelves(cfg) == {"want_to_read", "read"}
+    assert get_ereader_sync_shelves(cfg) == {"want_to_read", "read"}
 
 
-def test_get_kindle_sync_shelves_empty_when_missing():
-    assert get_kindle_sync_shelves({"transfer": {}}) == set()
+def test_get_ereader_sync_shelves_empty_when_missing():
+    assert get_ereader_sync_shelves({"transfer": {}}) == set()

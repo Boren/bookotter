@@ -32,8 +32,8 @@ class TestApiResponseShape:
         assert "failure_reason" in data
         assert "retry_count" in data
         assert "low_confidence" in data
-        assert "kindle_delivery_status" in data
-        assert "kindle_delivery_attempts" in data
+        assert "ereader_delivery_status" in data
+        assert "ereader_delivery_attempts" in data
 
     def test_failure_reason_null_for_successful_books(self, client, db_session):
         """Verify that failure_reason is null for books in IN_LIBRARY status."""

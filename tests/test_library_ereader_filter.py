@@ -1,4 +1,4 @@
-"""Tests for the kindle_delivery_status filter on GET /api/library/books."""
+"""Tests for the ereader_delivery_status filter on GET /api/library/books."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models.book import BookStatus, KindleDeliveryStatus
+from backend.models.book import BookStatus, EreaderDeliveryStatus
 from tests.helpers import create_test_book
 
 
@@ -38,29 +38,29 @@ def client(db_session):
 def seeded(db_session):
     """One book per delivery state plus one never queued (NULL)."""
     by_status = {}
-    for status in [s.value for s in KindleDeliveryStatus] + [None]:
+    for status in [s.value for s in EreaderDeliveryStatus] + [None]:
         book = create_test_book(
             db_session,
             title=f"Book {status or 'NONE'}",
             status=BookStatus.IN_LIBRARY.value,
         )
-        book.kindle_delivery_status = status
+        book.ereader_delivery_status = status
         by_status[status or "NONE"] = book.id
     db_session.commit()
     return by_status
 
 
-class TestKindleDeliveryFilter:
-    @pytest.mark.parametrize("status", [s.value for s in KindleDeliveryStatus])
+class TestEreaderDeliveryFilter:
+    @pytest.mark.parametrize("status", [s.value for s in EreaderDeliveryStatus])
     def test_filter_by_each_status(self, client, seeded, status):
-        response = client.get(f"/api/library/books?kindle_delivery_status={status}")
+        response = client.get(f"/api/library/books?ereader_delivery_status={status}")
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 1
         assert data["books"][0]["id"] == seeded[status]
 
     def test_filter_none_matches_never_queued(self, client, seeded):
-        response = client.get("/api/library/books?kindle_delivery_status=NONE")
+        response = client.get("/api/library/books?ereader_delivery_status=NONE")
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 1
@@ -72,5 +72,5 @@ class TestKindleDeliveryFilter:
         assert response.json()["total"] == len(seeded)
 
     def test_invalid_value_rejected(self, client, seeded):
-        response = client.get("/api/library/books?kindle_delivery_status=bogus")
+        response = client.get("/api/library/books?ereader_delivery_status=bogus")
         assert response.status_code == 422

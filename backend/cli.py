@@ -3,7 +3,7 @@
 BookOtter CLI - Command line interface using backend services.
 
 Usage:
-    python -m backend.cli [--dry-run] [--config CONFIG] [--skip-kindle-test]
+    python -m backend.cli [--dry-run] [--config CONFIG] [--skip-ereader-test]
                           [--include-currently-reading] [--include-read]
 """
 
@@ -19,7 +19,7 @@ from rich.table import Table
 from sqlalchemy.orm import Session
 
 from backend.clients.hardcover_client import HardcoverClient
-from backend.clients.kindle_client import KindleClient
+from backend.clients.ereader_client import EreaderClient
 from backend.config import load_config
 from backend.database import SessionLocal
 from backend.models.book import Book, BookStatus
@@ -119,12 +119,12 @@ class CLIRunner:
         self.console.print(f"[red]{emoji}[/red] {message}")
         self.logger.error(message)
 
-    def test_connections(self, skip_kindle: bool = False) -> tuple[bool, bool]:
+    def test_connections(self, skip_ereader: bool = False) -> tuple[bool, bool]:
         """
         Test connections to all services.
 
         Returns:
-            Tuple of (all_passed, kindle_unreachable)
+            Tuple of (all_passed, ereader_unreachable)
         """
         self.console.print("\n[bold cyan]Testing connections...[/bold cyan]")
         self.logger.info("Testing connections to all services")
@@ -141,25 +141,25 @@ class CLIRunner:
             return (False, False)
         self._console_success("Connected to Hardcover")
 
-        # Test Kindle SSH
-        if not skip_kindle:
-            kindles = self.config.get("kindles", [])
-            kindle_config = kindles[0] if kindles else None
+        # Test E-reader SSH
+        if not skip_ereader:
+            ereaders = self.config.get("ereaders", [])
+            ereader_config = ereaders[0] if ereaders else None
 
-            if kindle_config:
+            if ereader_config:
                 try:
-                    kindle_client = KindleClient.from_config(kindle_config)
-                    if kindle_client.test_connection():
-                        self._console_success("Connected to Kindle via SSH")
+                    ereader_client = EreaderClient.from_config(ereader_config)
+                    if ereader_client.test_connection():
+                        self._console_success("Connected to E-reader via SSH")
                     else:
                         return (False, True)
                 except Exception as e:
-                    self._console_error(f"Kindle SSH connection failed: {e}")
+                    self._console_error(f"E-reader SSH connection failed: {e}")
                     return (False, True)
             else:
-                self._console_warning("No Kindle configured")
+                self._console_warning("No E-reader configured")
         else:
-            self._console_info("Skipping Kindle SSH connection test", emoji="⏭")
+            self._console_info("Skipping E-reader SSH connection test", emoji="⏭")
 
         self._console_success("All connection tests passed!")
         return (True, False)
@@ -210,7 +210,7 @@ class CLIRunner:
                 self.stats["transferred"] += 1
                 self.stats["matched"] += 1
             elif status == "skipped":
-                self.console.print(f"   [dim]⏭ Skipped (already on Kindle): {title}[/dim]")
+                self.console.print(f"   [dim]⏭ Skipped (already on E-reader): {title}[/dim]")
                 self.stats["skipped"] += 1
                 self.stats["matched"] += 1
             elif status == "failed":
@@ -265,7 +265,7 @@ class CLIRunner:
         self.logger.info(f"Books matched:                 {self.stats['matched']}")
         self.logger.info(f"Books not found:               {self.stats['not_found']}")
         self.logger.info(f"Successfully transferred:      {self.stats['transferred']}")
-        self.logger.info(f"Skipped (already on Kindle):   {self.stats['skipped']}")
+        self.logger.info(f"Skipped (already on E-reader):   {self.stats['skipped']}")
         self.logger.info(f"Transfer failures:             {self.stats['failed']}")
         if self.stats.get("cleaned_up", 0) > 0:
             self.logger.info(f"Cleaned up:                    {self.stats['cleaned_up']}")
@@ -289,7 +289,7 @@ class CLIRunner:
 
         table.add_row("Successfully transferred", f"[green]{self.stats['transferred']}[/green]")
         table.add_row(
-            "Skipped (already on Kindle)", f"[dim]{self.stats['skipped']}[/dim]" if self.stats["skipped"] > 0 else "0"
+            "Skipped (already on E-reader)", f"[dim]{self.stats['skipped']}[/dim]" if self.stats["skipped"] > 0 else "0"
         )
         table.add_row("Transfer failures", f"[red]{self.stats['failed']}[/red]" if self.stats["failed"] > 0 else "0")
 
@@ -299,26 +299,26 @@ class CLIRunner:
         self.console.print(table)
         self.console.print()
 
-    async def run(self, skip_kindle_test: bool = False, dry_run: bool = False):
+    async def run(self, skip_ereader_test: bool = False, dry_run: bool = False):
         """Run the complete sync process."""
         try:
             # Test connections first
-            all_passed, kindle_unreachable = self.test_connections(skip_kindle=skip_kindle_test)
+            all_passed, ereader_unreachable = self.test_connections(skip_ereader=skip_ereader_test)
 
             if not all_passed:
-                if kindle_unreachable:
-                    skip_if_unreachable = self.config.get("kindle", {}).get("skip_if_unreachable", False)
-                    # Check kindles list format too
-                    kindles = self.config.get("kindles", [])
-                    if kindles and kindles[0].get("skip_if_unreachable", False):
+                if ereader_unreachable:
+                    skip_if_unreachable = self.config.get("ereader", {}).get("skip_if_unreachable", False)
+                    # Check ereaders list format too
+                    ereaders = self.config.get("ereaders", [])
+                    if ereaders and ereaders[0].get("skip_if_unreachable", False):
                         skip_if_unreachable = True
 
                     if skip_if_unreachable:
-                        self.console.print("[yellow]⚠[/yellow] Kindle unreachable - skipping this run")
-                        self.logger.info("Kindle unreachable, skipping run due to skip_if_unreachable setting")
+                        self.console.print("[yellow]⚠[/yellow] E-reader unreachable - skipping this run")
+                        self.logger.info("E-reader unreachable, skipping run due to skip_if_unreachable setting")
                         sys.exit(0)
                     else:
-                        self._console_error("Failed to connect to Kindle via SSH")
+                        self._console_error("Failed to connect to E-reader via SSH")
                         self.logger.error("Connection tests failed. Please check your configuration.")
                         sys.exit(1)
                 else:
@@ -327,7 +327,7 @@ class CLIRunner:
 
             self._console_info("CLI sync is no longer supported. Use the web UI or API instead.")
             self._console_info("  Hardcover sync: POST /api/sync/hardcover")
-            self._console_info("  Kindle sync:    POST /api/sync/kindle")
+            self._console_info("  E-reader sync:    POST /api/sync/ereader")
             sys.exit(0)
 
         except KeyboardInterrupt:
@@ -378,7 +378,7 @@ def force_retry_book(book_id: int, db: Session) -> int:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Sync Hardcover 'want to read' books to Kindle")
+    parser = argparse.ArgumentParser(description="Sync Hardcover 'want to read' books to E-reader")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # force-retry subcommand
@@ -388,7 +388,7 @@ def main():
     # Legacy sync command (default)
     parser.add_argument("--config", default="config.yaml", help="Path to configuration file (default: config.yaml)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate transfers without actually copying files")
-    parser.add_argument("--skip-kindle-test", action="store_true", help="Skip Kindle SSH connection test")
+    parser.add_argument("--skip-ereader-test", action="store_true", help="Skip E-reader SSH connection test")
     parser.add_argument(
         "--include-currently-reading", action="store_true", help="Include books with 'Currently Reading' status"
     )
@@ -415,7 +415,7 @@ def main():
     # Run sync
     asyncio.run(
         runner.run(
-            skip_kindle_test=args.skip_kindle_test,
+            skip_ereader_test=args.skip_ereader_test,
             dry_run=args.dry_run,
         )
     )

@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models.book import Book, BookStatus, KindleDeliveryStatus, RootFolder
+from backend.models.book import Book, BookStatus, EreaderDeliveryStatus, RootFolder
 from backend.services.pipeline_service import PipelineService
 from backend.utils.clock import naive_utcnow
 from tests.helpers import create_test_book, create_test_epub
@@ -32,15 +32,15 @@ def _self_heal_config(monkeypatch):
     monkeypatch.setattr("backend.services.rename_service.load_config", lambda: cfg)
     monkeypatch.setattr("backend.services.self_heal_service.load_config", lambda: cfg)
     for module in ("rename_service", "self_heal_service"):
-        monkeypatch.setattr(f"backend.services.{module}.get_first_real_kindle", lambda config=None: None)
-        monkeypatch.setattr(f"backend.services.{module}.get_kindle_sync_shelves", lambda config=None: set())
+        monkeypatch.setattr(f"backend.services.{module}.get_first_real_ereader", lambda config=None: None)
+        monkeypatch.setattr(f"backend.services.{module}.get_ereader_sync_shelves", lambda config=None: set())
 
 
-def _real_kindle_config() -> dict:
+def _real_ereader_config() -> dict:
     return {
-        "id": "test-kindle",
+        "id": "test-ereader",
         "name": "Test",
-        "hostname": "kindle.local",
+        "hostname": "ereader.local",
         "port": 22,
         "username": "root",
         "password": "",
@@ -51,7 +51,7 @@ def _real_kindle_config() -> dict:
 
 class TestRunPipelineSelfHeal:
     def test_renamed_book_delivers_with_new_basename_in_same_run(self, file_db_factory, tmp_path):
-        """Self-heal runs before kindle_delivery: one run renames, then transfers the new name."""
+        """Self-heal runs before ereader_delivery: one run renames, then transfers the new name."""
         library = tmp_path / "library"
         library.mkdir()
         db = file_db_factory()
@@ -67,8 +67,8 @@ class TestRunPipelineSelfHeal:
             root_folder_id=rf.id,
             file_path="9780156027601_output.epub",
         )
-        book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-        book.kindle_first_pending_at = naive_utcnow()
+        book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
+        book.ereader_first_pending_at = naive_utcnow()
         book_id = book.id
         db.commit()
         db.close()
@@ -78,12 +78,12 @@ class TestRunPipelineSelfHeal:
         mock_client.transfer_file.return_value = {"success": True, "status": "transferred", "file_size": 1}
         service = PipelineService(
             db_session_factory=file_db_factory,
-            kindle_client=mock_client,
+            ereader_client=mock_client,
             import_service=MagicMock(),
         )
         service._load_config_for_delivery = lambda: {"transfer": {"folder_organization": "flat"}}
 
-        with patch("backend.config.load_config", return_value={"kindles": [_real_kindle_config()]}):
+        with patch("backend.config.load_config", return_value={"ereaders": [_real_ereader_config()]}):
             service.run_pipeline(holder="scheduled")
 
         delivered_path = mock_client.transfer_file.call_args.kwargs["local_path"]
@@ -91,7 +91,7 @@ class TestRunPipelineSelfHeal:
         verify_db = file_db_factory()
         refreshed = verify_db.get(Book, book_id)
         assert refreshed.file_path == "Stanislaw Lem - Solaris.epub"
-        assert refreshed.kindle_delivery_status == KindleDeliveryStatus.DELIVERED.value
+        assert refreshed.ereader_delivery_status == EreaderDeliveryStatus.DELIVERED.value
         verify_db.close()
 
     def test_self_heal_throttled_to_interval(self, file_db_factory):

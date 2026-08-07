@@ -1,4 +1,4 @@
-"""Tests for Kindle client retry behavior and SSH connection pool."""
+"""Tests for E-reader client retry behavior and SSH connection pool."""
 
 import socket
 from unittest.mock import MagicMock, patch
@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 import paramiko
 import pytest
 
-from backend.clients.kindle_client import KindleClient
-from backend.constants import KINDLE_RETRY_ATTEMPTS
+from backend.clients.ereader_client import EreaderClient
+from backend.constants import EREADER_RETRY_ATTEMPTS
 from backend.errors import FailureReason, PipelineError
 from backend.utils.retry import retry_with_backoff
 
-KINDLE_CONFIG = {
-    "hostname": "test-kindle",
+EREADER_CONFIG = {
+    "hostname": "test-ereader",
     "port": 22,
     "username": "root",
     "password": "",
@@ -26,17 +26,17 @@ def _fast_retry(monkeypatch):
     # module load, so monkey-patching time.sleep cannot speed up the already
     # decorated method. Re-decorate _connect_ssh.__wrapped__ with a no-op
     # sleep so retry tests run instantly while preserving retry semantics.
-    unwrapped = KindleClient._connect_ssh.__wrapped__  # type: ignore[attr-defined]
+    unwrapped = EreaderClient._connect_ssh.__wrapped__  # type: ignore[attr-defined]
     fast = retry_with_backoff(
-        attempts=KINDLE_RETRY_ATTEMPTS,
+        attempts=EREADER_RETRY_ATTEMPTS,
         exceptions=(paramiko.SSHException, OSError, socket.error),
-        failure_reason=FailureReason.KINDLE_UNREACHABLE,
+        failure_reason=FailureReason.EREADER_UNREACHABLE,
         sleep_fn=lambda _: None,
     )(unwrapped)
-    monkeypatch.setattr(KindleClient, "_connect_ssh", fast)
+    monkeypatch.setattr(EreaderClient, "_connect_ssh", fast)
 
 
-class TestKindleRetry:
+class TestEreaderRetry:
     def test_connection_retry_on_ssh_exception(self):
         """SSHException is retried; eventual success returns the client."""
         connect_calls = [0]
@@ -53,8 +53,8 @@ class TestKindleRetry:
             patch.object(paramiko.SSHClient, "connect", side_effect=side_effect),
             patch.object(paramiko.SSHClient, "get_transport", return_value=active_transport),
         ):
-            client = KindleClient(hostname="test-kindle")
-            ssh = client._get_or_create_ssh(KINDLE_CONFIG)
+            client = EreaderClient(hostname="test-ereader")
+            ssh = client._get_or_create_ssh(EREADER_CONFIG)
 
             assert isinstance(ssh, paramiko.SSHClient)
             assert connect_calls[0] == 3
@@ -68,11 +68,11 @@ class TestKindleRetry:
             raise paramiko.AuthenticationException("bad key")
 
         with patch.object(paramiko.SSHClient, "connect", side_effect=side_effect):
-            client = KindleClient(hostname="test-kindle")
+            client = EreaderClient(hostname="test-ereader")
             with pytest.raises(PipelineError) as exc_info:
-                client._get_or_create_ssh(KINDLE_CONFIG)
+                client._get_or_create_ssh(EREADER_CONFIG)
 
-            assert exc_info.value.reason == FailureReason.KINDLE_AUTH_FAILED
+            assert exc_info.value.reason == FailureReason.EREADER_AUTH_FAILED
             assert connect_calls[0] == 1
 
     def test_pool_reuses_connection(self):
@@ -89,9 +89,9 @@ class TestKindleRetry:
             patch.object(paramiko.SSHClient, "connect", side_effect=side_effect),
             patch.object(paramiko.SSHClient, "get_transport", return_value=active_transport),
         ):
-            client = KindleClient(hostname="test-kindle")
+            client = EreaderClient(hostname="test-ereader")
             for _ in range(3):
-                client._get_or_create_ssh(KINDLE_CONFIG)
+                client._get_or_create_ssh(EREADER_CONFIG)
 
             assert connect_calls[0] == 1
 
@@ -109,10 +109,10 @@ class TestKindleRetry:
             patch.object(paramiko.SSHClient, "connect", side_effect=side_effect),
             patch.object(paramiko.SSHClient, "get_transport", return_value=broken_transport),
         ):
-            client = KindleClient(hostname="test-kindle")
+            client = EreaderClient(hostname="test-ereader")
 
-            client._get_or_create_ssh(KINDLE_CONFIG)
+            client._get_or_create_ssh(EREADER_CONFIG)
             assert connect_calls[0] == 1
 
-            client._get_or_create_ssh(KINDLE_CONFIG)
+            client._get_or_create_ssh(EREADER_CONFIG)
             assert connect_calls[0] == 2

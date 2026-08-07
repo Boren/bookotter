@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from backend.constants import RECONCILE_INTERVAL_MIN
 from backend.database import SessionLocal
 from backend.errors import FailureReason, PipelineError
-from backend.models.book import Book, BookStatus, Download, DownloadStatus, KindleDeliveryStatus, RootFolder
+from backend.models.book import Book, BookStatus, Download, DownloadStatus, EreaderDeliveryStatus, RootFolder
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.search_service import ScoredResult
 from backend.services.torrent_hash import extract_info_hash_from_url, fetch_and_hash_torrent
@@ -56,7 +56,7 @@ class PipelineService:
         import_service: Any | None = None,
         db_session_factory: Callable | None = None,
         ws_manager: WebSocketManager | None = None,
-        kindle_client: Any | None = None,
+        ereader_client: Any | None = None,
     ):
         self.search_service = search_service
         self.download_service = download_service
@@ -64,7 +64,7 @@ class PipelineService:
         self._session_factory = db_session_factory or SessionLocal
         self._scheduler: AsyncIOScheduler | None = None
         self.ws_manager = ws_manager
-        self.kindle_client = kindle_client
+        self.ereader_client = ereader_client
         # Optional active session — tests may inject directly via `service.db = session`.
         # When unset, methods that need it should fall back to self._session_factory().
         self.db: Any | None = None
@@ -224,12 +224,12 @@ class PipelineService:
             logger.warning("process_importing_books: no import_service configured, skipping")
             return 0
 
-        from backend.config import get_first_real_kindle, get_kindle_sync_shelves, load_config
+        from backend.config import get_first_real_ereader, get_ereader_sync_shelves, load_config
 
         config_for_pipeline = load_config()
-        auto_kindle = config_for_pipeline.get("pipeline", {}).get("kindle_sync_on_import", True)
-        real_kindle = get_first_real_kindle(config_for_pipeline) if auto_kindle else None
-        kindle_shelves = get_kindle_sync_shelves(config_for_pipeline)
+        auto_ereader = config_for_pipeline.get("pipeline", {}).get("ereader_sync_on_import", True)
+        real_ereader = get_first_real_ereader(config_for_pipeline) if auto_ereader else None
+        ereader_shelves = get_ereader_sync_shelves(config_for_pipeline)
 
         db = self._session_factory()
         imported = 0
@@ -270,10 +270,10 @@ class PipelineService:
                             db.rollback()
                             continue
                         # Only mirror-set books auto-deliver; anything else (scanner
-                        # imports, manual adds) reaches the Kindle via the pin button.
-                        if real_kindle is not None and (book.hardcover_status in kindle_shelves or book.kindle_pinned):
-                            book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-                            book.kindle_first_pending_at = naive_utcnow()
+                        # imports, manual adds) reaches the E-reader via the pin button.
+                        if real_ereader is not None and (book.hardcover_status in ereader_shelves or book.ereader_pinned):
+                            book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
+                            book.ereader_first_pending_at = naive_utcnow()
                         db.commit()
                         imported += 1
                         logger.info(f"Imported '{book.title}' to library")
@@ -380,15 +380,15 @@ class PipelineService:
         finally:
             db.close()
 
-    def _get_kindle_config(self) -> dict | None:
-        """Return the first user-configured (non-placeholder) Kindle config, or None.
+    def _get_ereader_config(self) -> dict | None:
+        """Return the first user-configured (non-placeholder) E-reader config, or None.
 
         Reads YAML on every call so Settings UI changes take effect on the next
         pipeline cycle without an app restart.
         """
-        from backend.config import get_first_real_kindle
+        from backend.config import get_first_real_ereader
 
-        return get_first_real_kindle()
+        return get_first_real_ereader()
 
     def _load_config_for_delivery(self) -> dict:
         """Indirection so tests can override config loading without monkeypatching the module."""
@@ -396,51 +396,51 @@ class PipelineService:
 
         return load_config()
 
-    def process_kindle_delivery_books(self) -> int:
-        """Drive the Kindle delivery state machine.
+    def process_ereader_delivery_books(self) -> int:
+        """Drive the E-reader delivery state machine.
 
-        Bookkeeping (always runs, pure DB — works while the Kindle is off):
-            - Stamp kindle_first_pending_at if missing.
-            - If now - first_pending_at > KINDLE_DELIVERY_TIMEOUT_DAYS → SKIPPED.
+        Bookkeeping (always runs, pure DB — works while the E-reader is off):
+            - Stamp ereader_first_pending_at if missing.
+            - If now - first_pending_at > EREADER_DELIVERY_TIMEOUT_DAYS → SKIPPED.
 
         Reachability gate: one cheap TCP probe per cycle, only when there is
         deliverable or re-armable work. Unreachable → skip all SSH work this
-        cycle without touching per-book attempt counters (the Kindle is off
+        cycle without touching per-book attempt counters (the E-reader is off
         most of the time; hammering it with per-book connections is pointless).
 
-        PENDING (Kindle reachable):
+        PENDING (E-reader reachable):
             - Resolve absolute path and attempt SFTP transfer:
-                result["success"] is True → DELIVERED (kindle_delivery_attempts++)
+                result["success"] is True → DELIVERED (ereader_delivery_attempts++)
                 result["success"] is False → stays PENDING (attempts++)
                 exception → stays PENDING (attempts++)
 
-        SKIPPED (Kindle reachable):
-            - Re-arm as PENDING with a fresh kindle_first_pending_at
+        SKIPPED (E-reader reachable):
+            - Re-arm as PENDING with a fresh ereader_first_pending_at
               (auto-recover; the probe already proved reachability).
 
         Returns:
             Number of PENDING books that reached a terminal state
             (DELIVERED or SKIPPED) during this run.
         """
-        from backend.clients.kindle_client import KindleClient
-        from backend.constants import KINDLE_DELIVERY_TIMEOUT_DAYS
+        from backend.clients.ereader_client import EreaderClient
+        from backend.constants import EREADER_DELIVERY_TIMEOUT_DAYS
 
-        kindle_config = self._get_kindle_config()
-        if kindle_config is None:
-            logger.debug("process_kindle_delivery_books: no real kindle configured, skipping")
+        ereader_config = self._get_ereader_config()
+        if ereader_config is None:
+            logger.debug("process_ereader_delivery_books: no real ereader configured, skipping")
             return 0
 
-        # Build KindleClient lazily from fresh config so Settings UI changes take effect
+        # Build EreaderClient lazily from fresh config so Settings UI changes take effect
         # on the next pipeline cycle without an app restart. Tests inject a mock via the
-        # constructor's `kindle_client=` parameter.
-        kindle_client = self.kindle_client or KindleClient.from_config(kindle_config)
+        # constructor's `ereader_client=` parameter.
+        ereader_client = self.ereader_client or EreaderClient.from_config(ereader_config)
 
         config = self._load_config_for_delivery()
         folder_org = config.get("transfer", {}).get("folder_organization", "flat")
 
         db = self._session_factory()
         now = naive_utcnow()
-        timeout = timedelta(days=KINDLE_DELIVERY_TIMEOUT_DAYS)
+        timeout = timedelta(days=EREADER_DELIVERY_TIMEOUT_DAYS)
         processed = 0
 
         try:
@@ -448,36 +448,36 @@ class PipelineService:
             # book is not immediately re-armed by the auto-retry loop in the
             # same call (would create a PENDING↔SKIPPED bounce).
             skipped_books = (
-                db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.SKIPPED.value).all()
+                db.query(Book).filter(Book.ereader_delivery_status == EreaderDeliveryStatus.SKIPPED.value).all()
             )
             pending_books = (
-                db.query(Book).filter(Book.kindle_delivery_status == KindleDeliveryStatus.PENDING.value).all()
+                db.query(Book).filter(Book.ereader_delivery_status == EreaderDeliveryStatus.PENDING.value).all()
             )
 
             # Bookkeeping pass: pure DB work that must keep ticking while the
-            # Kindle is off (waiting-since stamps and the 14-day timeout).
+            # E-reader is off (waiting-since stamps and the 14-day timeout).
             deliverable: list[tuple[Book, str]] = []
             for book in pending_books:
-                if book.kindle_first_pending_at is None:
-                    book.kindle_first_pending_at = now
+                if book.ereader_first_pending_at is None:
+                    book.ereader_first_pending_at = now
 
-                if (now - book.kindle_first_pending_at) > timeout:
-                    book.kindle_delivery_status = KindleDeliveryStatus.SKIPPED.value
-                    logger.info("Kindle delivery timed out for book %s — marking SKIPPED", book.id)
-                    self._broadcast("kindle_delivery_skipped", {"book_id": book.id})
+                if (now - book.ereader_first_pending_at) > timeout:
+                    book.ereader_delivery_status = EreaderDeliveryStatus.SKIPPED.value
+                    logger.info("E-reader delivery timed out for book %s — marking SKIPPED", book.id)
+                    self._broadcast("ereader_delivery_skipped", {"book_id": book.id})
                     processed += 1
                     continue
 
                 if book.root_folder is None or not book.file_path:
                     logger.warning(
-                        "Kindle delivery: book %s has no root_folder or file_path — leaving PENDING",
+                        "E-reader delivery: book %s has no root_folder or file_path — leaving PENDING",
                         book.id,
                     )
                     continue
                 abs_path = os.path.join(str(book.root_folder.path), str(book.file_path))
                 if not os.path.exists(abs_path):
                     logger.warning(
-                        "Kindle delivery: file missing for book %s at %s — leaving PENDING",
+                        "E-reader delivery: file missing for book %s at %s — leaving PENDING",
                         book.id,
                         abs_path,
                     )
@@ -485,32 +485,32 @@ class PipelineService:
                 deliverable.append((book, abs_path))
 
             # Single reachability probe per cycle; skip it entirely on idle
-            # cycles so a configured-but-off Kindle costs zero network traffic.
+            # cycles so a configured-but-off E-reader costs zero network traffic.
             if not deliverable and not skipped_books:
                 db.commit()
                 return processed
-            if not kindle_client.is_reachable():
-                logger.debug("Kindle unreachable — skipping delivery stage this cycle")
+            if not ereader_client.is_reachable():
+                logger.debug("E-reader unreachable — skipping delivery stage this cycle")
                 db.commit()
                 return processed
 
             for book, abs_path in deliverable:
-                book.kindle_delivery_status = KindleDeliveryStatus.IN_PROGRESS.value
-                book.kindle_delivery_attempts = (book.kindle_delivery_attempts or 0) + 1
+                book.ereader_delivery_status = EreaderDeliveryStatus.IN_PROGRESS.value
+                book.ereader_delivery_attempts = (book.ereader_delivery_attempts or 0) + 1
                 db.commit()
-                self._broadcast("kindle_delivery_started", {"book_id": book.id, "book_title": book.title})
+                self._broadcast("ereader_delivery_started", {"book_id": book.id, "book_title": book.title})
 
                 author_name = book.author.name if book.author else ""
                 series_name = str(book.series_name) if book.series_name else ""
                 transfer_start = time.monotonic()
                 progress_cb = make_progress_callback(
                     self._broadcast,
-                    "kindle_delivery_progress",
+                    "ereader_delivery_progress",
                     {"book_id": book.id, "book_title": book.title},
                 )
 
                 try:
-                    result = kindle_client.transfer_file(
+                    result = ereader_client.transfer_file(
                         local_path=abs_path,
                         skip_existing=True,
                         author=author_name,
@@ -519,86 +519,86 @@ class PipelineService:
                         progress_callback=progress_cb,
                     )
                 except Exception as exc:
-                    logger.warning("Kindle delivery raised for book %s: %s", book.id, exc)
-                    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+                    logger.warning("E-reader delivery raised for book %s: %s", book.id, exc)
+                    book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
                     db.commit()
                     continue
 
                 if result.get("success"):
-                    book.kindle_delivery_status = KindleDeliveryStatus.DELIVERED.value
-                    book.kindle_delivered_at = naive_utcnow()
+                    book.ereader_delivery_status = EreaderDeliveryStatus.DELIVERED.value
+                    book.ereader_delivered_at = naive_utcnow()
                     duration_ms = int((time.monotonic() - transfer_start) * 1000)
                     logger.info(
-                        "Kindle delivery DELIVERED for book %s (%s, %d bytes)",
+                        "E-reader delivery DELIVERED for book %s (%s, %d bytes)",
                         book.id,
                         result.get("status", "transferred"),
                         result.get("file_size", 0),
                     )
                     log_event(
-                        "kindle_delivered",
+                        "ereader_delivered",
                         book_id=book.id,
                         duration_ms=duration_ms,
                         size_bytes=result.get("file_size", 0),
                     )
                     self._broadcast(
-                        "kindle_delivered",
+                        "ereader_delivered",
                         {"book_id": book.id, "status": result.get("status", "transferred")},
                     )
                     processed += 1
                 else:
                     logger.warning(
-                        "Kindle delivery soft-failed for book %s: %s",
+                        "E-reader delivery soft-failed for book %s: %s",
                         book.id,
                         result.get("error", "unknown"),
                     )
-                    book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
+                    book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
                 db.commit()
 
             # The probe above already proved reachability — re-arm without
             # opening any further SSH connections.
             for book in skipped_books:
-                book.kindle_delivery_status = KindleDeliveryStatus.PENDING.value
-                book.kindle_first_pending_at = now
-                self._broadcast("kindle_delivery_requeued", {"book_id": book.id})
+                book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
+                book.ereader_first_pending_at = now
+                self._broadcast("ereader_delivery_requeued", {"book_id": book.id})
             db.commit()
             return processed
         finally:
             db.close()
 
-    def kick_kindle_delivery(self) -> dict[str, Any]:
-        """Run only the Kindle delivery stage, right now.
+    def kick_ereader_delivery(self) -> dict[str, Any]:
+        """Run only the E-reader delivery stage, right now.
 
         Called in the background after a user queues a book so delivery starts
         within seconds instead of waiting for the next scheduled tick. Never
-        raises: if the pipeline lock is held or a bulk Kindle sync is running,
+        raises: if the pipeline lock is held or a bulk E-reader sync is running,
         it defers silently — the book is already PENDING and the 15s scheduler
         tick will deliver it.
         """
-        from backend.api.routes.sync import is_kindle_sync_running
+        from backend.api.routes.sync import is_ereader_sync_running
 
-        if is_kindle_sync_running():
-            logger.info("Kindle kick skipped: bulk Kindle sync in progress")
+        if is_ereader_sync_running():
+            logger.info("E-reader kick skipped: bulk E-reader sync in progress")
             return {"skipped": True, "reason": "bulk_sync_running"}
 
         db = self._session_factory()
         try:
             try:
-                with acquire_pipeline_lock(db, holder="kindle_kick"):
-                    delivered = self.process_kindle_delivery_books()
-                    return {"kindle_delivery": delivered}
+                with acquire_pipeline_lock(db, holder="ereader_kick"):
+                    delivered = self.process_ereader_delivery_books()
+                    return {"ereader_delivery": delivered}
             except PipelineError as exc:
                 if exc.reason == FailureReason.PIPELINE_LOCK_HELD:
-                    logger.info("Kindle kick skipped: pipeline lock held: %s", exc)
+                    logger.info("E-reader kick skipped: pipeline lock held: %s", exc)
                     return {"skipped": True, "reason": "lock_held"}
                 raise
         except Exception as exc:
-            logger.warning("Kindle kick failed: %s", exc)
+            logger.warning("E-reader kick failed: %s", exc)
             return {"skipped": True, "reason": "error"}
         finally:
             try:
                 db.close()
             except Exception as exc:
-                logger.debug(f"Error closing kindle kick lock session: {exc}")
+                logger.debug(f"Error closing ereader kick lock session: {exc}")
 
     def run_pipeline(self, holder: str = "scheduled") -> dict[str, Any]:
         """
@@ -629,7 +629,7 @@ class PipelineService:
                         ("downloading", self.process_downloading_books),
                         ("importing", self.process_importing_books),
                         ("self_heal", self.process_self_heal),
-                        ("kindle_delivery", self.process_kindle_delivery_books),
+                        ("ereader_delivery", self.process_ereader_delivery_books),
                     ]:
                         try:
                             results[stage_name] = method()
@@ -647,7 +647,7 @@ class PipelineService:
                         downloading=results.get("downloading", 0),
                         importing=results.get("importing", 0),
                         self_heal=results.get("self_heal", 0),
-                        kindle_delivery=results.get("kindle_delivery", 0),
+                        ereader_delivery=results.get("ereader_delivery", 0),
                     )
                     logger.debug(f"Pipeline run complete: {results}")
                     return results
