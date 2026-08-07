@@ -154,6 +154,11 @@ class SearchService:
         if AUDIOBOOK_RE.search(title):
             rejections.append("Audiobook")
 
+        if query_title:
+            release_only_signals = omnibus_signals(title) - omnibus_signals(query_title)
+            if release_only_signals:
+                rejections.append("Omnibus/collection")
+
         if indexer and guid and (indexer, guid) in blocklisted_set:
             rejections.append("Blocklisted")
 
