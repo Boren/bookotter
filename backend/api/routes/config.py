@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.ereader_client import EreaderClient
+from backend.clients.hardcover_client import HardcoverClient
 from backend.config import load_config, mask_sensitive_data, update_config
 from backend.utils.naming import validate_template
 

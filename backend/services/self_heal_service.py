@@ -24,15 +24,15 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session, joinedload
 
-from backend.config import get_first_real_ereader, get_ereader_sync_shelves, load_config
+from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 from backend.constants import SELF_HEAL_META_BATCH_SIZE, SELF_HEAL_META_MAX_ATTEMPTS
 from backend.models.book import Book, BookStatus, EpubMetaState
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.import_service import ImportService
 from backend.services.rename_service import RenameService
 from backend.utils.clock import naive_utcnow
-from backend.utils.events import log_event
 from backend.utils.ereader_delivery import rearm_ereader_delivery
+from backend.utils.events import log_event
 
 logger = logging.getLogger(__name__)
 

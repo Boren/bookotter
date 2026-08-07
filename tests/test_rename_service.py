@@ -7,8 +7,8 @@ import pytest
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import (
     BookStatus,
-    FolderOrganization,
     EreaderDeliveryStatus,
+    FolderOrganization,
     PipelineLock,
     RootFolder,
 )

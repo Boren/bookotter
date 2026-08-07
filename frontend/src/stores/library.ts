@@ -36,7 +36,8 @@ export const useLibraryStore = defineStore('library', () => {
     try {
       const params = new URLSearchParams();
       if (filterStatus.value) params.set('status', filterStatus.value);
-      if (filterEreaderStatus.value) params.set('ereader_delivery_status', filterEreaderStatus.value);
+      if (filterEreaderStatus.value)
+        params.set('ereader_delivery_status', filterEreaderStatus.value);
       if (filterAuthor.value) params.set('author', filterAuthor.value);
       if (searchQuery.value) params.set('search', searchQuery.value);
       params.set('sort_by', sortBy.value);
@@ -199,13 +200,17 @@ export const useLibraryStore = defineStore('library', () => {
 
   const requeueEreader = async (bookId: number): Promise<void> => {
     const toast = useToast();
-    const response = await fetch(`/api/library/books/${bookId}/ereader-requeue`, { method: 'POST' });
+    const response = await fetch(`/api/library/books/${bookId}/ereader-requeue`, {
+      method: 'POST',
+    });
     if (response.ok) {
       const body = await response.json().catch(() => ({}));
       if (body.already_queued) {
         toast.info('Already queued for E-reader delivery.');
       } else if (body.kicked) {
-        toast.success('Sending to E-reader — transfers now if the E-reader is on, queued otherwise.');
+        toast.success(
+          'Sending to E-reader — transfers now if the E-reader is on, queued otherwise.'
+        );
       } else {
         toast.success('Queued for E-reader delivery — sent automatically once the E-reader is on.');
       }

@@ -224,7 +224,7 @@ class PipelineService:
             logger.warning("process_importing_books: no import_service configured, skipping")
             return 0
 
-        from backend.config import get_first_real_ereader, get_ereader_sync_shelves, load_config
+        from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 
         config_for_pipeline = load_config()
         auto_ereader = config_for_pipeline.get("pipeline", {}).get("ereader_sync_on_import", True)

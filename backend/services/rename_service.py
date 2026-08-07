@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session, joinedload
 
-from backend.config import get_first_real_ereader, get_ereader_sync_shelves, load_config
+from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 from backend.constants import MAX_COLLISION_ATTEMPTS
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus
@@ -24,8 +24,8 @@ from backend.models.scanner import DismissedScanPath, MatchProposal, MatchPropos
 from backend.services.import_service import ImportService
 from backend.utils.atomic import atomic_move
 from backend.utils.clock import naive_utcnow
-from backend.utils.events import log_event
 from backend.utils.ereader_delivery import rearm_ereader_delivery
+from backend.utils.events import log_event
 from backend.utils.pipeline_lock import acquire_pipeline_lock
 
 logger = logging.getLogger(__name__)

@@ -9,8 +9,8 @@ import pytest
 from backend.models.book import (
     BookStatus,
     EpubMetaState,
-    FolderOrganization,
     EreaderDeliveryStatus,
+    FolderOrganization,
     PipelineLock,
     RootFolder,
 )

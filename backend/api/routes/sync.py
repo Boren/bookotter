@@ -9,9 +9,9 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.ereader_client import EreaderClient
-from backend.config import get_first_real_ereader, get_ereader_by_id, load_config
+from backend.clients.hardcover_client import HardcoverClient
+from backend.config import get_ereader_by_id, get_first_real_ereader, load_config
 from backend.database import SessionLocal
 from backend.services.hardcover_sync_service import HardcoverSyncService
 from backend.services.websocket_manager import manager as ws_manager

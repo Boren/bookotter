@@ -18,8 +18,8 @@ from rich.console import Console
 from rich.table import Table
 from sqlalchemy.orm import Session
 
-from backend.clients.hardcover_client import HardcoverClient
 from backend.clients.ereader_client import EreaderClient
+from backend.clients.hardcover_client import HardcoverClient
 from backend.config import load_config
 from backend.database import DATA_DIR, SessionLocal
 from backend.models.book import Book, BookStatus

@@ -281,7 +281,8 @@ export const useSyncStore = defineStore('sync', () => {
         });
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          const msg = errorData.detail?.message || errorData.detail || 'E-reader sync preview failed';
+          const msg =
+            errorData.detail?.message || errorData.detail || 'E-reader sync preview failed';
           throw new Error(msg);
         }
         const preview: EreaderSyncPreview = await response.json();
