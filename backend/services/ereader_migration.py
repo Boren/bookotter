@@ -85,7 +85,7 @@ def _plan_db_actions(db_path: Path) -> list[str]:
         history_rows = 0
         for old in CATEGORY_RENAMES:
             # Escape underscores: in LIKE, a bare `_` matches any character.
-            pattern = "%\"" + old.replace("_", r"\_") + "\"%"
+            pattern = '%"' + old.replace("_", r"\_") + '"%'
             history_rows += conn.execute(
                 "SELECT COUNT(*) FROM books WHERE failure_history LIKE ? ESCAPE '\\'", (pattern,)
             ).fetchone()[0]

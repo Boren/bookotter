@@ -271,7 +271,9 @@ class PipelineService:
                             continue
                         # Only mirror-set books auto-deliver; anything else (scanner
                         # imports, manual adds) reaches the E-reader via the pin button.
-                        if real_ereader is not None and (book.hardcover_status in ereader_shelves or book.ereader_pinned):
+                        if real_ereader is not None and (
+                            book.hardcover_status in ereader_shelves or book.ereader_pinned
+                        ):
                             book.ereader_delivery_status = EreaderDeliveryStatus.PENDING.value
                             book.ereader_first_pending_at = naive_utcnow()
                         db.commit()

@@ -22,8 +22,7 @@ def legacy_data_dir(tmp_path):
     db = tmp_path / "bookotter.db"
     conn = sqlite3.connect(db)
     conn.execute(
-        "CREATE TABLE books (id INTEGER PRIMARY KEY, failure_reason TEXT, "
-        f"failure_history TEXT, {', '.join(OLD_COLS)})"
+        f"CREATE TABLE books (id INTEGER PRIMARY KEY, failure_reason TEXT, failure_history TEXT, {', '.join(OLD_COLS)})"
     )
     conn.execute(
         "INSERT INTO books (id, failure_reason, failure_history, kindle_delivery_status, kindle_pinned) "
