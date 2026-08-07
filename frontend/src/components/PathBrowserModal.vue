@@ -6,7 +6,7 @@ import type { BrowseEntry, BrowseResponse, PathBrowserMode } from '@/types'
 interface Props {
   modelValue: boolean
   mode: PathBrowserMode
-  kindleId?: string
+  ereaderId?: string
   initialPath: string
   title?: string
   selectMode?: 'directory' | 'file'
@@ -80,7 +80,7 @@ async function fetchPath(target: string) {
     const url =
       props.mode === 'local'
         ? `/api/browse/local?path=${encodeURIComponent(target)}&show_hidden=${showHidden.value}`
-        : `/api/kindles/${props.kindleId}/browse?path=${encodeURIComponent(target)}&show_hidden=${showHidden.value}`
+        : `/api/ereaders/${props.ereaderId}/browse?path=${encodeURIComponent(target)}&show_hidden=${showHidden.value}`
     const response = await fetch(url, { signal: ctrl.signal })
 
     if (!response.ok) {
@@ -271,14 +271,14 @@ onUnmounted(() => {
                 :disabled="props.selectMode === 'directory' && entry.type !== 'dir'"
                 :class="[
                   'w-full text-left px-3 py-2 flex items-center gap-3 transition-colors',
-                  props.selectMode === 'file' && selectedFile === joinPath(currentPath, entry.name) ? 'bg-kindle-100' : 'hover:bg-stone-100',
+                  props.selectMode === 'file' && selectedFile === joinPath(currentPath, entry.name) ? 'bg-ereader-100' : 'hover:bg-stone-100',
                   props.selectMode === 'directory' && entry.type !== 'dir' ? 'text-stone-400 cursor-not-allowed' : 'text-stone-700',
                 ]"
                 @click="handleEntryClick(entry)"
               >
                 <svg
                   v-if="entry.type === 'dir'"
-                  class="w-4 h-4 text-kindle-700 shrink-0"
+                  class="w-4 h-4 text-ereader-700 shrink-0"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

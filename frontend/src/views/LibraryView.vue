@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useLibraryStore } from '../stores/library'
 import type { BookStatus } from '../types'
-import KindleDeliveryBadge from '../components/KindleDeliveryBadge.vue'
+import EreaderDeliveryBadge from '../components/EreaderDeliveryBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 
 const store = useLibraryStore()
@@ -55,12 +55,12 @@ const statusOptions: { value: BookStatus; label: string }[] = [
   { value: 'failed', label: 'Failed' },
 ]
 
-const kindleStatusOptions = [
-  { value: 'DELIVERED', label: 'On Kindle' },
-  { value: 'PENDING', label: 'Queued for Kindle' },
-  { value: 'IN_PROGRESS', label: 'Sending to Kindle' },
+const ereaderStatusOptions = [
+  { value: 'DELIVERED', label: 'On E-reader' },
+  { value: 'PENDING', label: 'Queued for E-reader' },
+  { value: 'IN_PROGRESS', label: 'Sending to E-reader' },
   { value: 'SKIPPED', label: 'Delivery skipped' },
-  { value: 'NONE', label: 'Not sent to Kindle' },
+  { value: 'NONE', label: 'Not sent to E-reader' },
 ]
 
 const sortOptions = [
@@ -109,14 +109,14 @@ const clearFilters = () => {
   searchInput.value = ''
   store.searchQuery = ''
   store.filterStatus = null
-  store.filterKindleStatus = null
+  store.filterEreaderStatus = null
   store.filterAuthor = null
   store.offset = 0
   store.fetchBooks()
 }
 
 const hasActiveFilters = () => {
-  return !!(store.searchQuery || store.filterStatus || store.filterKindleStatus || store.filterAuthor)
+  return !!(store.searchQuery || store.filterStatus || store.filterEreaderStatus || store.filterAuthor)
 }
 
 const formatFileSize = (bytes: number | null) => {
@@ -178,15 +178,15 @@ onUnmounted(() => {
           <option v-for="s in statusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
 
-        <!-- Kindle Delivery Filter -->
+        <!-- E-reader Delivery Filter -->
         <select
-          v-model="store.filterKindleStatus"
+          v-model="store.filterEreaderStatus"
           @change="handleStatusFilter"
           class="input sm:w-48"
-          data-testid="kindle-filter"
+          data-testid="ereader-filter"
         >
-          <option :value="null">Kindle: All</option>
-          <option v-for="k in kindleStatusOptions" :key="k.value" :value="k.value">{{ k.label }}</option>
+          <option :value="null">E-reader: All</option>
+          <option v-for="k in ereaderStatusOptions" :key="k.value" :value="k.value">{{ k.label }}</option>
         </select>
 
         <!-- Author Filter -->
@@ -211,7 +211,7 @@ onUnmounted(() => {
             @click="handleSort(option.value)"
             class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200"
             :class="store.sortBy === option.value
-              ? 'bg-kindle-100 text-kindle-800'
+              ? 'bg-ereader-100 text-ereader-800'
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-800'"
           >
             {{ option.label }}
@@ -269,7 +269,7 @@ onUnmounted(() => {
     <!-- Loading State -->
     <div v-if="store.isLoading" class="flex justify-center py-16">
       <div class="flex items-center gap-3 text-stone-500">
-        <svg class="animate-spin h-6 w-6 text-kindle-600" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-6 w-6 text-ereader-600" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -299,9 +299,9 @@ onUnmounted(() => {
           !
         </div>
 
-        <!-- Kindle Delivery Indicator -->
+        <!-- E-reader Delivery Indicator -->
         <div class="absolute -top-2 -left-2 z-10">
-          <KindleDeliveryBadge :status="book.kindle_delivery_status" compact />
+          <EreaderDeliveryBadge :status="book.ereader_delivery_status" compact />
         </div>
 
         <!-- Cover -->
@@ -336,13 +336,13 @@ onUnmounted(() => {
 
         <!-- Book Info -->
         <div class="mt-2.5 px-0.5">
-          <h3 class="font-medium text-sm text-stone-900 line-clamp-2 group-hover:text-kindle-700 transition-colors">
+          <h3 class="font-medium text-sm text-stone-900 line-clamp-2 group-hover:text-ereader-700 transition-colors">
             {{ book.title }}
           </h3>
           <p class="text-xs text-stone-500 mt-0.5 truncate">
             {{ book.author?.name || 'Unknown Author' }}
           </p>
-          <p v-if="book.series_name" class="text-xs text-kindle-600 mt-0.5 truncate">
+          <p v-if="book.series_name" class="text-xs text-ereader-600 mt-0.5 truncate">
             {{ book.series_name }}<span v-if="book.series_position"> #{{ book.series_position }}</span>
           </p>
         </div>

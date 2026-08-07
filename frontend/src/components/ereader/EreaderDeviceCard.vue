@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useKindlesStore } from '@/stores/kindles'
+import { useEreadersStore } from '@/stores/ereaders'
 import { formatRelativeTime } from '@/utils/format'
 
-const kindlesStore = useKindlesStore()
+const ereadersStore = useEreadersStore()
 const isTesting = ref(false)
 
-const status = computed(() => kindlesStore.selectedStatus)
+const status = computed(() => ereadersStore.selectedStatus)
 
 const statusDot = computed(() => {
   if (!status.value) return { class: 'bg-stone-300', label: 'Checking…' }
@@ -17,23 +17,23 @@ const statusDot = computed(() => {
 })
 
 const refreshStatus = () => {
-  if (kindlesStore.selectedKindleId) {
-    kindlesStore.fetchStatus(kindlesStore.selectedKindleId, true)
+  if (ereadersStore.selectedEreaderId) {
+    ereadersStore.fetchStatus(ereadersStore.selectedEreaderId, true)
   }
 }
 
 const onDeviceChange = () => {
-  if (kindlesStore.selectedKindleId) {
-    kindlesStore.fetchStatus(kindlesStore.selectedKindleId)
-    kindlesStore.fetchDeviceBooks(kindlesStore.selectedKindleId)
+  if (ereadersStore.selectedEreaderId) {
+    ereadersStore.fetchStatus(ereadersStore.selectedEreaderId)
+    ereadersStore.fetchDeviceBooks(ereadersStore.selectedEreaderId)
   }
 }
 
 const testConnection = async () => {
-  if (!kindlesStore.selectedKindleId) return
+  if (!ereadersStore.selectedEreaderId) return
   isTesting.value = true
   try {
-    await kindlesStore.testConnection(kindlesStore.selectedKindleId)
+    await ereadersStore.testConnection(ereadersStore.selectedEreaderId)
   } finally {
     isTesting.value = false
   }
@@ -41,24 +41,24 @@ const testConnection = async () => {
 </script>
 
 <template>
-  <div class="card" data-testid="kindle-device-card">
+  <div class="card" data-testid="ereader-device-card">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-display font-semibold text-stone-900">Device</h2>
       <select
-        v-if="kindlesStore.kindles.length > 1"
-        v-model="kindlesStore.selectedKindleId"
+        v-if="ereadersStore.ereaders.length > 1"
+        v-model="ereadersStore.selectedEreaderId"
         class="input text-sm py-1.5 w-auto"
-        data-testid="kindle-device-select"
+        data-testid="ereader-device-select"
         @change="onDeviceChange"
       >
-        <option v-for="k in kindlesStore.kindles" :key="k.id" :value="k.id">{{ k.name }}</option>
+        <option v-for="k in ereadersStore.ereaders" :key="k.id" :value="k.id">{{ k.name }}</option>
       </select>
     </div>
 
-    <div v-if="!kindlesStore.selectedKindle" class="empty-state py-8">
+    <div v-if="!ereadersStore.selectedEreader" class="empty-state py-8">
       <p class="text-sm text-stone-500">
-        No Kindle configured yet — add one in
-        <RouterLink to="/settings" class="text-kindle-600 hover:underline">Settings</RouterLink>.
+        No E-reader configured yet — add one in
+        <RouterLink to="/settings" class="text-ereader-600 hover:underline">Settings</RouterLink>.
       </p>
     </div>
 
@@ -66,29 +66,29 @@ const testConnection = async () => {
       <div class="flex items-center gap-3">
         <span
           class="w-3 h-3 rounded-full shrink-0"
-          :class="[statusDot.class, kindlesStore.statusLoading ? 'animate-pulse' : '']"
-          data-testid="kindle-status-dot"
+          :class="[statusDot.class, ereadersStore.statusLoading ? 'animate-pulse' : '']"
+          data-testid="ereader-status-dot"
         ></span>
         <div class="min-w-0">
           <p class="text-sm font-medium text-stone-900">
-            {{ kindlesStore.selectedKindle.name }}
+            {{ ereadersStore.selectedEreader.name }}
             <span class="font-normal text-stone-500">— {{ statusDot.label }}</span>
           </p>
           <p class="text-xs text-stone-500 truncate">
-            {{ kindlesStore.selectedKindle.hostname || 'no hostname' }}
+            {{ ereadersStore.selectedEreader.hostname || 'no hostname' }}
             <template v-if="status?.checked_at"> · checked {{ formatRelativeTime(status.checked_at) }}</template>
           </p>
         </div>
       </div>
 
       <div class="flex flex-wrap gap-2">
-        <button class="btn btn-secondary btn-sm" :disabled="kindlesStore.statusLoading" @click="refreshStatus">
+        <button class="btn btn-secondary btn-sm" :disabled="ereadersStore.statusLoading" @click="refreshStatus">
           Refresh
         </button>
         <button
           class="btn btn-secondary btn-sm"
           :disabled="isTesting"
-          data-testid="kindle-test-connection"
+          data-testid="ereader-test-connection"
           @click="testConnection"
         >
           <svg v-if="isTesting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

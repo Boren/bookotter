@@ -51,18 +51,18 @@ export interface Book {
   failure_reason: string | null;
   retry_count: number;
   failure_history: FailureHistoryEntry[] | null;
-  kindle_delivery_status: KindleDeliveryStatus | null;
-  kindle_delivery_attempts: number;
-  kindle_first_pending_at: string | null;
-  kindle_delivered_at: string | null;
+  ereader_delivery_status: EreaderDeliveryStatus | null;
+  ereader_delivery_attempts: number;
+  ereader_first_pending_at: string | null;
+  ereader_delivered_at: string | null;
   hardcover_status: string | null;
-  kindle_pinned: boolean;
+  ereader_pinned: boolean;
 }
 
-export type KindleDeliveryStatus = 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'SKIPPED';
+export type EreaderDeliveryStatus = 'PENDING' | 'IN_PROGRESS' | 'DELIVERED' | 'SKIPPED';
 
-export interface KindleStatus {
-  kindle_id: string;
+export interface EreaderStatus {
+  ereader_id: string;
   name: string;
   hostname: string;
   configured: boolean;
@@ -71,7 +71,7 @@ export interface KindleStatus {
   cached?: boolean;
 }
 
-export interface KindleDeviceBook {
+export interface EreaderDeviceBook {
   name: string;
   size: number;
   modified: string | null;
@@ -89,11 +89,11 @@ export interface TransferProgress {
   eta_seconds: number;
 }
 
-export interface KindleDeliveryProgress extends TransferProgress {
+export interface EreaderDeliveryProgress extends TransferProgress {
   book_id: number;
 }
 
-export interface KindleSyncPreview {
+export interface EreaderSyncPreview {
   success: boolean;
   transferred: number;
   skipped: number;
@@ -197,7 +197,7 @@ export interface PipelineConfig {
   enabled: boolean;
   search_on_add: boolean;
   import_on_complete: boolean;
-  kindle_sync_on_import: boolean;
+  ereader_sync_on_import: boolean;
   status_actions: {
     want_to_read: {
       download: boolean;
@@ -245,7 +245,7 @@ export interface RenameApplyResult {
   items: Array<RenamePreviewItem & { status: 'renamed' | 'skipped' | 'failed' }>;
 }
 
-export interface Kindle {
+export interface Ereader {
   id: string;
   name: string;
   hostname: string;
@@ -263,7 +263,7 @@ export interface Config {
   };
   prowlarr: ProwlarrConfig;
   qbittorrent: QBittorrentConfig;
-  kindles: Kindle[];
+  ereaders: Ereader[];
   pipeline: PipelineConfig;
   matching: {
     use_isbn: boolean;
@@ -290,7 +290,7 @@ export interface Config {
     cleanup_protected_paths: string[];
   };
   library: LibraryConfig;
-  kindle_sync: {
+  ereader_sync: {
     enabled: boolean;
     interval_hours: number;
   };
@@ -444,4 +444,4 @@ export interface BrowseResponse {
   truncated: boolean;
 }
 
-export type PathBrowserMode = 'local' | 'kindle';
+export type PathBrowserMode = 'local' | 'ereader';

@@ -1,40 +1,40 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useToast } from '../composables/useToast';
-import type { Kindle, KindleDeviceBook, KindleStatus } from '../types';
+import type { Ereader, EreaderDeviceBook, EreaderStatus } from '../types';
 
-export const useKindlesStore = defineStore('kindles', () => {
-  const kindles = ref<Kindle[]>([]);
-  const selectedKindleId = ref<string | null>(null);
+export const useEreadersStore = defineStore('ereaders', () => {
+  const ereaders = ref<Ereader[]>([]);
+  const selectedEreaderId = ref<string | null>(null);
   const isLoading = ref(false);
 
-  const statuses = ref<Record<string, KindleStatus>>({});
+  const statuses = ref<Record<string, EreaderStatus>>({});
   const statusLoading = ref(false);
 
-  const deviceBooks = ref<KindleDeviceBook[]>([]);
+  const deviceBooks = ref<EreaderDeviceBook[]>([]);
   const deviceBooksLoading = ref(false);
   const deviceBooksError = ref<string | null>(null);
   const deviceBooksFetchedAt = ref<Date | null>(null);
 
-  const selectedKindle = computed(
-    () => kindles.value.find((k) => k.id === selectedKindleId.value) ?? null
+  const selectedEreader = computed(
+    () => ereaders.value.find((k) => k.id === selectedEreaderId.value) ?? null
   );
   const selectedStatus = computed(() =>
-    selectedKindleId.value ? (statuses.value[selectedKindleId.value] ?? null) : null
+    selectedEreaderId.value ? (statuses.value[selectedEreaderId.value] ?? null) : null
   );
 
-  const fetchKindles = async () => {
+  const fetchEreaders = async () => {
     isLoading.value = true;
     try {
-      const response = await fetch('/api/kindles');
+      const response = await fetch('/api/ereaders');
       if (!response.ok) return;
-      const data: Kindle[] = await response.json();
-      kindles.value = data;
-      const selectionValid = data.some((k) => k.id === selectedKindleId.value);
+      const data: Ereader[] = await response.json();
+      ereaders.value = data;
+      const selectionValid = data.some((k) => k.id === selectedEreaderId.value);
       if (!selectionValid) {
         // Prefer a device with a hostname; the seeded placeholder has none
         const firstReal = data.find((k) => k.hostname) ?? data[0];
-        selectedKindleId.value = firstReal?.id ?? null;
+        selectedEreaderId.value = firstReal?.id ?? null;
       }
     } catch {
       // Non-fatal: views render an empty-device state
@@ -43,14 +43,14 @@ export const useKindlesStore = defineStore('kindles', () => {
     }
   };
 
-  const fetchStatus = async (kindleId: string, refresh = false) => {
+  const fetchStatus = async (ereaderId: string, refresh = false) => {
     statusLoading.value = true;
     try {
       const response = await fetch(
-        `/api/kindles/${kindleId}/status${refresh ? '?refresh=true' : ''}`
+        `/api/ereaders/${ereaderId}/status${refresh ? '?refresh=true' : ''}`
       );
       if (response.ok) {
-        statuses.value = { ...statuses.value, [kindleId]: await response.json() };
+        statuses.value = { ...statuses.value, [ereaderId]: await response.json() };
       }
     } catch {
       // Leave the previous status in place
@@ -59,18 +59,18 @@ export const useKindlesStore = defineStore('kindles', () => {
     }
   };
 
-  const fetchDeviceBooks = async (kindleId: string) => {
+  const fetchDeviceBooks = async (ereaderId: string) => {
     deviceBooksLoading.value = true;
     deviceBooksError.value = null;
     try {
-      const response = await fetch(`/api/kindles/${kindleId}/books`);
+      const response = await fetch(`/api/ereaders/${ereaderId}/books`);
       const data = await response.json();
       if (data.success) {
         deviceBooks.value = data.books;
         deviceBooksFetchedAt.value = new Date();
       } else {
         deviceBooks.value = [];
-        deviceBooksError.value = data.error || 'Could not list books on the Kindle';
+        deviceBooksError.value = data.error || 'Could not list books on the E-reader';
       }
     } catch {
       deviceBooks.value = [];
@@ -80,26 +80,26 @@ export const useKindlesStore = defineStore('kindles', () => {
     }
   };
 
-  const testConnection = async (kindleId: string) => {
+  const testConnection = async (ereaderId: string) => {
     const toast = useToast();
     try {
-      const response = await fetch(`/api/kindles/${kindleId}/test`, { method: 'POST' });
+      const response = await fetch(`/api/ereaders/${ereaderId}/test`, { method: 'POST' });
       const result = await response.json();
       if (result.success) {
-        toast.success(result.message || 'Kindle connection OK');
+        toast.success(result.message || 'E-reader connection OK');
       } else {
-        toast.error(result.error || 'Kindle connection failed');
+        toast.error(result.error || 'E-reader connection failed');
       }
       return result;
     } catch {
-      toast.error('Kindle connection test failed');
+      toast.error('E-reader connection test failed');
       return { success: false };
     }
   };
 
   return {
-    kindles,
-    selectedKindleId,
+    ereaders,
+    selectedEreaderId,
     isLoading,
     statuses,
     statusLoading,
@@ -108,10 +108,10 @@ export const useKindlesStore = defineStore('kindles', () => {
     deviceBooksError,
     deviceBooksFetchedAt,
 
-    selectedKindle,
+    selectedEreader,
     selectedStatus,
 
-    fetchKindles,
+    fetchEreaders,
     fetchStatus,
     fetchDeviceBooks,
     testConnection,

@@ -178,7 +178,7 @@ const linkHardcoverBook = async (result: HardcoverSearchResult) => {
             <div
               v-for="book in libraryResults"
               :key="book.id"
-              class="flex items-center justify-between gap-3 p-3 rounded-lg border border-stone-200 hover:border-kindle-300 transition-colors"
+              class="flex items-center justify-between gap-3 p-3 rounded-lg border border-stone-200 hover:border-ereader-300 transition-colors"
             >
               <div class="min-w-0">
                 <p class="font-medium text-stone-900 truncate">{{ book.title }}</p>
@@ -205,7 +205,7 @@ const linkHardcoverBook = async (result: HardcoverSearchResult) => {
             <div
               v-for="result in hardcoverResults"
               :key="result.hardcover_id"
-              class="flex items-center justify-between gap-3 p-3 rounded-lg border border-stone-200 hover:border-kindle-300 transition-colors"
+              class="flex items-center justify-between gap-3 p-3 rounded-lg border border-stone-200 hover:border-ereader-300 transition-colors"
             >
               <div class="min-w-0">
                 <p class="font-medium text-stone-900 truncate">{{ result.title }}</p>

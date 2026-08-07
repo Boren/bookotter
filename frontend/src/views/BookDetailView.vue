@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
 import { useSearchStore } from '../stores/search'
 import { useSyncStore } from '../stores/sync'
-import KindleDeliveryBadge from '../components/KindleDeliveryBadge.vue'
+import EreaderDeliveryBadge from '../components/EreaderDeliveryBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { formatRelativeTime } from '../utils/format'
 import type { Book } from '../types'
@@ -22,8 +22,8 @@ const showDeleteConfirm = ref(false)
 const saveSuccess = ref(false)
 const isSearching = ref(false)
 const isRetrying = ref(false)
-const isRequeueingKindle = ref(false)
-const isUnpinningKindle = ref(false)
+const isRequeueingEreader = ref(false)
+const isUnpinningEreader = ref(false)
 
 const editForm = ref({
   title: '',
@@ -168,44 +168,44 @@ const handleRetry = async () => {
   }
 }
 
-const handleKindleRequeue = async () => {
+const handleEreaderRequeue = async () => {
   if (!book.value) return
-  isRequeueingKindle.value = true
+  isRequeueingEreader.value = true
   try {
-    await libraryStore.requeueKindle(book.value.id)
+    await libraryStore.requeueEreader(book.value.id)
   } finally {
-    isRequeueingKindle.value = false
+    isRequeueingEreader.value = false
   }
 }
 
-const handleKindleUnpin = async () => {
+const handleEreaderUnpin = async () => {
   if (!book.value) return
-  isUnpinningKindle.value = true
+  isUnpinningEreader.value = true
   try {
-    await libraryStore.unpinKindle(book.value.id)
+    await libraryStore.unpinEreader(book.value.id)
   } finally {
-    isUnpinningKindle.value = false
+    isUnpinningEreader.value = false
   }
 }
 
-const canSendToKindle = computed(
+const canSendToEreader = computed(
   () =>
     book.value?.status === 'in_library' &&
     !!book.value?.file_path &&
-    book.value?.kindle_delivery_status !== 'PENDING' &&
-    book.value?.kindle_delivery_status !== 'IN_PROGRESS'
+    book.value?.ereader_delivery_status !== 'PENDING' &&
+    book.value?.ereader_delivery_status !== 'IN_PROGRESS'
 )
 
 const canDownload = computed(() => !!book.value?.file_path)
 
-const showKindleCard = computed(
+const showEreaderCard = computed(
   () =>
-    !!book.value?.kindle_delivery_status ||
+    !!book.value?.ereader_delivery_status ||
     (book.value?.status === 'in_library' && !!book.value?.file_path)
 )
 
-const kindleDeliveryProgress = computed(() => {
-  const p = syncStore.kindleDeliveryProgress
+const ereaderDeliveryProgress = computed(() => {
+  const p = syncStore.ereaderDeliveryProgress
   return p && p.book_id === book.value?.id ? p : null
 })
 
@@ -478,12 +478,12 @@ onMounted(() => {
                 <StatusBadge :status="book.status" />
               </div>
 
-              <!-- Kindle Delivery Badge -->
+              <!-- E-reader Delivery Badge -->
               <div
-                v-if="book.kindle_delivery_status"
+                v-if="book.ereader_delivery_status"
                 class="absolute -bottom-2 -right-2 shadow-warm-sm rounded-full bg-white"
               >
-                <KindleDeliveryBadge :status="book.kindle_delivery_status" />
+                <EreaderDeliveryBadge :status="book.ereader_delivery_status" />
               </div>
             </div>
           </div>
@@ -500,8 +500,8 @@ onMounted(() => {
                 v-if="book.series_name"
                 type="button"
                 @click="scrollToSeries"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-kindle-50 border border-kindle-200 text-sm text-kindle-800 mb-4"
-                :class="otherSeriesBooks.length > 0 ? 'cursor-pointer hover:bg-kindle-100 transition-colors' : 'cursor-default'"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ereader-50 border border-ereader-200 text-sm text-ereader-800 mb-4"
+                :class="otherSeriesBooks.length > 0 ? 'cursor-pointer hover:bg-ereader-100 transition-colors' : 'cursor-default'"
                 :title="otherSeriesBooks.length > 0 ? 'Jump to other books in this series' : undefined"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -522,7 +522,7 @@ onMounted(() => {
                   v-for="star in 5"
                   :key="star"
                   class="w-5 h-5"
-                  :class="star <= (book.rating ?? 0) ? 'text-kindle-500' : 'text-stone-300'"
+                  :class="star <= (book.rating ?? 0) ? 'text-ereader-500' : 'text-stone-300'"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                 >
@@ -569,20 +569,20 @@ onMounted(() => {
                   Interactive Search
                 </button>
                 <button
-                  v-if="canSendToKindle"
-                  @click="handleKindleRequeue"
-                  :disabled="isRequeueingKindle"
+                  v-if="canSendToEreader"
+                  @click="handleEreaderRequeue"
+                  :disabled="isRequeueingEreader"
                   class="btn btn-secondary"
-                  data-testid="send-to-kindle-button"
+                  data-testid="send-to-ereader-button"
                 >
-                  <svg v-if="isRequeueingKindle" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <svg v-if="isRequeueingEreader" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                   <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                   </svg>
-                  {{ book.kindle_delivery_status === 'DELIVERED' ? 'Send Again' : 'Send to Kindle' }}
+                  {{ book.ereader_delivery_status === 'DELIVERED' ? 'Send Again' : 'Send to E-reader' }}
                 </button>
                 <a
                   v-if="canDownload"
@@ -733,7 +733,7 @@ onMounted(() => {
                         class="w-7 h-7 transition-colors"
                         :class="
                           star <= (hoverRating || editForm.rating || 0)
-                            ? 'text-kindle-500'
+                            ? 'text-ereader-500'
                             : 'text-stone-300'
                         "
                         fill="currentColor"
@@ -846,10 +846,10 @@ onMounted(() => {
               </div>
             </div>
             <div class="mt-2.5 px-0.5">
-              <h3 class="font-medium text-sm text-stone-900 line-clamp-2 group-hover:text-kindle-700 transition-colors">
+              <h3 class="font-medium text-sm text-stone-900 line-clamp-2 group-hover:text-ereader-700 transition-colors">
                 {{ sibling.title }}
               </h3>
-              <p v-if="sibling.series_position != null" class="text-xs text-kindle-600 mt-0.5">
+              <p v-if="sibling.series_position != null" class="text-xs text-ereader-600 mt-0.5">
                 #{{ sibling.series_position }}
               </p>
             </div>
@@ -932,48 +932,48 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Kindle Delivery Card -->
-      <div v-if="showKindleCard" class="card animate-fade-in-up stagger-3">
+      <!-- E-reader Delivery Card -->
+      <div v-if="showEreaderCard" class="card animate-fade-in-up stagger-3">
         <div class="flex items-center gap-3 mb-6">
           <div class="icon-container">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
           </div>
-          <h2 class="text-lg font-display font-semibold text-stone-900">Kindle Delivery</h2>
+          <h2 class="text-lg font-display font-semibold text-stone-900">E-reader Delivery</h2>
         </div>
 
         <div class="flex flex-wrap items-center gap-x-8 gap-y-4">
           <div>
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1.5">Status</p>
-            <KindleDeliveryBadge v-if="book.kindle_delivery_status" :status="book.kindle_delivery_status" />
-            <p v-else class="text-sm text-stone-500">Not sent to Kindle yet</p>
+            <EreaderDeliveryBadge v-if="book.ereader_delivery_status" :status="book.ereader_delivery_status" />
+            <p v-else class="text-sm text-stone-500">Not sent to E-reader yet</p>
           </div>
-          <div v-if="book.kindle_delivery_status">
+          <div v-if="book.ereader_delivery_status">
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Attempts</p>
-            <p class="text-sm text-stone-800">{{ book.kindle_delivery_attempts ?? 0 }}</p>
+            <p class="text-sm text-stone-800">{{ book.ereader_delivery_attempts ?? 0 }}</p>
           </div>
-          <div v-if="book.kindle_delivery_status === 'DELIVERED' && book.kindle_delivered_at">
+          <div v-if="book.ereader_delivery_status === 'DELIVERED' && book.ereader_delivered_at">
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Delivered</p>
-            <p class="text-sm text-stone-800" :title="formatDate(book.kindle_delivered_at)">
-              {{ formatRelativeTime(book.kindle_delivered_at) }}
+            <p class="text-sm text-stone-800" :title="formatDate(book.ereader_delivered_at)">
+              {{ formatRelativeTime(book.ereader_delivered_at) }}
             </p>
           </div>
-          <div v-if="(book.kindle_delivery_status === 'PENDING' || book.kindle_delivery_status === 'SKIPPED') && book.kindle_first_pending_at">
+          <div v-if="(book.ereader_delivery_status === 'PENDING' || book.ereader_delivery_status === 'SKIPPED') && book.ereader_first_pending_at">
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Waiting Since</p>
-            <p class="text-sm text-stone-800">{{ formatDate(book.kindle_first_pending_at) }}</p>
+            <p class="text-sm text-stone-800">{{ formatDate(book.ereader_first_pending_at) }}</p>
           </div>
-          <div v-if="book.kindle_pinned" data-testid="kindle-pinned-indicator">
-            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1.5">Pinned to Kindle</p>
+          <div v-if="book.ereader_pinned" data-testid="ereader-pinned-indicator">
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1.5">Pinned to E-reader</p>
             <div class="flex items-center gap-3">
               <span class="text-sm text-stone-800">Kept on the device between syncs</span>
               <button
-                @click="handleKindleUnpin"
-                :disabled="isUnpinningKindle"
+                @click="handleEreaderUnpin"
+                :disabled="isUnpinningEreader"
                 class="btn btn-secondary btn-sm"
-                data-testid="kindle-unpin-button"
+                data-testid="ereader-unpin-button"
               >
-                <svg v-if="isUnpinningKindle" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg v-if="isUnpinningEreader" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                 </svg>
@@ -982,47 +982,47 @@ onMounted(() => {
             </div>
             <p class="mt-1.5 text-xs text-stone-500">Unpinning removes it from the device on the next sync.</p>
           </div>
-          <div v-if="canSendToKindle" class="ml-auto">
+          <div v-if="canSendToEreader" class="ml-auto">
             <button
-              @click="handleKindleRequeue"
-              :disabled="isRequeueingKindle"
+              @click="handleEreaderRequeue"
+              :disabled="isRequeueingEreader"
               class="btn btn-secondary"
-              data-testid="kindle-requeue-button"
+              data-testid="ereader-requeue-button"
             >
-              <svg v-if="isRequeueingKindle" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <svg v-if="isRequeueingEreader" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
               <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
               </svg>
-              {{ book.kindle_delivery_status === 'DELIVERED' ? 'Send Again' : 'Send to Kindle' }}
+              {{ book.ereader_delivery_status === 'DELIVERED' ? 'Send Again' : 'Send to E-reader' }}
             </button>
           </div>
         </div>
 
-        <div v-if="book.kindle_delivery_status === 'IN_PROGRESS'" class="mt-4 space-y-1.5" data-testid="kindle-delivery-progress">
+        <div v-if="book.ereader_delivery_status === 'IN_PROGRESS'" class="mt-4 space-y-1.5" data-testid="ereader-delivery-progress">
           <div class="progress-bar progress-bar-animated">
             <div
               class="progress-bar-fill"
-              :style="{ width: `${kindleDeliveryProgress ? Math.round(kindleDeliveryProgress.percentage) : 100}%` }"
+              :style="{ width: `${ereaderDeliveryProgress ? Math.round(ereaderDeliveryProgress.percentage) : 100}%` }"
             ></div>
           </div>
-          <p v-if="kindleDeliveryProgress" class="text-xs text-stone-500 tabular-nums">
-            {{ Math.round(kindleDeliveryProgress.percentage) }}% transferred
+          <p v-if="ereaderDeliveryProgress" class="text-xs text-stone-500 tabular-nums">
+            {{ Math.round(ereaderDeliveryProgress.percentage) }}% transferred
           </p>
-          <p v-else class="text-xs text-stone-500">Transferring to the Kindle…</p>
+          <p v-else class="text-xs text-stone-500">Transferring to the E-reader…</p>
         </div>
 
-        <p v-if="book.kindle_delivery_status === 'SKIPPED'" class="text-sm text-amber-700 mt-4">
+        <p v-if="book.ereader_delivery_status === 'SKIPPED'" class="text-sm text-amber-700 mt-4">
           Delivery gave up after the waiting period. It re-queues automatically the next time the
-          Kindle is reachable, or press "Send to Kindle" to re-queue now.
+          E-reader is reachable, or press "Send to E-reader" to re-queue now.
         </p>
-        <p v-else-if="book.kindle_delivery_status === 'PENDING'" class="text-sm text-stone-500 mt-4">
-          Will be sent automatically once the Kindle is turned on and connected.
+        <p v-else-if="book.ereader_delivery_status === 'PENDING'" class="text-sm text-stone-500 mt-4">
+          Will be sent automatically once the E-reader is turned on and connected.
         </p>
-        <p v-else-if="!book.kindle_delivery_status" class="text-sm text-stone-500 mt-4">
-          Press "Send to Kindle" to queue it — it transfers right away when the Kindle is on.
+        <p v-else-if="!book.ereader_delivery_status" class="text-sm text-stone-500 mt-4">
+          Press "Send to E-reader" to queue it — it transfers right away when the E-reader is on.
         </p>
       </div>
     </template>
