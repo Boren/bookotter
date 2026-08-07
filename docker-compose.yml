@@ -13,7 +13,7 @@ services:
       # Book library directory - adjust this path to match your setup
       - /mnt/user/media/books:/books:ro
 
-      # SSH keys for Kindle access
+      # SSH keys for E-reader access
       - ~/.ssh:/root/.ssh:ro
     environment:
       - TZ=Europe/Oslo

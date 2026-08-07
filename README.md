@@ -8,7 +8,7 @@ Self-hosted book management platform — automatically search, download, and man
 
 ## Features
 
-- **Full Book Pipeline**: Hardcover sync → Prowlarr search → qBittorrent download → EPUB import with metadata → Kindle sync
+- **Full Book Pipeline**: Hardcover sync → Prowlarr search → qBittorrent download → EPUB import with metadata → E-reader sync
 - **Library Browser**: Browse your book collection with cover images, filtering, and sorting
 - **Library Import**: Scan an existing books folder and match files to your library — auto-matching by embedded ID, ISBN, and title/author, with a review queue for fuzzy and unmatched files
 - **Search Page**: Search for books via Prowlarr indexers and grab results for download
@@ -16,9 +16,9 @@ Self-hosted book management platform — automatically search, download, and man
 - **Book Detail & Metadata Editor**: Edit title, author, series, and other metadata per book
 - **EPUB Metadata Writing**: Automatically writes title, author, and series info into EPUB files
 - **Folder Organization**: Configurable library structure — flat, by author, by series, or by author/series
-- **Pipeline Automation**: Configurable status → action mapping (e.g., "want to read" triggers search + download + Kindle sync)
-- **Multi-Kindle Support**: Configure multiple Kindle devices and choose which to sync to
-- **Automatic Kindle Sync**: One toggle in Settings runs a full shelf sync hourly, every 6 hours, or daily
+- **Pipeline Automation**: Configurable status → action mapping (e.g., "want to read" triggers search + download + E-reader sync)
+- **Multi-E-reader Support**: Configure multiple E-reader devices and choose which to sync to
+- **Automatic E-reader Sync**: One toggle in Settings runs a full shelf sync hourly, every 6 hours, or daily
 - **RSS Sync (Auto-Grab)**: Automatically monitor Prowlarr indexers for new releases matching your wanted books
 - **Real-time Progress**: Live WebSocket updates during operations
 - **Web Interface**: Modern Vue 3 dashboard for configuration, scheduling, and monitoring
@@ -32,20 +32,20 @@ Self-hosted book management platform — automatically search, download, and man
 - Hardcover account with API token
 - Prowlarr instance for book search
 - qBittorrent instance for downloads
-- Kindle with SSH access (jailbroken) connected via Tailscale
+- E-reader with SSH access (jailbroken) connected via Tailscale
 
-### Kindle Setup
+### E-reader Setup
 
-Your Kindle must be **jailbroken** with an SSH server running to receive book transfers. This typically involves:
+Your E-reader must expose an **SSH server** to receive book transfers. Any device that can run one works. On a Kindle, that typically involves:
 
-1. **Jailbreaking** your Kindle - enables running custom software
+1. **Jailbreaking** the device - enables running custom software
 2. **Installing KUAL** (Kindle Unified Application Launcher) - app launcher for custom apps
-3. **Installing USBNetwork** or similar - enables SSH access to your Kindle
+3. **Installing USBNetwork** or similar - enables SSH access
 4. **Setting up Tailscale** (recommended) - secure network access without port forwarding
 
-For detailed jailbreak instructions, see the [MobileRead Wiki](https://wiki.mobileread.com/wiki/Kindle_Hacks_Information) which covers most Kindle models.
+For detailed jailbreak instructions, see the [MobileRead Wiki](https://wiki.mobileread.com/wiki/Kindle_Hacks_Information); other e-readers (e.g. Kobo) have equivalent guides there.
 
-**Note:** BookOtter uses SSH/SFTP to transfer files directly to your Kindle's filesystem. The Kindle appears as a standard Linux host with root access.
+**Note:** BookOtter uses SSH/SFTP to transfer files directly to your E-reader's filesystem. The E-reader appears as a standard Linux host with root access.
 
 ## Quick Start with Docker
 
@@ -94,7 +94,7 @@ services:
       # Book library (organized EPUBs)
       - ./library:/app/library
 
-      # SSH keys for Kindle access
+      # SSH keys for E-reader access
       - ~/.ssh:/root/.ssh:ro
     environment:
       - TZ=Europe/Oslo
@@ -107,7 +107,7 @@ services:
 |-------|---------|
 | `./data:/app/data` | Config file, SQLite database, and logs |
 | `./library:/app/library` | Book library — organized EPUBs managed by BookOtter |
-| `~/.ssh:/root/.ssh:ro` | SSH keys for Kindle access |
+| `~/.ssh:/root/.ssh:ro` | SSH keys for E-reader access |
 
 ## Web Interface
 
@@ -130,18 +130,18 @@ The web UI provides:
 - Live speed and ETA from qBittorrent
 
 ### Dashboard
-- Trigger Hardcover sync and Kindle sync manually
+- Trigger Hardcover sync and E-reader sync manually
 - View real-time progress with WebSocket updates
 - See library statistics
 
 ### Settings
 - Configure Hardcover API token
 - Configure Prowlarr and qBittorrent connections
-- Manage multiple Kindle devices
+- Manage multiple E-reader devices
 - Manage root folders for library organization
 - Test all connections
 - Configure pipeline automation
-- Enable automatic Kindle sync (hourly, every 6 hours, or daily; offline Kindles are skipped until the next run)
+- Enable automatic E-reader sync (hourly, every 6 hours, or daily; offline E-readers are skipped until the next run)
 
 ### Logs
 - View application logs in real-time
@@ -173,8 +173,8 @@ python -m backend.cli --include-currently-reading
 # Custom config file
 python -m backend.cli --config /path/to/config.yaml
 
-# Skip Kindle SSH test (useful for testing matching logic)
-python -m backend.cli --skip-kindle-test
+# Skip E-reader SSH test (useful for testing matching logic)
+python -m backend.cli --skip-ereader-test
 ```
 
 ### Running the Web Server
@@ -205,19 +205,19 @@ qbittorrent:
   password: "YOUR_QBITTORRENT_PASSWORD"
   category: "books"
 
-# Kindle Devices (multiple supported)
-kindles:
+# E-reader Devices (multiple supported)
+ereaders:
   - id: "main"
-    name: "My Kindle"
-    hostname: "kindle.tailnet"
+    name: "My E-reader"
+    hostname: "ereader.tailnet"
     port: 22
     username: "root"
     password: ""
     ssh_key_path: "/root/.ssh/id_rsa"
     destination_path: "/mnt/us/books/"
   - id: "backup"
-    name: "Backup Kindle"
-    hostname: "kindle2.tailnet"
+    name: "Backup E-reader"
+    hostname: "ereader2.tailnet"
     # ...
 
 # Library Settings
@@ -230,7 +230,7 @@ pipeline:
   enabled: true
   search_on_add: true       # Auto-search when book added
   import_on_complete: true  # Auto-import when download completes
-  kindle_sync_on_import: true  # Auto-send imports on synced shelves to Kindle
+  ereader_sync_on_import: true  # Auto-send imports on synced shelves to E-reader
   status_actions:
     want_to_read:
       download: true
@@ -239,9 +239,9 @@ pipeline:
     read:
       download: true
 
-# Automatic Kindle Sync
-kindle_sync:
-  enabled: false            # Sync the first configured Kindle on a schedule
+# Automatic E-reader Sync
+ereader_sync:
+  enabled: false            # Sync the first configured E-reader on a schedule
   interval_hours: 1         # 1, 6, or 24
 
 # RSS Sync (Auto-Grab)
@@ -264,11 +264,11 @@ sync:
     currently_reading: false
     read: false
 
-# Transfer Settings (Kindle mirror)
+# Transfer Settings (E-reader mirror)
 transfer:
   dry_run: false               # Report what would be sent/deleted without doing it
   folder_organization: "flat"  # flat, author, series, author_series
-  sync_shelves:                # Hardcover shelves mirrored to the Kindle
+  sync_shelves:                # Hardcover shelves mirrored to the E-reader
     want_to_read: true
     currently_reading: true
     read: false
@@ -290,9 +290,9 @@ The pipeline automates the full book lifecycle. When a Hardcover sync finds book
 1. **Search** Prowlarr for available downloads
 2. **Download** via qBittorrent with the configured category
 3. **Import** completed downloads into the library with EPUB metadata
-4. **Sync** imported books to your Kindle (only books on shelves enabled in `transfer.sync_shelves`, plus manually pinned books)
+4. **Sync** imported books to your E-reader (only books on shelves enabled in `transfer.sync_shelves`, plus manually pinned books)
 
-Control which statuses trigger downloads via `pipeline.status_actions`. Which books reach the Kindle is governed separately by `transfer.sync_shelves`: the Kindle mirrors those shelves — a sync sends missing shelf books and, when `cleanup_enabled` is on, removes everything else from the device (books sent manually via "Send to Kindle" are pinned and kept).
+Control which statuses trigger downloads via `pipeline.status_actions`. Which books reach the E-reader is governed separately by `transfer.sync_shelves`: the E-reader mirrors those shelves — a sync sends missing shelf books and, when `cleanup_enabled` is on, removes everything else from the device (books sent manually via "Send to E-reader" are pinned and kept).
 
 ### RSS Sync (Auto-Grab)
 
@@ -305,7 +305,7 @@ The RSS sync feature periodically polls your Prowlarr indexers for new releases.
 
 ### Folder Organization
 
-The `transfer.folder_organization` setting controls how books are organized in your library and on Kindle:
+The `transfer.folder_organization` setting controls how books are organized in your library and on E-reader:
 
 | Mode | Structure |
 |------|-----------|
@@ -334,12 +334,12 @@ The web server exposes a REST API:
 | `/api/root-folders` | GET/POST | Root folder management |
 | `/api/sync/status` | GET | Get sync status |
 | `/api/sync/hardcover` | POST | Trigger Hardcover sync |
-| `/api/sync/kindle` | POST | Trigger Kindle sync |
+| `/api/sync/ereader` | POST | Trigger E-reader sync |
 | `/prowlarr/test` | POST | Test Prowlarr connection |
 | `/qbittorrent/test` | POST | Test qBittorrent connection |
 | `/prowlarr/indexers` | GET | List Prowlarr indexers |
 | `/api/config` | GET/PUT | Configuration management |
-| `/api/kindles` | GET/POST | Kindle management |
+| `/api/ereaders` | GET/POST | E-reader management |
 | `/api/logs` | GET | Get log entries |
 | `/api/ws` | WebSocket | Real-time events |
 
@@ -390,10 +390,10 @@ bookotter/
 │   │   ├── library.py       # Book CRUD and browsing
 │   │   ├── search.py        # Prowlarr search and grab
 │   │   ├── downloads.py     # Download queue
-│   │   ├── sync.py          # Hardcover and Kindle sync
+│   │   ├── sync.py          # Hardcover and E-reader sync
 │   │   ├── services.py      # Connection tests (Prowlarr, qBittorrent)
 │   │   ├── root_folders.py  # Root folder management
-│   │   └── ...              # config, kindles, logs
+│   │   └── ...              # config, ereaders, logs
 │   ├── services/            # Business logic
 │   │   ├── pipeline_service.py      # Full automation pipeline
 │   │   ├── pipeline_states.py       # Book state machine
@@ -407,7 +407,7 @@ bookotter/
 │       ├── hardcover_client.py    # Hardcover GraphQL API
 │       ├── prowlarr_client.py     # Prowlarr REST API
 │       ├── qbittorrent_client.py  # qBittorrent Web API
-│       └── kindle_client.py       # Kindle SSH/SFTP
+│       └── ereader_client.py       # E-reader SSH/SFTP
 ├── frontend/
 │   ├── src/
 │   │   ├── views/           # Vue page components
@@ -477,7 +477,7 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 ### "Connection test failed"
 - Verify your API tokens and keys are correct
 - Check that Prowlarr and qBittorrent are running and accessible from the container
-- Ensure your Kindle is connected via Tailscale and SSH is enabled
+- Ensure your E-reader is connected via Tailscale and SSH is enabled
 
 ### "Prowlarr search returned no results"
 - Verify your Prowlarr instance has book indexers configured
@@ -496,9 +496,9 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 
 ### "Transfer failed"
 - Verify SSH credentials are correct
-- Ensure destination path exists on Kindle
+- Ensure destination path exists on E-reader
 - Check that SSH keys are properly mounted in Docker
-- Verify you have enough space on Kindle
+- Verify you have enough space on E-reader
 
 ### Docker networking issues
 - Ensure BookOtter can reach Prowlarr and qBittorrent instances
@@ -509,7 +509,7 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 
 - Keep your `config.yaml` private — it contains API keys and passwords
 - Prowlarr API key and qBittorrent password are stored in plain text in the config file
-- Use SSH keys instead of passwords for Kindle connections when possible
+- Use SSH keys instead of passwords for E-reader connections when possible
 - Hardcover API tokens expire January 1st each year
 - The web UI has no authentication — run behind a reverse proxy or VPN
 - Never commit `config.yaml` to version control
@@ -518,7 +518,7 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 
 BookOtter uses `AutoAddPolicy` for SSH connections, which automatically accepts host keys on first connection. This is acceptable for personal use on a trusted network (e.g., Tailscale VPN), but means:
 
-- The first connection to a Kindle will trust its host key without verification
+- The first connection to a E-reader will trust its host key without verification
 - You should ensure your Tailscale network is properly secured
 - For high-security environments, consider pre-populating `~/.ssh/known_hosts`
 
