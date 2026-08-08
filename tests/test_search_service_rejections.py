@@ -113,22 +113,16 @@ class TestOmnibusSignals:
 class TestOmnibusRejection:
     def test_trilogy_rejected_for_single_volume_query(self, db_session):
         prowlarr = MagicMock()
-        prowlarr.search_book.return_value = [
-            make_result(title="The First Law Trilogy by Joe Abercrombie EPUB")
-        ]
+        prowlarr.search_book.return_value = [make_result(title="The First Law Trilogy by Joe Abercrombie EPUB")]
 
-        results = SearchService(prowlarr, db_session).search_book(
-            "The Blade Itself", author="Joe Abercrombie"
-        )
+        results = SearchService(prowlarr, db_session).search_book("The Blade Itself", author="Joe Abercrombie")
 
         assert "Omnibus/collection" in results[0].rejections
         assert results[0].approved is False
 
     def test_mistborn_trilogy_rejected(self, db_session):
         prowlarr = MagicMock()
-        prowlarr.search_book.return_value = [
-            make_result(title="Mistborn Trilogy by Brandon Sanderson EPUB")
-        ]
+        prowlarr.search_book.return_value = [make_result(title="Mistborn Trilogy by Brandon Sanderson EPUB")]
 
         results = SearchService(prowlarr, db_session).search_book(
             "Mistborn: The Final Empire", author="Brandon Sanderson"
@@ -138,21 +132,15 @@ class TestOmnibusRejection:
 
     def test_book_range_rejected_for_single_volume_query(self, db_session):
         prowlarr = MagicMock()
-        prowlarr.search_book.return_value = [
-            make_result(title="Matt Dinniman - Dungeon Crawler Carl Books 1-7 EPUB")
-        ]
+        prowlarr.search_book.return_value = [make_result(title="Matt Dinniman - Dungeon Crawler Carl Books 1-7 EPUB")]
 
-        results = SearchService(prowlarr, db_session).search_book(
-            "This Inevitable Ruin", author="Matt Dinniman"
-        )
+        results = SearchService(prowlarr, db_session).search_book("This Inevitable Ruin", author="Matt Dinniman")
 
         assert "Omnibus/collection" in results[0].rejections
 
     def test_query_signal_suppressed(self, db_session):
         prowlarr = MagicMock()
-        prowlarr.search_book.return_value = [
-            make_result(title="Arcanum Unbounded: The Cosmere Collection EPUB")
-        ]
+        prowlarr.search_book.return_value = [make_result(title="Arcanum Unbounded: The Cosmere Collection EPUB")]
 
         results = SearchService(prowlarr, db_session).search_book(
             "Arcanum Unbounded: The Cosmere Collection", author="Brandon Sanderson"
@@ -163,13 +151,9 @@ class TestOmnibusRejection:
 
     def test_single_volume_release_not_rejected(self, db_session):
         prowlarr = MagicMock()
-        prowlarr.search_book.return_value = [
-            make_result(title="The Blade Itself by Joe Abercrombie EPUB")
-        ]
+        prowlarr.search_book.return_value = [make_result(title="The Blade Itself by Joe Abercrombie EPUB")]
 
-        results = SearchService(prowlarr, db_session).search_book(
-            "The Blade Itself", author="Joe Abercrombie"
-        )
+        results = SearchService(prowlarr, db_session).search_book("The Blade Itself", author="Joe Abercrombie")
 
         assert results[0].approved is True
 
