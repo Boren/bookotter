@@ -29,6 +29,31 @@ AUDIOBOOK_RE = re.compile(
     r"|(?<=\W)(?:narrated|read)\s+by\b",
     re.IGNORECASE,
 )
+# Omnibus/collection detection.
+# Named patterns so query and release signals compare as classes: a query
+# containing "Books 1-3" suppresses any book-range signal in a release,
+# not just the identical text. Ranges require an explicit N-M span so
+# single-volume markers ("Book 7") never match.
+OMNIBUS_SIGNAL_RES: dict[str, re.Pattern] = {
+    "omnibus": re.compile(r"\bomnibus\b", re.IGNORECASE),
+    "trilogy": re.compile(r"\btrilogy\b", re.IGNORECASE),
+    "duology": re.compile(r"\bduology\b", re.IGNORECASE),
+    "quadrilogy": re.compile(r"\bquadrilogy\b", re.IGNORECASE),
+    "box-set": re.compile(r"\bbox(?:ed)?[ -]?set\b", re.IGNORECASE),
+    "collection": re.compile(r"\bcollection\b", re.IGNORECASE),
+    "anthology": re.compile(r"\banthology\b", re.IGNORECASE),
+    "complete-series": re.compile(r"\bcomplete series\b", re.IGNORECASE),
+    "book-range": re.compile(r"\bbooks?\s*\d+\s*[-–—]\s*\d+\b", re.IGNORECASE),
+    "hash-range": re.compile(r"#\d+\s*[-–—]\s*\d+"),
+    "vol-range": re.compile(r"\bvol(?:ume)?s?\.?\s*\d+\s*[-–—]\s*\d+\b", re.IGNORECASE),
+}
+
+
+def omnibus_signals(text: str) -> set[str]:
+    """Names of omnibus/collection markers present in a release or query title."""
+    return {name for name, pattern in OMNIBUS_SIGNAL_RES.items() if pattern.search(text)}
+
+
 AUDIO_CATEGORY_RANGE = range(3000, 4000)
 EBOOK_CATEGORY_RANGE = range(7000, 8000)
 
@@ -128,6 +153,11 @@ class SearchService:
 
         if AUDIOBOOK_RE.search(title):
             rejections.append("Audiobook")
+
+        if query_title:
+            release_only_signals = omnibus_signals(title) - omnibus_signals(query_title)
+            if release_only_signals:
+                rejections.append("Omnibus/collection")
 
         if indexer and guid and (indexer, guid) in blocklisted_set:
             rejections.append("Blocklisted")
