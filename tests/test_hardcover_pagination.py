@@ -127,6 +127,59 @@ class TestPagination:
 
     @patch("backend.clients.hardcover_client.time.sleep")
     @patch("backend.clients.hardcover_client.requests.post")
+    def test_query_orders_user_books_for_stable_pagination(self, mock_post: MagicMock, mock_sleep: MagicMock) -> None:
+        """Offset pagination without order_by has undefined row order, so pages
+        can overlap and silently drop books. The query must pin an ordering."""
+        mock_post.return_value = _make_response(200, _make_page([]))
+
+        client = HardcoverClient(api_token="test_token")
+        client.get_books_by_status([1])
+
+        query = mock_post.call_args.kwargs["json"]["query"]
+        assert "order_by" in query
+
+    @patch("backend.clients.hardcover_client.time.sleep")
+    @patch("backend.clients.hardcover_client.requests.post")
+    def test_duplicates_across_pages_log_warning(
+        self, mock_post: MagicMock, mock_sleep: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A book id repeating across pages means unstable pagination dropped
+        another row — surface it loudly instead of deduplicating in silence."""
+        page1 = _make_page([_make_book_node(i) for i in range(1, HARDCOVER_PAGE_SIZE + 1)])
+        page2 = _make_page([_make_book_node(i) for i in range(46, 76)])
+
+        mock_post.side_effect = [
+            _make_response(200, page1),
+            _make_response(200, page2),
+        ]
+
+        client = HardcoverClient(api_token="test_token")
+        with caplog.at_level("WARNING", logger="backend.clients.hardcover_client"):
+            client.get_books_by_status([1])
+
+        assert any("duplicate" in rec.message.lower() for rec in caplog.records)
+
+    @patch("backend.clients.hardcover_client.time.sleep")
+    @patch("backend.clients.hardcover_client.requests.post")
+    def test_no_duplicate_warning_for_clean_pages(
+        self, mock_post: MagicMock, mock_sleep: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        page1 = _make_page([_make_book_node(i) for i in range(1, HARDCOVER_PAGE_SIZE + 1)])
+        page2 = _make_page([_make_book_node(i) for i in range(HARDCOVER_PAGE_SIZE + 1, HARDCOVER_PAGE_SIZE + 11)])
+
+        mock_post.side_effect = [
+            _make_response(200, page1),
+            _make_response(200, page2),
+        ]
+
+        client = HardcoverClient(api_token="test_token")
+        with caplog.at_level("WARNING", logger="backend.clients.hardcover_client"):
+            client.get_books_by_status([1])
+
+        assert not any("duplicate" in rec.message.lower() for rec in caplog.records)
+
+    @patch("backend.clients.hardcover_client.time.sleep")
+    @patch("backend.clients.hardcover_client.requests.post")
     def test_empty_first_page_returns_empty_list(self, mock_post: MagicMock, mock_sleep: MagicMock) -> None:
         mock_post.return_value = _make_response(200, _make_page([]))
 

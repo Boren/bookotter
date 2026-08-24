@@ -198,7 +198,7 @@ class HardcoverClient:
         query = """
         query GetBooksByStatus($statusIds: [Int!]!, $limit: Int!, $offset: Int!) {
           me {
-            user_books(where: {status_id: {_in: $statusIds}}, limit: $limit, offset: $offset) {
+            user_books(where: {status_id: {_in: $statusIds}}, order_by: {id: asc}, limit: $limit, offset: $offset) {
               status_id
               rating
               date_added
@@ -251,6 +251,7 @@ class HardcoverClient:
         books_without_id: list[dict] = []
         offset = 0
         page_index = 0
+        duplicate_count = 0
 
         try:
             while True:
@@ -275,6 +276,8 @@ class HardcoverClient:
                     book = self._parse_user_book(user_book)
                     hc_id = book.get("hardcover_id")
                     if hc_id is not None:
+                        if hc_id in books_by_id:
+                            duplicate_count += 1
                         books_by_id[hc_id] = book
                     else:
                         books_without_id.append(book)
@@ -282,6 +285,14 @@ class HardcoverClient:
                 if page_count < HARDCOVER_PAGE_SIZE:
                     break
                 offset += HARDCOVER_PAGE_SIZE
+
+            if duplicate_count:
+                # A repeated id across pages means row order shifted mid-fetch,
+                # so an equal number of rows was silently skipped this run.
+                logger.warning(
+                    "Hardcover pagination returned %d duplicate book(s) across pages — results may be missing books",
+                    duplicate_count,
+                )
 
             books = list(books_by_id.values()) + books_without_id
             logger.info(
