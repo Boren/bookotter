@@ -96,6 +96,28 @@ class TestPdfService:
 
         assert PdfService().is_drm_protected(path) is True
 
+    def test_empty_password_pdf_is_not_drm(self, tmp_path):
+        # Old converters often encrypt with an empty user password and no restrictions.
+        path = tmp_path / "open.pdf"
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        writer.add_metadata({"/Title": "Old Scan"})
+        writer.encrypt(user_password="", owner_password="owner", algorithm="RC4-40")
+        with open(path, "wb") as fh:
+            writer.write(fh)
+        svc = PdfService()
+
+        assert svc.is_drm_protected(path) is False
+        assert svc.validate(path) is True
+        assert svc.read_metadata(path).title == "Old Scan"
+
+        from backend.services.epub_service import EpubMetadata
+
+        svc.write_metadata(path, EpubMetadata(title="Real Title", authors=["Jane Doe"]))
+
+        assert svc.read_metadata(path).title == "Real Title"
+        assert PdfReader(path).is_encrypted is False
+
     def test_write_then_read_round_trip(self, tmp_path):
         from backend.services.epub_service import EpubMetadata
 
