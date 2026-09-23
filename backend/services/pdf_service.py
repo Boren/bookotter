@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
-from pypdf import PdfReader, PdfWriter
+from pypdf import PasswordType, PdfReader, PdfWriter
 
 from backend.constants import EPUB_TITLE_SIMILARITY_THRESHOLD
 from backend.models.book import Book
@@ -21,6 +21,18 @@ from backend.utils.similarity import author_surname_match, title_similarity
 logger = logging.getLogger(__name__)
 
 _AUTHOR_SPLIT_RE = re.compile(r"\s*(?:;|&|\band\b)\s*", re.IGNORECASE)
+
+
+def _open(pdf_path: Path) -> tuple[PdfReader, bool]:
+    """Open a PDF and return (reader, locked).
+
+    Many older converted PDFs are encrypted with an empty user password and no
+    real restrictions — every reader (Kindles included) opens them silently.
+    Those are unlocked here; only a PDF that still needs a password is locked (DRM).
+    """
+    reader = PdfReader(pdf_path)
+    locked = reader.is_encrypted and reader.decrypt("") == PasswordType.NOT_DECRYPTED
+    return reader, locked
 
 
 def _split_authors(raw: str | None) -> list[str]:
@@ -34,7 +46,8 @@ class PdfService:
     Service for reading and writing PDF Info metadata.
 
     Write pattern mirrors EpubService: clone into a temp file in the same
-    directory, re-read to verify the round-trip, then os.replace().
+    directory, re-read to verify the round-trip, then os.replace(). The clone
+    is written unencrypted, which drops empty-password encryption.
     """
 
     def read_metadata(self, pdf_path: str | Path) -> EpubMetadata:
@@ -44,12 +57,12 @@ class PdfService:
             raise EpubReadError(f"PDF file not found: {pdf_path}")
 
         try:
-            reader = PdfReader(pdf_path)
+            reader, locked = _open(pdf_path)
         except Exception as e:
             raise EpubReadError(f"Failed to read PDF {pdf_path}: {e}") from e
 
-        if reader.is_encrypted:
-            raise EpubReadError(f"PDF is encrypted, cannot read metadata: {pdf_path}")
+        if locked:
+            raise EpubReadError(f"PDF is password-protected, cannot read metadata: {pdf_path}")
 
         return self._extract_metadata(reader)
 
@@ -66,12 +79,12 @@ class PdfService:
             raise EpubReadError(f"PDF file not found: {pdf_path}")
 
         try:
-            reader = PdfReader(pdf_path)
+            reader, locked = _open(pdf_path)
         except Exception as e:
             raise EpubReadError(f"Failed to read PDF {pdf_path}: {e}") from e
 
-        if reader.is_encrypted:
-            raise EpubWriteError(f"PDF is encrypted, cannot write metadata: {pdf_path}")
+        if locked:
+            raise EpubWriteError(f"PDF is password-protected, cannot write metadata: {pdf_path}")
 
         info: dict[str, str] = {}
         if metadata.title is not None:
@@ -115,9 +128,9 @@ class PdfService:
             with open(pdf_path, "rb") as fh:
                 if not fh.read(1024).lstrip().startswith(b"%PDF-"):
                     return False
-            reader = PdfReader(pdf_path)
-            if reader.is_encrypted:
-                # Encrypted PDFs are still valid books — DRM handling happens later.
+            reader, locked = _open(pdf_path)
+            if locked:
+                # Password-protected PDFs are still valid books — DRM handling happens later.
                 return True
             return len(reader.pages) > 0
         except Exception:
@@ -130,7 +143,7 @@ class PdfService:
             return False
 
         try:
-            return PdfReader(pdf_path).is_encrypted
+            return _open(pdf_path)[1]
         except Exception:
             return False
 
