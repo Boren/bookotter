@@ -150,17 +150,23 @@ watch(
           <tr
             v-for="(result, index) in results"
             :key="result.guid"
-            :data-format-hint="result.format_hint || 'unknown'"
+            :data-format="result.format || 'unknown'"
             class="table-row animate-fade-in"
             :style="{ animationDelay: `${Math.min(index, 10) * 30}ms` }"
           >
             <td class="table-cell whitespace-nowrap">
               <span
                 class="badge"
-                :class="result.format_hint === 'ebook' ? 'badge-success' : 'badge-neutral'"
-                :title="result.format_reason || ''"
+                :class="
+                  result.format === 'epub'
+                    ? 'badge-success'
+                    : result.format === 'pdf'
+                      ? 'badge-warning'
+                      : 'badge-neutral'
+                "
+                :title="result.format === 'pdf' ? 'PDF — only grabbed when no EPUB is available' : ''"
               >
-                {{ result.format_hint === 'ebook' ? 'EPUB' : 'Uncertain' }}
+                {{ result.format ? result.format.toUpperCase() : 'Uncertain' }}
               </span>
             </td>
             <td class="table-cell max-w-md">

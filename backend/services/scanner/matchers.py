@@ -35,7 +35,7 @@ from backend.services.scanner.types import (
 logger = logging.getLogger(__name__)
 
 # Filename pattern: "Author - Title.epub" (last-resort tier)
-FILENAME_PATTERN = re.compile(r"^(?P<author>.+?)\s*-\s*(?P<title>.+?)\.epub$", re.IGNORECASE)
+FILENAME_PATTERN = re.compile(r"^(?P<author>.+?)\s*-\s*(?P<title>.+?)\.(?:epub|pdf)$", re.IGNORECASE)
 
 # T9: Embedded Hardcover URN — strict, anchored, lowercase scheme, numeric ID only.
 # Locked by .sisyphus/evidence/task-2-urn-format.md (T2 spike).
@@ -169,7 +169,7 @@ def match_filename(
     candidates_by_normalized_key: dict[tuple[str, str], BookCandidate],
 ) -> MatchResult | None:
     """
-    Last-resort match: parse 'Author - Title.epub' from filename.
+    Last-resort match: parse 'Author - Title.epub' (or .pdf) from filename.
 
     Uses the file's basename, splits on ' - ', normalizes both halves,
     looks up in the same key as T11. Score: 80.0 (lower confidence than T11).

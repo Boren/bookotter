@@ -1,5 +1,5 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportGeneralTypeIssues=false
-"""Import service for copying EPUBs to library and writing metadata."""
+"""Import service for copying book files (EPUB, or PDF as a fallback) to the library and writing metadata."""
 
 import hashlib
 import logging
@@ -11,16 +11,19 @@ from pathlib import Path
 from ebooklib import epub
 from sqlalchemy.orm import Session
 
-from backend.config import load_config
+from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 from backend.constants import MAX_COLLISION_ATTEMPTS, MAX_FILENAME_LENGTH
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus, EpubMetaState, FolderOrganization, RootFolder
+from backend.services.book_formats import BookFileService, BookFormat, format_of, service_for
 from backend.services.epub_service import EpubMetadata, EpubService
+from backend.services.pdf_service import PdfService
 from backend.services.pipeline_states import transition_book
 from backend.services.websocket_manager import WebSocketManager
 from backend.utils.atomic import atomic_copy
 from backend.utils.clock import naive_utcnow
 from backend.utils.cover import fetch_cover
+from backend.utils.ereader_delivery import rearm_ereader_delivery
 from backend.utils.events import log_event
 from backend.utils.failure import _append_failure_history
 from backend.utils.naming import DEFAULT_NAMING_TEMPLATE, render_filename, validate_template
@@ -62,22 +65,28 @@ class ImportStateError(BookImportError):
 
 
 class ImportService:
-    """Imports EPUB files into the library: copy, metadata write, DB update."""
+    """Imports book files into the library: copy, metadata write, DB update."""
 
     def __init__(
         self,
         db: Session,
         epub_service: EpubService | None = None,
         ws_manager: WebSocketManager | None = None,
+        pdf_service: PdfService | None = None,
     ) -> None:
         self.db = db
         self.epub_service = epub_service or EpubService()
+        self.pdf_service = pdf_service or PdfService()
         self.ws_manager = ws_manager
 
-    def import_book(self, book_id: int, epub_path: str | Path) -> Book:
-        """Import an EPUB into the library for the given book.
+    def file_service(self, path: str | Path) -> BookFileService:
+        """Metadata service matching the file's format."""
+        return service_for(path, self.epub_service, self.pdf_service)
 
-        Validates the EPUB, transitions Book → IMPORTING, copies to the library,
+    def import_book(self, book_id: int, epub_path: str | Path) -> Book:
+        """Import an EPUB (or PDF) into the library for the given book.
+
+        Validates the file, transitions Book → IMPORTING, copies to the library,
         writes metadata, updates file_path/file_size, then transitions → IN_LIBRARY.
         On any failure, transitions to FAILED.
 
@@ -104,8 +113,8 @@ class ImportService:
         if root_folder is None:
             raise ImportStateError(f"Root folder {book.root_folder_id} not found")
 
-        if not self.epub_service.validate_epub(epub_path):
-            raise ImportInvalidEpubError(f"Source file is not a valid EPUB: {epub_path}")
+        if format_of(epub_path) is None or not self.file_service(epub_path).validate(epub_path):
+            raise ImportInvalidEpubError(f"Source file is not a valid EPUB or PDF: {epub_path}")
 
         if book.status != BookStatus.IMPORTING.value:
             if not self._transition_book(book, BookStatus.IMPORTING.value):
@@ -115,28 +124,11 @@ class ImportService:
         self._broadcast("import_started", {"book_id": book.id, "title": book.title})
 
         try:
-            dest_path = self.organize_path(book, root_folder)
+            dest_path = self.organize_path(book, root_folder, suffix=epub_path.suffix.lower())
             dest_path = self._resolve_collision(dest_path)
 
             self.copy_to_library(epub_path, dest_path)
-
-            is_confident, reason = self.epub_service.verify_content(dest_path, book)
-            if not is_confident:
-                logger.warning("Low confidence EPUB for book %s: %s", book.id, reason)
-                book.low_confidence = True
-                _append_failure_history(book, FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value)
-                book.failure_reason = FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value
-
-            if self.epub_service.is_drm_protected(dest_path):
-                logger.warning("DRM detected for book %s; skipping metadata write", book.id)
-                book.low_confidence = True
-                _append_failure_history(book, FailureReason.IMPORT_DRM_PROTECTED.value)
-                book.failure_reason = FailureReason.IMPORT_DRM_PROTECTED.value
-                book.epub_meta_state = EpubMetaState.DRM.value
-            else:
-                self.embed_book_metadata(book, dest_path)
-                book.epub_meta_state = EpubMetaState.SYNCED.value
-                book.epub_meta_synced_at = naive_utcnow()
+            self._check_and_embed(book, dest_path)
 
             relative_path = dest_path.relative_to(root_folder.path)
             book.file_path = str(relative_path)
@@ -172,6 +164,82 @@ class ImportService:
                 self.db.commit()
             raise
 
+    def _check_and_embed(self, book: Book, dest_path: Path) -> None:
+        """Content check, DRM check, then metadata embed for a freshly copied library file."""
+        file_service = self.file_service(dest_path)
+
+        is_confident, reason = file_service.verify_content(dest_path, book)
+        if not is_confident:
+            logger.warning("Low confidence book file for book %s: %s", book.id, reason)
+            book.low_confidence = True
+            _append_failure_history(book, FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value)
+            book.failure_reason = FailureReason.CONTENT_MISMATCH_LOW_CONFIDENCE.value
+
+        if file_service.is_drm_protected(dest_path):
+            logger.warning("DRM detected for book %s; skipping metadata write", book.id)
+            book.low_confidence = True
+            _append_failure_history(book, FailureReason.IMPORT_DRM_PROTECTED.value)
+            book.failure_reason = FailureReason.IMPORT_DRM_PROTECTED.value
+            book.epub_meta_state = EpubMetaState.DRM.value
+        else:
+            self.embed_book_metadata(book, dest_path)
+            book.epub_meta_state = EpubMetaState.SYNCED.value
+            book.epub_meta_synced_at = naive_utcnow()
+
+    def replace_with_epub(self, book_id: int, epub_path: str | Path) -> Book:
+        """Swap an in-library PDF for a downloaded EPUB, keeping the book IN_LIBRARY.
+
+        The EPUB is copied and embedded first; the PDF is removed only once the
+        new file and DB row are committed, so a failure leaves the PDF in place.
+        A book already delivered to the E-reader is re-queued so the EPUB goes
+        out; mirror cleanup then drops the old PDF from the device.
+
+        Raises:
+            ImportStateError: Book is not a PDF-backed library book.
+            ImportInvalidEpubError: Source is not a valid EPUB.
+            BookImportError / PipelineError: Copy or metadata-write failure.
+        """
+        epub_path = Path(epub_path)
+
+        book = self.db.get(Book, book_id)
+        if book is None:
+            raise ImportStateError(f"Book {book_id} not found")
+        self.db.refresh(book)
+        if not book.wants_epub_upgrade or book.root_folder is None or book.file_path is None:
+            raise ImportStateError(f"Book {book.id} is not a PDF-backed library book")
+        if format_of(epub_path) != BookFormat.EPUB or not self.epub_service.validate_epub(epub_path):
+            raise ImportInvalidEpubError(f"Upgrade source is not a valid EPUB: {epub_path}")
+
+        root = Path(book.root_folder.path)
+        old_path = root / book.file_path
+        dest_path = self._resolve_collision(self.organize_path(book, book.root_folder, suffix=".epub"))
+
+        self.copy_to_library(epub_path, dest_path)
+        try:
+            self._check_and_embed(book, dest_path)
+            book.file_path = str(dest_path.relative_to(root))
+            book.file_size = dest_path.stat().st_size
+            config = load_config()
+            rearm_ereader_delivery(book, get_first_real_ereader(config), get_ereader_sync_shelves(config))
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            dest_path.unlink(missing_ok=True)
+            raise
+
+        try:
+            old_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Upgraded book %d but could not remove old PDF %s: %s", book.id, old_path, exc)
+
+        logger.info("Upgraded book %d from PDF to EPUB: %s", book.id, dest_path)
+        log_event("book_upgraded", book_id=book.id, file_path=str(dest_path), size_bytes=book.file_size or 0)
+        self._broadcast(
+            "import_completed",
+            {"book_id": book.id, "title": book.title, "file_path": str(dest_path)},
+        )
+        return book
+
     def _resolve_collision(self, dest: Path) -> Path:
         """If dest exists, return a versioned path: 'name (1).epub', '(2)', etc.
 
@@ -192,8 +260,10 @@ class ImportService:
             FailureReason.IMPORT_FILE_COLLISION,
         )
 
-    def organize_path(self, book: Book, root_folder: RootFolder, template: str | None = None) -> Path:
-        """Return the absolute destination path for a book's EPUB.
+    def organize_path(
+        self, book: Book, root_folder: RootFolder, template: str | None = None, suffix: str = ".epub"
+    ) -> Path:
+        """Return the absolute destination path for a book file with the given suffix.
 
         The filename comes from the naming template (config
         library.naming_template unless passed explicitly); directories from
@@ -222,7 +292,7 @@ class ImportService:
             series_name=book.series_name,
             series_position=book.series_position,
         )
-        filename = f"{sanitize_path_component(stem)}.epub"
+        filename = f"{sanitize_path_component(stem)}{suffix}"
 
         if org == FolderOrganization.AUTHOR.value:
             return root / safe_author / filename
@@ -268,12 +338,13 @@ class ImportService:
         return dest
 
     def embed_book_metadata(self, book: Book, epub_path: Path) -> None:
-        """Write DB metadata into the EPUB and embed the cover (cover failures swallowed)."""
+        """Write DB metadata into the file; EPUBs also get the cover (cover failures swallowed)."""
         self.write_metadata(book, epub_path)
-        self._embed_cover(book, epub_path)
+        if format_of(epub_path) != BookFormat.PDF:
+            self._embed_cover(book, epub_path)
 
     def write_metadata(self, book: Book, epub_path: Path) -> None:
-        """Write Book metadata (title, authors, series, description) into the EPUB.
+        """Write Book metadata into the file (EPUB: title, authors, series, description; PDF: title, authors).
 
         Raises:
             BookImportError: Wraps any EpubService error.
@@ -289,7 +360,7 @@ class ImportService:
         )
 
         try:
-            self.epub_service.write_metadata(epub_path, metadata)
+            self.file_service(epub_path).write_metadata(epub_path, metadata)
         except Exception as e:
             raise BookImportError(f"Failed to write metadata to {epub_path}: {e}") from e
 

@@ -44,6 +44,9 @@ pipeline:
   search_on_add: true            # Auto-search Prowlarr when book added
   import_on_complete: true       # Auto-import when download completes
   ereader_sync_on_import: true    # Auto-sync to E-reader after import
+  upgrade_pdf_search:            # Look for an EPUB to replace PDF-only library books
+    enabled: true
+    cron_expression: "0 4 * * *" # Daily at 04:00
   status_actions:
     want_to_read:
       download: true

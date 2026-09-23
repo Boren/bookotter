@@ -147,6 +147,9 @@ class EpubService:
 
         return True
 
+    def validate(self, epub_path: str | Path) -> bool:
+        return self.validate_epub(epub_path)
+
     def is_drm_protected(self, epub_path: str | Path) -> bool:
         """Detect DRM via presence of META-INF/encryption.xml (Adobe DRM / LCP standard)."""
         epub_path = Path(epub_path)

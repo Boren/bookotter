@@ -186,7 +186,7 @@ class TestAutoSearch:
             patch("backend.api.routes.search._get_qbittorrent_client", return_value=qbt),
             patch("backend.api.routes.search.load_config", return_value={"qbittorrent": {"category": "books"}}),
         ):
-            result = asyncio.run(search_routes.auto_search_and_grab(book.id, db_session))
+            result = asyncio.run(search_routes.auto_search_and_grab(book.id, request=None, db=db_session))
 
         assert result["success"] is True
         assert result["result_title"] == "Great Book EPUB"
@@ -200,7 +200,7 @@ class TestAutoSearch:
         prowlarr = MagicMock()
         prowlarr.search_book.return_value = [
             make_result(title="Great Book audiobook EPUB", guid="audio"),
-            make_result(title="Great Book.pdf", guid="pdf"),
+            make_result(title="Great Book.mobi", guid="mobi"),
             make_result(title="Great Book EPUB", guid="noseed", seeders=0),
         ]
         qbt = MagicMock()
@@ -210,7 +210,7 @@ class TestAutoSearch:
             patch("backend.api.routes.search._get_qbittorrent_client", return_value=qbt),
             patch("backend.api.routes.search.load_config", return_value={"qbittorrent": {"category": "books"}}),
         ):
-            result = asyncio.run(search_routes.auto_search_and_grab(book.id, db_session))
+            result = asyncio.run(search_routes.auto_search_and_grab(book.id, request=None, db=db_session))
 
         assert result == {
             "success": False,
@@ -219,6 +219,28 @@ class TestAutoSearch:
             "results_count": 3,
         }
         qbt.add_torrent.assert_not_called()
+
+    def test_auto_search_falls_back_to_pdf_when_no_epub(self, db_session):
+        book = create_test_book(db_session, title="Great Book", author_name="Author")
+        db_session.commit()
+
+        prowlarr = MagicMock()
+        prowlarr.search_book.return_value = [
+            make_result(title="Great Book.mobi", guid="mobi", seeders=30),
+            make_result(title="Great Book [PDF]", guid="pdf", seeders=5),
+        ]
+        qbt = MagicMock()
+        qbt.add_torrent.return_value = True
+
+        with (
+            patch("backend.api.routes.search._get_prowlarr_client", return_value=prowlarr),
+            patch("backend.api.routes.search._get_qbittorrent_client", return_value=qbt),
+            patch("backend.api.routes.search.load_config", return_value={"qbittorrent": {"category": "books"}}),
+        ):
+            result = asyncio.run(search_routes.auto_search_and_grab(book.id, request=None, db=db_session))
+
+        assert result["success"] is True
+        assert result["result_title"] == "Great Book [PDF]"
 
     def test_approved_result_has_empty_rejections(self, db_session):
         prowlarr = MagicMock()
@@ -254,7 +276,7 @@ class TestGrabRouteHashValidation:
         ]
 
         with patch("backend.api.routes.search._get_prowlarr_client", return_value=prowlarr):
-            result = asyncio.run(search_routes.auto_search_and_grab(book.id, db_session))
+            result = asyncio.run(search_routes.auto_search_and_grab(book.id, request=None, db=db_session))
 
         assert result["success"] is False
         message = result["message"].lower()
@@ -321,7 +343,7 @@ class TestAutoSearchExistingDownload:
             patch("backend.api.routes.search._get_qbittorrent_client", return_value=qbt),
             patch("backend.api.routes.search.load_config", return_value={"qbittorrent": {"category": "books"}}),
         ):
-            result = asyncio.run(search_routes.auto_search_and_grab(book_id, db_session))
+            result = asyncio.run(search_routes.auto_search_and_grab(book_id, request=None, db=db_session))
 
         assert result["success"] is False
         assert "already exists" in result["message"]

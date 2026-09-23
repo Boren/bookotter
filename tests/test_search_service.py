@@ -37,7 +37,7 @@ def service(mock_prowlarr):
 class TestSearchBook:
     def test_returns_all_results_with_approval_markers(self, service, mock_prowlarr):
         approved = make_result(title="Great Book EPUB", guid="approved")
-        rejected = make_result(title="Great Book.pdf", guid="rejected")
+        rejected = make_result(title="Great Book.mobi", guid="rejected")
         mock_prowlarr.search_book.return_value = [rejected, approved]
 
         results = service.search_book("Great Book")
@@ -47,6 +47,41 @@ class TestSearchBook:
         assert results[0].approved is True
         assert results[1].guid == "rejected"
         assert results[1].approved is False
+
+
+class TestPdfFallback:
+    def test_pdf_is_approved_but_ranked_below_epub(self, service, mock_prowlarr):
+        pdf = make_result(title="Great Book.pdf", guid="pdf", seeders=50)
+        epub = make_result(title="Great Book EPUB", guid="epub", seeders=1)
+        mock_prowlarr.search_book.return_value = [pdf, epub]
+
+        results = service.search_book("Great Book")
+
+        assert [r.guid for r in results] == ["epub", "pdf"]
+        assert [r.format for r in results] == ["epub", "pdf"]
+        assert all(r.approved for r in results)
+
+    def test_epub_tag_wins_over_pdf_tag(self, service):
+        [result] = service.filter_results([make_result(title="Great Book [EPUB PDF]")])
+
+        assert result["format"] == "epub"
+        assert result["approved"] is True
+
+    def test_pdf_only_result_is_approved(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [make_result(title="Great Book (PDF)")]
+
+        [result] = service.search_book("Great Book")
+
+        assert result.approved is True
+        assert result.format == "pdf"
+
+    def test_epub_only_search_rejects_pdf(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [make_result(title="Great Book.pdf")]
+
+        [result] = service.search_book("Great Book", allow_pdf=False)
+
+        assert result.approved is False
+        assert "PDF (EPUB-only search)" in result.rejections
 
     def test_passes_title_and_author_to_prowlarr(self, service, mock_prowlarr):
         mock_prowlarr.search_book.return_value = []
@@ -65,15 +100,15 @@ class TestSearchBook:
 
 class TestCompatibilityHelpers:
     def test_filter_results_returns_serialized_scored_results(self, service):
-        filtered = service.filter_results([make_result(title="Book.pdf")])
+        filtered = service.filter_results([make_result(title="Book.mobi")])
 
         assert len(filtered) == 1
         assert filtered[0]["approved"] is False
-        assert filtered[0]["rejections"] == ["Non-EPUB format detected (non-EPUB format tag: pdf (no EPUB found))"]
+        assert filtered[0]["rejections"] == ["Non-EPUB format detected (non-EPUB format tag: mobi (no EPUB found))"]
 
     def test_rank_results_sorts_approved_before_rejected(self, service):
         approved = make_result(guid="approved")
-        rejected = make_result(guid="rejected", title="Book.pdf")
+        rejected = make_result(guid="rejected", title="Book.mobi")
 
         ranked = service.rank_results([rejected, approved])
 

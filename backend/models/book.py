@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
+from backend.services.book_formats import BookFormat, format_of
 from backend.utils.clock import naive_utcnow
 
 
@@ -190,6 +191,16 @@ class Book(Base):
         UniqueConstraint("root_folder_id", "file_path", name="uq_book_root_path"),
     )
 
+    @property
+    def format(self) -> BookFormat | None:
+        """File format derived from the library file's suffix."""
+        return format_of(self.file_path)
+
+    @property
+    def wants_epub_upgrade(self) -> bool:
+        """PDF-backed library books keep looking for an EPUB to replace the PDF."""
+        return self.status == BookStatus.IN_LIBRARY.value and self.format == BookFormat.PDF
+
     def to_dict(self):
         """Convert to dictionary for API responses."""
         return {
@@ -212,6 +223,7 @@ class Book(Base):
             "root_folder_id": self.root_folder_id,
             "file_path": self.file_path,
             "file_size": self.file_size,
+            "format": self.format.value if self.format else None,
             "search_attempts": self.search_attempts,
             "last_searched_at": self.last_searched_at.isoformat() if self.last_searched_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -246,12 +258,14 @@ class Download(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)  # Bytes
     seeders: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=DownloadStatus.QUEUED.value, index=True)
-    file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # EPUB path within torrent
+    file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # Book file path within torrent
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=naive_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_progress_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     bytes_at_last_check: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # EPUB replacing an in-library PDF: the book stays IN_LIBRARY while this download runs.
+    is_upgrade: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     book: Mapped[Book] = relationship(back_populates="downloads")

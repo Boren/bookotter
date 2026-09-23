@@ -28,6 +28,7 @@ from backend.services.scanner.scanner_service import (
 )
 from backend.services.scanner.types import MatchMethod
 from backend.utils.clock import naive_utcnow
+from tests.helpers import create_test_pdf
 
 
 class StubWebSocketManager:
@@ -196,14 +197,24 @@ class TestWalkSemantics:
         result = scanner.scan(root_folder)
         assert result.files_seen == 3
 
-    def test_scan_ignores_non_epub_files(self, scanner, root_folder, tmp_path):
+    def test_scan_ignores_unsupported_files(self, scanner, root_folder, tmp_path):
         _write_epub(tmp_path / "real.epub")
-        (tmp_path / "ignore.pdf").write_bytes(b"%PDF-fake")
+        create_test_pdf(str(tmp_path / "real.pdf"), title="Pdf Title", author="Pdf Author")
         (tmp_path / "ignore.mobi").write_bytes(b"mobi-fake")
         (tmp_path / "ignore.txt").write_text("text")
 
         result = scanner.scan(root_folder)
-        assert result.files_seen == 1
+        assert result.files_seen == 2
+        assert result.files_failed == 0
+
+    def test_scan_reads_pdf_metadata(self, scanner, root_folder, tmp_path):
+        create_test_pdf(str(tmp_path / "Pdf Author - Pdf Title.pdf"), title="Pdf Title", author="Pdf Author")
+
+        result = scanner.scan(root_folder)
+
+        [proposal] = result.proposals
+        assert proposal.file_meta.title == "Pdf Title"
+        assert proposal.file_meta.authors == ("Pdf Author",)
 
     def test_scan_skips_oversized_epub(self, scanner, root_folder, tmp_path, monkeypatch):
         _write_epub(tmp_path / "big.epub")

@@ -77,6 +77,7 @@ class TestPipelineIdempotency:
             "grabbed": 0,
             "downloading": 0,
             "importing": 0,
+            "upgrades": 0,
             "self_heal": 0,
             "ereader_delivery": 0,
         }

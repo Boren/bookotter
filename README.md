@@ -15,6 +15,7 @@ Self-hosted book management platform — automatically search, download, and man
 - **Download Queue**: Real-time download progress tracking via qBittorrent
 - **Book Detail & Metadata Editor**: Edit title, author, series, and other metadata per book
 - **EPUB Metadata Writing**: Automatically writes title, author, and series info into EPUB files
+- **PDF Fallback**: Books that only exist as PDF are grabbed when no EPUB is available, get title/author written into the PDF, and are replaced automatically once an EPUB turns up (daily upgrade search, `pipeline.upgrade_pdf_search`)
 - **Folder Organization**: Configurable library structure — flat, by author, by series, or by author/series
 - **Pipeline Automation**: Configurable status → action mapping (e.g., "want to read" triggers search + download + E-reader sync)
 - **Multi-E-reader Support**: Configure multiple E-reader devices and choose which to sync to
@@ -400,8 +401,9 @@ bookotter/
 │   │   ├── hardcover_sync_service.py # Hardcover sync
 │   │   ├── search_service.py        # Search orchestration
 │   │   ├── download_service.py      # Download management
-│   │   ├── import_service.py        # EPUB import with metadata
+│   │   ├── import_service.py        # EPUB/PDF import with metadata
 │   │   ├── epub_service.py          # EPUB metadata read/write
+│   │   ├── pdf_service.py           # PDF metadata read/write
 │   │   └── ...              # scheduler, websocket manager
 │   └── clients/             # External service clients
 │       ├── hardcover_client.py    # Hardcover GraphQL API
@@ -490,7 +492,7 @@ Use [conventional commits](https://www.conventionalcommits.org/) for automatic c
 - If running in Docker, ensure BookOtter can reach qBittorrent's network address
 
 ### "EPUB import failed"
-- Ensure the downloaded file is a valid EPUB
+- Ensure the downloaded file is a valid EPUB (or PDF)
 - Check that the library root folder exists and is writable
 - Verify volume mounts in Docker are correct
 

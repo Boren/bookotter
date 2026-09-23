@@ -27,7 +27,7 @@ const hardcoverResults = ref<HardcoverSearchResult[]>([]);
 const hasSearched = ref(false);
 
 const suggestQuery = (relativePath: string): string => {
-  const base = (relativePath.split('/').pop() ?? relativePath).replace(/\.epub$/i, '');
+  const base = (relativePath.split('/').pop() ?? relativePath).replace(/\.(epub|pdf)$/i, '');
   const parts = base.split(' - ').map((p) => p.trim()).filter(Boolean);
   if (parts.length >= 2) {
     // Files are typically "Author - [Series #N -] Title"; search by title + author.

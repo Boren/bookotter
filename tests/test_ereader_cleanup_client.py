@@ -125,3 +125,17 @@ class TestCleanupOrphanedBooks:
         assert result["deleted"] == 1
         commands = [c[0][0] for c in ssh.exec_command.call_args_list]
         assert not any(".sdr" in cmd for cmd in commands)
+
+    def test_sdr_kept_when_same_stem_book_is_expected(self):
+        # An upgraded book: X.pdf is now an orphan, X.epub is expected, and both share X.sdr.
+        client = _make_client()
+        ssh = self._delete_ssh()
+        with (
+            patch.object(client, "find_orphaned_books", return_value=["/mnt/us/books/Author - Book.pdf"]),
+            patch.object(client, "_create_ssh_client", return_value=ssh),
+        ):
+            result = client.cleanup_orphaned_books(["/mnt/us/books/Author - Book.epub"], delete_sdr=True)
+
+        assert result["deleted"] == 1
+        commands = [c[0][0] for c in ssh.exec_command.call_args_list]
+        assert commands == ['rm -f "/mnt/us/books/Author - Book.pdf"']

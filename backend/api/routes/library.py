@@ -18,7 +18,9 @@ from backend.config import load_config
 from backend.database import get_db
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Author, Book, BookStatus, EpubMetaState, EreaderDeliveryStatus, RootFolder
+from backend.services.book_formats import media_type_for, service_for
 from backend.services.epub_service import EpubMetadata, EpubService
+from backend.services.pdf_service import PdfService
 from backend.services.rename_service import RenameService
 from backend.utils.clock import naive_utcnow
 from backend.utils.failure import _append_failure_history
@@ -206,7 +208,7 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
 
 @router.get("/books/{book_id}/download")
 async def download_book(book_id: int, db: Session = Depends(get_db)):
-    """Serve a book's EPUB as a browser download."""
+    """Serve a book's library file (EPUB or PDF) as a browser download."""
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
@@ -228,7 +230,7 @@ async def download_book(book_id: int, db: Session = Depends(get_db)):
 
     return FileResponse(
         epub_path,
-        media_type="application/epub+zip",
+        media_type=media_type_for(epub_path),
         filename=epub_path.name,
     )
 
@@ -313,12 +315,12 @@ async def update_book(book_id: int, body: BookUpdateRequest, db: Session = Depen
                         publisher=book.publisher,
                         language=book.language,
                     )
-                    EpubService().write_metadata(epub_path, metadata)
+                    service_for(epub_path, EpubService(), PdfService()).write_metadata(epub_path, metadata)
                     book.epub_meta_state = EpubMetaState.SYNCED.value
                     book.epub_meta_synced_at = naive_utcnow()
                     book.epub_meta_attempts = 0
         except Exception as e:
-            logger.warning("Failed to write EPUB metadata for book %s: %s", book_id, e)
+            logger.warning("Failed to write file metadata for book %s: %s", book_id, e)
             # Fresh retry budget: the pipeline self-heal stage re-verifies and
             # rewrites (or settles drm/failed) on its next pass.
             book.epub_meta_state = None
@@ -512,9 +514,9 @@ async def delete_book(book_id: int, db: Session = Depends(get_db)):
                 epub_path = os.path.join(root_folder.path, book.file_path)
                 if os.path.exists(epub_path):
                     os.remove(epub_path)
-                    logger.info("Removed EPUB file: %s", epub_path)
+                    logger.info("Removed book file: %s", epub_path)
         except Exception as e:
-            logger.warning("Failed to remove EPUB file for book %s: %s", book_id, e)
+            logger.warning("Failed to remove book file for book %s: %s", book_id, e)
 
     db.delete(book)
     db.commit()

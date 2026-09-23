@@ -225,8 +225,26 @@ class TestMultiFileTorrentHandling:
             {"name": "cover.jpg"},
         ]
         result = service._configure_file_priorities(HASH_HEX)
-        qbit.set_file_priority.assert_called_once_with(HASH_HEX, [0, 1], priority=0)
+        qbit.set_file_priority.assert_not_called()
         assert result is None
+
+    def test_multi_file_pdf_only_keeps_pdf(self, service, qbit):
+        qbit.get_torrent_files.return_value = [
+            {"name": "bundle/book.pdf"},
+            {"name": "bundle/cover.jpg"},
+        ]
+        result = service._configure_file_priorities(HASH_HEX)
+        qbit.set_file_priority.assert_called_once_with(HASH_HEX, [1], priority=0)
+        assert result == "bundle/book.pdf"
+
+    def test_multi_file_prefers_epub_over_pdf(self, service, qbit):
+        qbit.get_torrent_files.return_value = [
+            {"name": "bundle/book.pdf"},
+            {"name": "bundle/book.epub"},
+        ]
+        result = service._configure_file_priorities(HASH_HEX)
+        qbit.set_file_priority.assert_called_once_with(HASH_HEX, [0], priority=0)
+        assert result == "bundle/book.epub"
 
     def test_add_download_sets_epub_file_path_from_multi_file(self, service, qbit, db, book_record):
         qbit.get_torrent_files.return_value = [

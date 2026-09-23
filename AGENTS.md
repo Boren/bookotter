@@ -70,8 +70,10 @@ backend/
     hardcover_sync_service.py → Hardcover sync
     search_service.py        → Prowlarr search
     download_service.py      → qBittorrent download management
-    import_service.py        → EPUB import with metadata
+    import_service.py        → EPUB/PDF import with metadata, PDF→EPUB upgrade swap
     epub_service.py          → EPUB metadata read/write
+    pdf_service.py           → PDF Info metadata read/write
+    book_formats.py          → Supported formats (EPUB preferred, PDF fallback)
     scheduler_service.py     → Background jobs (RSS sync, automatic E-reader sync)
     websocket_manager.py     → WebSocket event broadcasting
   api/routes/          → FastAPI route modules
