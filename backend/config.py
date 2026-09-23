@@ -218,6 +218,8 @@ def get_default_config() -> dict:
             "search_on_add": True,  # Auto-search Prowlarr when book added
             "import_on_complete": True,  # Auto-import when download completes
             "ereader_sync_on_import": True,  # Auto-sync to E-reader after import
+            # Periodically look for an EPUB to replace PDF-only library books
+            "upgrade_pdf_search": {"enabled": True, "cron_expression": "0 4 * * *"},
             "status_actions": {
                 "want_to_read": {"download": True},
                 "currently_reading": {"download": True},

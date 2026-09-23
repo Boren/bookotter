@@ -13,6 +13,7 @@ Responsibilities:
 import logging
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from backend.utils.clock import naive_utcnow
@@ -30,6 +31,7 @@ from backend.clients.qbittorrent_client import (
 from backend.constants import DOWNLOAD_STALL_THRESHOLD_MIN, DOWNLOAD_TOTAL_TIMEOUT_HOURS
 from backend.errors import FailureReason
 from backend.models.book import Book, BookStatus, Download, DownloadStatus
+from backend.services.book_formats import pick_book_file
 from backend.services.pipeline_states import transition_book, transition_download
 from backend.services.torrent_hash import extract_info_hash_from_url, spooled_torrent_path
 from backend.services.websocket_manager import WebSocketManager
@@ -334,7 +336,7 @@ class DownloadService:
 
             time.sleep(POST_ADD_DELAY_SECONDS)
 
-        epub_file_name = self._configure_file_priorities(torrent_hash)
+        book_file_name = self._configure_file_priorities(torrent_hash)
 
         db = self._db_factory()
         try:
@@ -347,7 +349,7 @@ class DownloadService:
                 size=search_result.get("size") or 0,
                 seeders=search_result.get("seeders") or 0,
                 status=DownloadStatus.QUEUED.value,
-                file_path=epub_file_name,
+                file_path=book_file_name,
             )
             db.add(download)
 
@@ -476,7 +478,7 @@ class DownloadService:
                         logger.warning("Could not transition download %s to DOWNLOADING", download.id)
                         db.rollback()
                         continue
-                    book = db.query(Book).filter(Book.id == download.book_id).first()
+                    book = None if download.is_upgrade else db.query(Book).filter(Book.id == download.book_id).first()
                     if book:
                         if not self._transition_book(book, BookStatus.DOWNLOADING, db=db, download=download):
                             logger.warning("Could not transition book %s to DOWNLOADING", book.id)
@@ -538,11 +540,11 @@ class DownloadService:
                 download = db.merge(download)
 
         try:
-            epub_path = self.qbit.get_completed_file_path(download.torrent_hash)
+            book_file = self._completed_book_file(download)
 
-            if not epub_path:
+            if not book_file:
                 logger.warning(
-                    "No EPUB found for completed torrent %s... (Download id=%d)",
+                    "No book file found for completed torrent %s... (Download id=%d)",
                     download.torrent_hash[:16],
                     download.id,
                 )
@@ -550,7 +552,11 @@ class DownloadService:
                     logger.warning("Could not transition download %s to FAILED", download.id)
                     db.rollback()
                     return False
-                download.error_message = "No EPUB file found in completed torrent"
+                download.error_message = (
+                    "No EPUB file found in completed upgrade torrent"
+                    if download.is_upgrade
+                    else "No EPUB or PDF file found in completed torrent"
+                )
                 self._broadcast(
                     "download_failed",
                     {
@@ -564,10 +570,12 @@ class DownloadService:
                     logger.warning("Could not transition download %s to COMPLETED", download.id)
                     db.rollback()
                     return False
-                download.file_path = str(epub_path)
+                download.file_path = str(book_file)
                 download.completed_at = datetime.now(UTC)
 
-                book = db.query(Book).filter(Book.id == download.book_id).first()
+                # Upgrade downloads leave the IN_LIBRARY book alone; the pipeline's
+                # upgrade stage swaps the file in.
+                book = None if download.is_upgrade else db.query(Book).filter(Book.id == download.book_id).first()
                 if book:
                     if not self._transition_book(book, BookStatus.IMPORTING, db=db, download=download):
                         logger.warning(
@@ -581,7 +589,7 @@ class DownloadService:
                 logger.info(
                     "Download handled: %r → %s",
                     download.torrent_name,
-                    epub_path,
+                    book_file,
                 )
                 total_seconds: int | None = None
                 if download.created_at is not None:
@@ -804,49 +812,58 @@ class DownloadService:
             download: A Download model instance with torrent_hash set.
 
         Returns:
-            Absolute path string to the downloaded EPUB, or None if not complete.
+            Absolute path string to the downloaded book file, or None if not complete.
         """
         if not download.torrent_hash:
             logger.warning("Download %d has no torrent_hash — cannot check completion", download.id)
             return None
-        result = self.qbit.get_completed_file_path(download.torrent_hash)
+        result = self._completed_book_file(download)
         return str(result) if result is not None else None
 
-    def _configure_file_priorities(self, torrent_hash: str) -> str | None:
+    def is_torrent_complete(self, download: Download) -> bool:
+        """True when qBittorrent reports the download's torrent as finished."""
+        torrents = self.qbit.get_torrents(hashes=[download.torrent_hash])
+        if not torrents:
+            return False
+        torrent = torrents[0]
+        return torrent.get("state") in DOWNLOAD_COMPLETE_STATES or torrent.get("progress", 0.0) >= 1.0
+
+    def _completed_book_file(self, download: Download) -> Path | None:
+        # Upgrade downloads exist to replace a PDF, so only an EPUB will do.
+        title = download.book.title if download.book is not None else None
+        return self.qbit.get_completed_file_path(download.torrent_hash, title=title, allow_pdf=not download.is_upgrade)
+
+    def _configure_file_priorities(self, torrent_hash: str, book_title: str | None = None) -> str | None:
         """
-        For multi-file torrents, set priority 0 on all non-EPUB files.
+        For multi-file torrents, set priority 0 on everything except the chosen book file.
 
         Args:
             torrent_hash: qBittorrent info hash.
+            book_title: Used to pick the right PDF out of a multi-PDF torrent.
 
         Returns:
-            The filename of the first EPUB found, or None for single-file / no EPUB.
+            The chosen book filename, or None for single-file / no book file.
         """
         files = self.qbit.get_torrent_files(torrent_hash)
         if not files or len(files) <= 1:
             return None
 
-        non_epub_ids: list[int] = []
-        epub_name: str | None = None
+        names = [file_info.get("name", "") for file_info in files]
+        book_name = pick_book_file(names, title=book_title)
+        if book_name is None:
+            return None
+        logger.debug("Chose book file in multi-file torrent %s: %s", torrent_hash[:16], book_name)
 
-        for idx, file_info in enumerate(files):
-            name = file_info.get("name", "")
-            if name.lower().endswith(".epub"):
-                if epub_name is None:
-                    epub_name = name
-                    logger.debug("Found EPUB in multi-file torrent %s: %s", torrent_hash[:16], name)
-            else:
-                non_epub_ids.append(idx)
-
-        if non_epub_ids:
+        skip_ids = [idx for idx, name in enumerate(names) if name != book_name]
+        if skip_ids:
             logger.info(
-                "Setting priority 0 on %d non-EPUB file(s) in torrent %s...",
-                len(non_epub_ids),
+                "Setting priority 0 on %d non-book file(s) in torrent %s...",
+                len(skip_ids),
                 torrent_hash[:16],
             )
-            self.qbit.set_file_priority(torrent_hash, non_epub_ids, priority=0)
+            self.qbit.set_file_priority(torrent_hash, skip_ids, priority=0)
 
-        return epub_name
+        return book_name
 
     def _update_progress_tracking(self, download: Download, torrent_info: dict) -> None:
         if download.last_progress_at is None:
@@ -913,7 +930,8 @@ class DownloadService:
             download.torrent_hash[:16],
         )
 
-        book = db.query(Book).filter(Book.id == download.book_id).first()
+        # A failed upgrade leaves the book IN_LIBRARY with its PDF.
+        book = None if download.is_upgrade else db.query(Book).filter(Book.id == download.book_id).first()
         if book is not None:
             _append_failure_history(book, reason.value)
             book.failure_reason = reason.value

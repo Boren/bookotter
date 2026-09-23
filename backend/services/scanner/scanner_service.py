@@ -1,7 +1,7 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 
 """
-Core ScannerService: walk a root folder, read EPUBs, dispatch the matcher cascade.
+Core ScannerService: walk a root folder, read EPUBs/PDFs, dispatch the matcher cascade.
 
 This module deliberately stops short of persistence (T17) and concurrency control
 (T18). Both follow-ups will extend ScannerService by wrapping ``scan()`` with the
@@ -35,6 +35,8 @@ from sqlalchemy.orm import joinedload
 from backend.errors import FailureReason, PipelineError
 from backend.models.book import Book, BookStatus
 from backend.models.scanner import DismissedScanPath, MatchProposal, MatchProposalStatus, Scan, ScanStatus
+from backend.services.book_formats import is_book_file, service_for
+from backend.services.pdf_service import PdfService
 from backend.services.scanner.matchers import build_candidate_index, cascade_match
 from backend.services.scanner.types import BookCandidate, FileMetadata, MatchMethod, MatchResult
 from backend.utils.clock import naive_utcnow
@@ -121,9 +123,9 @@ def _nfc(value: str) -> str:
     return unicodedata.normalize("NFC", value)
 
 
-def _looks_like_epub(filename: str) -> bool:
-    """True when ``filename`` ends in ``.epub`` (case-insensitive)."""
-    return filename.lower().endswith(".epub")
+def _looks_like_book(filename: str) -> bool:
+    """True when ``filename`` ends in a supported book suffix (.epub/.pdf, case-insensitive)."""
+    return is_book_file(filename)
 
 
 def _extract_isbn_from_identifier(identifier: str | None) -> str | None:
@@ -169,9 +171,11 @@ class ScannerService:
         epub_service: EpubService,
         progress_callback: ProgressCallback | None = None,
         ws_manager: WebSocketManager | None = None,
+        pdf_service: PdfService | None = None,
     ) -> None:
         self._session_factory = db_session_factory
         self._epub_service = epub_service
+        self._pdf_service = pdf_service or PdfService()
         self._progress_callback = progress_callback
         self._ws_manager = ws_manager
 
@@ -278,7 +282,7 @@ class ScannerService:
 
         for dirpath, _dirnames, filenames in os.walk(root_path, followlinks=False):
             for filename in filenames:
-                if not _looks_like_epub(filename):
+                if not _looks_like_book(filename):
                     continue
 
                 filepath = os.path.join(dirpath, filename)
@@ -326,7 +330,7 @@ class ScannerService:
 
                 if size_bytes > MAX_EPUB_SIZE_BYTES:
                     logger.warning(
-                        "Skipping oversized EPUB (%d bytes > %d): %s",
+                        "Skipping oversized book file (%d bytes > %d): %s",
                         size_bytes,
                         MAX_EPUB_SIZE_BYTES,
                         filepath,
@@ -346,9 +350,9 @@ class ScannerService:
                     continue
 
                 try:
-                    epub_meta = self._epub_service.read_metadata(filepath)
+                    epub_meta = service_for(filepath, self._epub_service, self._pdf_service).read_metadata(filepath)
                 except Exception as exc:
-                    logger.warning("Failed to read EPUB %s: %s", filepath, exc)
+                    logger.warning("Failed to read book file %s: %s", filepath, exc)
                     files_failed += 1
                     self._emit(
                         scan_id,

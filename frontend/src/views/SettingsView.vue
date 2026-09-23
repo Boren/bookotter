@@ -654,7 +654,7 @@ onMounted(() => {
           </div>
           <div>
             <h2 class="text-lg font-display font-semibold text-stone-900">File Naming</h2>
-            <p class="text-sm text-stone-500">How library epub files are named on disk</p>
+            <p class="text-sm text-stone-500">How library book files (EPUB/PDF) are named on disk</p>
           </div>
         </div>
 
@@ -947,6 +947,20 @@ onMounted(() => {
             <div>
               <span class="text-sm font-medium text-stone-700">Enable Pipeline</span>
               <p class="text-xs text-stone-500">Master switch for all automated actions</p>
+            </div>
+          </label>
+
+          <label
+            v-if="config.pipeline.upgrade_pdf_search"
+            class="flex items-center gap-3 p-3 rounded-xl bg-stone-50 border border-stone-200 cursor-pointer hover:bg-stone-100 transition-colors"
+          >
+            <input type="checkbox" v-model="config.pipeline.upgrade_pdf_search.enabled" class="sr-only peer" />
+            <div class="toggle" :class="config.pipeline.upgrade_pdf_search.enabled ? 'toggle-on' : 'toggle-off'">
+              <span class="toggle-knob"></span>
+            </div>
+            <div>
+              <span class="text-sm font-medium text-stone-700">Upgrade PDFs to EPUB</span>
+              <p class="text-xs text-stone-500">Searches daily for an EPUB of books you only have as PDF, and replaces the PDF when one is found</p>
             </div>
           </label>
 

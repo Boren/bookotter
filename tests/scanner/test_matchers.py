@@ -573,9 +573,14 @@ class TestFilenamePattern:
         assert match is None
 
     def test_pattern_rejects_wrong_extension(self):
-        """FILENAME_PATTERN rejects non-.epub extensions."""
-        match = FILENAME_PATTERN.match("Author Name - Test Book.pdf")
+        """FILENAME_PATTERN rejects extensions other than .epub/.pdf."""
+        match = FILENAME_PATTERN.match("Author Name - Test Book.mobi")
         assert match is None
+
+    def test_pattern_accepts_pdf(self):
+        match = FILENAME_PATTERN.match("Author Name - Test Book.pdf")
+        assert match is not None
+        assert match.group("title") == "Test Book"
 
 
 def _file_meta(

@@ -210,6 +210,13 @@ async def lifespan(app: FastAPI):
             app.state.pipeline = pipeline
             logger.info("Pipeline monitoring started")
 
+            try:
+                from backend.services.pipeline_service import apply_upgrade_search_schedule
+
+                apply_upgrade_search_schedule(pipeline, app_config)
+            except Exception as e:
+                logger.error(f"Failed to register PDF upgrade search: {e}")
+
             # Reconcile download states with qBittorrent
             try:
                 download_service.reconcile_on_startup()

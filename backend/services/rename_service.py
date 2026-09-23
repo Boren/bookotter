@@ -102,7 +102,8 @@ class RenameService:
             root = Path(rf.path)
             old_rel = book.file_path
             abs_old = root / old_rel
-            new_rel = str(self.import_service.organize_path(book, rf, template).relative_to(root))
+            suffix = Path(old_rel).suffix.lower() or ".epub"
+            new_rel = str(self.import_service.organize_path(book, rf, template, suffix=suffix).relative_to(root))
             claimed = claimed_by_root.setdefault(rf.id, set())
 
             error = None

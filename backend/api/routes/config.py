@@ -5,7 +5,7 @@ Handles reading and updating config.yaml, and testing service connections.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.clients.ereader_client import EreaderClient
@@ -48,7 +48,7 @@ async def get_config():
 
 
 @router.put("")
-async def update_config_endpoint(body: ConfigUpdate):
+async def update_config_endpoint(body: ConfigUpdate, request: Request):
     """
     Update the configuration.
     Masked values (***MASKED***) are ignored and not written.
@@ -71,6 +71,12 @@ async def update_config_endpoint(body: ConfigUpdate):
         from backend.api.routes.sync import apply_ereader_sync_schedule
 
         apply_ereader_sync_schedule(updated)
+
+    pipeline = getattr(request.app.state, "pipeline", None)
+    if "pipeline" in body.config and pipeline is not None:
+        from backend.services.pipeline_service import apply_upgrade_search_schedule
+
+        apply_upgrade_search_schedule(pipeline, updated)
 
     return {"success": True, "config": mask_sensitive_data(updated)}
 

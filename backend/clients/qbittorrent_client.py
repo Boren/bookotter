@@ -14,6 +14,7 @@ import requests
 from backend.clients import ConnectionTestResult, classify_request_error
 from backend.constants import QBIT_RETRY_ATTEMPTS, QBIT_TIMEOUT
 from backend.errors import FailureReason, PipelineError
+from backend.services.book_formats import pick_book_file
 from backend.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -506,19 +507,23 @@ class QBittorrentClient:
             logger.error(f"qBittorrent connection test failed: {e}")
             return classify_request_error(e, "qBittorrent")
 
-    def get_completed_file_path(self, torrent_hash: str) -> Path | None:
+    def get_completed_file_path(
+        self, torrent_hash: str, title: str | None = None, allow_pdf: bool = True
+    ) -> Path | None:
         """
-        Get the filesystem path of the first EPUB file in a completed torrent.
+        Get the filesystem path of the book file in a completed torrent.
 
         Checks torrent state first — returns None if not yet completed.
-        For multi-file torrents, returns the first file with an .epub extension.
-        For single-file torrents, returns the content path directly.
+        EPUB is preferred; a PDF is returned only when the torrent has no EPUB
+        and ``allow_pdf`` is set (see ``pick_book_file`` for multi-PDF packs).
 
         Args:
             torrent_hash: Torrent info hash
+            title: Book title, used to pick the right PDF out of a multi-PDF torrent
+            allow_pdf: Whether a PDF is an acceptable result
 
         Returns:
-            Path to the EPUB file, or None if not completed / no EPUB found
+            Path to the book file, or None if not completed / no book file found
         """
         try:
             torrents = self.get_torrents(hashes=[torrent_hash])
@@ -536,20 +541,19 @@ class QBittorrentClient:
                 return None
 
             content_path = torrent.get("content_path", "")
-            if content_path and content_path.lower().endswith(".epub"):
+            if content_path and pick_book_file([content_path], allow_pdf=allow_pdf):
                 return Path(content_path)
 
             files = self.get_torrent_files(torrent_hash)
             save_path = torrent.get("save_path", "")
 
-            for file_info in files:
-                name = file_info.get("name", "")
-                if name.lower().endswith(".epub"):
-                    full_path = Path(save_path) / name
-                    logger.debug(f"Found EPUB in torrent {torrent_hash}: {full_path}")
-                    return full_path
+            name = pick_book_file((f.get("name", "") for f in files), title=title, allow_pdf=allow_pdf)
+            if name:
+                full_path = Path(save_path) / name
+                logger.debug(f"Found book file in torrent {torrent_hash}: {full_path}")
+                return full_path
 
-            logger.warning(f"No EPUB file found in torrent {torrent_hash}")
+            logger.warning(f"No book file found in torrent {torrent_hash}")
             return None
 
         except Exception as e:

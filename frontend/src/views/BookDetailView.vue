@@ -198,6 +198,10 @@ const canSendToEreader = computed(
 
 const canDownload = computed(() => !!book.value?.file_path)
 
+const isPdfUpgradeCandidate = computed(
+  () => book.value?.status === 'in_library' && book.value?.format === 'pdf'
+)
+
 const showEreaderCard = computed(
   () =>
     !!book.value?.ereader_delivery_status ||
@@ -560,7 +564,7 @@ onMounted(() => {
                   <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                   </svg>
-                  Search
+                  {{ isPdfUpgradeCandidate ? 'Find EPUB' : 'Search' }}
                 </button>
                 <button @click="goToInteractiveSearch" class="btn btn-secondary">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -924,6 +928,13 @@ onMounted(() => {
           <div>
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">File Size</p>
             <p class="text-sm text-stone-800">{{ formatFileSize(book.file_size) }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Format</p>
+            <p class="text-sm text-stone-800">
+              {{ book.format ? book.format.toUpperCase() : '—' }}
+              <span v-if="isPdfUpgradeCandidate" class="text-stone-500">· looking for an EPUB to replace it</span>
+            </p>
           </div>
           <div>
             <p class="text-xs font-medium uppercase tracking-wider text-stone-500 mb-1">Root Folder ID</p>

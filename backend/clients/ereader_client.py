@@ -854,6 +854,8 @@ class EreaderClient:
             Dictionary with cleanup results
         """
         orphans = self.find_orphaned_books(expected_filenames, protected_paths)
+        # "X.pdf" replaced by "X.epub" share one "X.sdr" folder — keep it for the survivor.
+        expected_stems = {os.path.splitext(os.path.basename(f))[0] for f in expected_filenames}
 
         deleted = 0
         failed = 0
@@ -862,15 +864,16 @@ class EreaderClient:
             if orphans:
                 ssh = self._create_ssh_client()
             for filepath in orphans:
+                orphan_delete_sdr = delete_sdr and os.path.splitext(os.path.basename(filepath))[0] not in expected_stems
                 try:
-                    ok = self.delete_book_with_sdr(filepath, delete_sdr, ssh=ssh)
+                    ok = self.delete_book_with_sdr(filepath, orphan_delete_sdr, ssh=ssh)
                 except Exception:
                     # Connection likely dropped — reconnect once and retry this file
                     try:
                         if ssh is not None:
                             ssh.close()
                         ssh = self._create_ssh_client()
-                        ok = self.delete_book_with_sdr(filepath, delete_sdr, ssh=ssh)
+                        ok = self.delete_book_with_sdr(filepath, orphan_delete_sdr, ssh=ssh)
                     except Exception as e:
                         logger.error(f"Error deleting book after reconnect: {e}")
                         ok = False

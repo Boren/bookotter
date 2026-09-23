@@ -71,7 +71,7 @@ class TestConfigTemplateValidation:
         body = ConfigUpdate(config={"library": {"naming_template": "{Bogus}"}})
 
         with pytest.raises(HTTPException) as exc:
-            asyncio.run(update_config_endpoint(body))
+            asyncio.run(update_config_endpoint(body, request=None))  # type: ignore[arg-type]
 
         assert exc.value.status_code == 422
 
@@ -79,6 +79,6 @@ class TestConfigTemplateValidation:
         body = ConfigUpdate(config={"library": {"naming_template": "{Author} only"}})
 
         with pytest.raises(HTTPException) as exc:
-            asyncio.run(update_config_endpoint(body))
+            asyncio.run(update_config_endpoint(body, request=None))  # type: ignore[arg-type]
 
         assert exc.value.status_code == 422

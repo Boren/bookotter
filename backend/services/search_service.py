@@ -18,7 +18,9 @@ PREFERRED_SIZE_MAX = 10 * 1024 * 1024
 
 EPUB_RE = re.compile(r"\bEPUB\b", re.IGNORECASE)
 EPUB_FILE_RE = re.compile(r"\.epub\b", re.IGNORECASE)
-NON_EPUB_FORMAT_RE = re.compile(r"\b(AZW3?|MOBI|PDF)\b", re.IGNORECASE)
+# PDF is accepted as a fallback format: approved, but always ranked below EPUB.
+PDF_RE = re.compile(r"\bPDF\b", re.IGNORECASE)
+NON_EPUB_FORMAT_RE = re.compile(r"\b(AZW3?|MOBI)\b", re.IGNORECASE)
 # Audiobook detection.
 # Strong format/type tags use simple word boundaries (M4B, FLAC, audiobook, etc.).
 # "narrated by" / "read by" require non-start-of-string context (preceding non-word char)
@@ -77,6 +79,7 @@ class ScoredResult:
     author_match: bool = False
     rejections: list[str] = field(default_factory=list)
     approved: bool = True
+    format: str | None = None  # "epub" / "pdf" when the release names its format
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -87,7 +90,7 @@ class SearchService:
         self.prowlarr = prowlarr_client
         self.db = db
 
-    def search_book(self, title: str, author: str = "") -> list[ScoredResult]:
+    def search_book(self, title: str, author: str = "", allow_pdf: bool = True) -> list[ScoredResult]:
         logger.info(f"Searching for book: '{title}'" + (f" by '{author}'" if author else ""))
 
         raw_results = self.prowlarr.search_book(title=title, author=author)
@@ -97,7 +100,8 @@ class SearchService:
 
         blocklisted_set = self._blocklist_set()
         scored = [
-            self._evaluate(result, blocklisted_set, query_title=title, query_author=author) for result in raw_results
+            self._evaluate(result, blocklisted_set, query_title=title, query_author=author, allow_pdf=allow_pdf)
+            for result in raw_results
         ]
         ranked = self._rank(scored)
         approved_count = sum(1 for result in ranked if result.approved)
@@ -124,13 +128,16 @@ class SearchService:
         raw_results: list[dict],
         query_title: str = "",
         query_author: str = "",
+        allow_pdf: bool = True,
     ) -> list[ScoredResult]:
         """Evaluate and rank a pre-fetched list of result dicts (e.g., from RSS).
         Used by RssSyncService to reuse existing filtering and matching logic
         without performing a Prowlarr search."""
         blocklisted_set = self._blocklist_set()
         scored = [
-            self._evaluate(raw, blocklisted_set, query_title=query_title, query_author=query_author)
+            self._evaluate(
+                raw, blocklisted_set, query_title=query_title, query_author=query_author, allow_pdf=allow_pdf
+            )
             for raw in raw_results
         ]
         return self._rank(scored)
@@ -141,6 +148,7 @@ class SearchService:
         blocklisted_set: set[tuple[str, str]],
         query_title: str = "",
         query_author: str = "",
+        allow_pdf: bool = True,
     ) -> ScoredResult:
         verdict, reason = self._classify(raw)
         title = raw.get("title") or ""
@@ -173,6 +181,10 @@ class SearchService:
 
         if verdict == "ebook-other":
             rejections.append(f"Non-EPUB format detected ({reason})")
+
+        release_format = self._release_format(verdict, title)
+        if release_format == "pdf" and not allow_pdf:
+            rejections.append("PDF (EPUB-only search)")
 
         if verdict == "no-match":
             rejections.append("No book signals detected")
@@ -229,7 +241,18 @@ class SearchService:
             author_match=author_match,
             rejections=rejections,
             approved=len(rejections) == 0,
+            format=release_format,
         )
+
+    @staticmethod
+    def _release_format(verdict: str, title: str) -> str | None:
+        if verdict == "ebook":
+            return "epub"
+        if verdict == "ebook-pdf":
+            return "pdf"
+        if verdict == "unknown" and EPUB_FILE_RE.search(title):
+            return "epub"
+        return None
 
     def _blocklist_set(self) -> set[tuple[str, str]]:
         if self.db is None:
@@ -241,6 +264,7 @@ class SearchService:
             results,
             key=lambda result: (
                 1 if result.approved else 0,
+                1 if result.format != "pdf" else 0,
                 1 if result.author_match else 0,
                 result.title_similarity or 0.0,
                 result.seeders or 0,
@@ -274,6 +298,7 @@ class SearchService:
             author_match=result.get("author_match", False),
             rejections=rejections,
             approved=approved,
+            format=result.get("format"),
         )
 
     def _calculate_age_days(self, publish_date: str | None) -> float:
@@ -292,7 +317,7 @@ class SearchService:
     def _classify(self, result: dict) -> tuple[str, str]:
         """
         Returns (verdict, reason). verdict in
-            {'audiobook', 'ebook', 'ebook-other', 'unknown', 'no-match'}.
+            {'audiobook', 'ebook', 'ebook-pdf', 'ebook-other', 'unknown', 'no-match'}.
         Layer order matters; the first match wins.
         """
         title = result.get("title") or ""
@@ -312,6 +337,10 @@ class SearchService:
 
         if EPUB_RE.search(title):
             return "ebook", "EPUB tag in title"
+
+        pdf = PDF_RE.search(title)
+        if pdf:
+            return "ebook-pdf", "PDF tag in title (no EPUB found)"
 
         non_epub = NON_EPUB_FORMAT_RE.search(title)
         if non_epub:

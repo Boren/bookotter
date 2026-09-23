@@ -6,7 +6,8 @@ Handles manual book search via Prowlarr and grabbing results for download.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
@@ -74,6 +75,7 @@ class SearchResultItem(BaseModel):
     age_days: float = 0.0
     rejections: list[str] = []
     approved: bool = True
+    format: str | None = None
 
 
 class GrabRequest(BaseModel):
@@ -119,7 +121,7 @@ async def search_books(
     """
     Search for books via Prowlarr.
 
-    Returns a ranked list of EPUB results filtered and sorted by quality.
+    Returns a ranked list of EPUB/PDF results filtered and sorted by quality (EPUB first).
     """
     try:
         prowlarr = _get_prowlarr_client()
@@ -150,6 +152,11 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
     download_url = result.magnet_url or result.download_url
     if not download_url:
         raise HTTPException(status_code=422, detail="Result has no download_url or magnet_url")
+
+    # A PDF-backed library book only accepts an EPUB, which replaces the PDF.
+    is_upgrade = book.wants_epub_upgrade
+    if is_upgrade and result.format == "pdf":
+        raise HTTPException(status_code=422, detail="Book is already in the library as PDF; grab an EPUB instead")
 
     torrent_hash = (
         extract_info_hash_from_url(result.magnet_url)
@@ -191,15 +198,17 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
         size=result.size or 0,
         seeders=result.seeders or 0,
         status=DownloadStatus.QUEUED.value,
+        is_upgrade=is_upgrade,
     )
     db.add(download)
 
-    _require_transition(book, BookStatus.GRABBED.value, db, f"Book {book.id} could not transition to grabbed")
-    book.updated_at = naive_utcnow()
+    if not is_upgrade:
+        _require_transition(book, BookStatus.GRABBED.value, db, f"Book {book.id} could not transition to grabbed")
+        book.updated_at = naive_utcnow()
     db.commit()
     db.refresh(download)
 
-    logger.info(f"Grabbed '{result.title}' for book '{book.title}' (download_id={download.id})")
+    logger.info(f"Grabbed '{result.title}' for book '{book.title}' (download_id={download.id}, upgrade={is_upgrade})")
 
     return {
         "success": True,
@@ -211,16 +220,28 @@ async def grab_result(body: GrabRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/auto/{book_id}")
-async def auto_search_and_grab(book_id: int, db: Session = Depends(get_db)):
+async def auto_search_and_grab(book_id: int, request: Request, db: Session = Depends(get_db)):
     """
     Auto-search Prowlarr and grab the best result for a book.
 
     Searches by title + author, picks the top-ranked result, and grabs it.
-    Used by the pipeline and manual trigger button.
+    Used by the pipeline and manual trigger button. A PDF-backed library book
+    gets an EPUB upgrade search instead.
     """
     book = db.query(Book).options(joinedload(Book.author)).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+
+    if book.wants_epub_upgrade:
+        pipeline = getattr(request.app.state, "pipeline", None)
+        if pipeline is None:
+            raise HTTPException(status_code=503, detail="Pipeline is not running")
+        grabbed = await run_in_threadpool(pipeline.search_single_book, book_id)
+        return {
+            "success": grabbed > 0,
+            "message": "EPUB upgrade grabbed" if grabbed else "No EPUB upgrade found",
+            "book_id": book_id,
+        }
 
     author_name = book.author.name if book.author else ""
 
@@ -345,7 +366,18 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
     if not book:
         raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
 
-    _require_transition(book, BookStatus.SEARCHING.value, db, f"Book {book.id} could not transition to searching")
+    # Upgrade previews leave the IN_LIBRARY book's status alone and only offer EPUBs.
+    is_upgrade = book.wants_epub_upgrade
+
+    def _back_to_wanted() -> None:
+        if not is_upgrade:
+            _require_transition(
+                book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted"
+            )
+        db.commit()
+
+    if not is_upgrade:
+        _require_transition(book, BookStatus.SEARCHING.value, db, f"Book {book.id} could not transition to searching")
     book.search_attempts = (book.search_attempts or 0) + 1
     book.last_searched_at = naive_utcnow()
     db.commit()
@@ -354,21 +386,18 @@ async def search_preview(book_id: int, db: Session = Depends(get_db)):
         prowlarr = _get_prowlarr_client()
         search_service = SearchService(prowlarr_client=prowlarr, db=db)
         author_name = book.author.name if book.author else ""
-        results = search_service.search_book(title=book.title, author=author_name)
+        results = search_service.search_book(title=book.title, author=author_name, allow_pdf=not is_upgrade)
 
     except HTTPException:
-        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
-        db.commit()
+        _back_to_wanted()
         raise
     except Exception as e:
         logger.error(f"Preview search failed for book {book_id}: {e}")
-        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
-        db.commit()
+        _back_to_wanted()
         raise HTTPException(status_code=502, detail=f"Search failed: {e}")
 
     if not results:
-        _require_transition(book, BookStatus.WANTED.value, db, f"Book {book.id} could not transition back to wanted")
-        db.commit()
+        _back_to_wanted()
 
     return {
         "book_id": book.id,

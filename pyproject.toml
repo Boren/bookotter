@@ -43,6 +43,7 @@ dependencies = [
     "python-multipart>=0.0.26",
     # EPUB handling
     "ebooklib>=0.20",
+    "pypdf>=6.19.0",
 ]
 
 [project.urls]

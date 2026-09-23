@@ -330,7 +330,7 @@ onUnmounted(() => {
             v-if="book.file_size"
             class="absolute bottom-2 left-2 px-1.5 py-0.5 rounded text-[10px] leading-tight font-medium bg-stone-900/60 text-white"
           >
-            {{ formatFileSize(book.file_size) }}
+            {{ formatFileSize(book.file_size) }}<template v-if="book.format === 'pdf'"> · PDF</template>
           </span>
         </div>
 

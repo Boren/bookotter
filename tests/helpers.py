@@ -7,6 +7,24 @@ from backend.models.book import Author, Book, BookStatus
 from backend.utils.clock import naive_utcnow
 
 
+def create_test_pdf(path: str, title: str | None = None, author: str | None = None) -> None:
+    """Create a minimal one-page PDF, optionally with /Title and /Author set."""
+    from pypdf import PdfWriter
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    info = {}
+    if title is not None:
+        info["/Title"] = title
+    if author is not None:
+        info["/Author"] = author
+    if info:
+        writer.add_metadata(info)
+    with open(path, "wb") as fh:
+        writer.write(fh)
+
+
 def create_test_epub(path: str, title: str, author: str) -> None:
     """Create a minimal valid EPUB file for testing.
 

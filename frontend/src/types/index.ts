@@ -44,6 +44,7 @@ export interface Book {
   root_folder_id: number;
   file_path: string | null;
   file_size: number | null;
+  format: 'epub' | 'pdf' | null;
   search_attempts: number;
   last_searched_at: string | null;
   created_at: string;
@@ -164,11 +165,8 @@ export interface SearchResult {
   age_days: number;
   rejections: string[];
   approved: boolean;
-  // Phase 1 filter rewrite — server-side classification.
-  // 'audiobook' and 'ebook-other' verdicts are filtered out server-side
-  // and never reach the frontend.
-  format_hint?: 'ebook' | 'unknown';
-  format_reason?: string;
+  // Format named in the release title; null when the release doesn't say.
+  format?: 'epub' | 'pdf' | null;
 }
 
 export interface BlocklistEntry {
@@ -198,6 +196,10 @@ export interface PipelineConfig {
   search_on_add: boolean;
   import_on_complete: boolean;
   ereader_sync_on_import: boolean;
+  upgrade_pdf_search: {
+    enabled: boolean;
+    cron_expression: string;
+  };
   status_actions: {
     want_to_read: {
       download: boolean;

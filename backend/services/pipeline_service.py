@@ -15,6 +15,7 @@ from typing import Any
 
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.exc import IntegrityError
 
@@ -36,6 +37,42 @@ from backend.utils.transfer_progress import make_progress_callback
 logger = logging.getLogger(__name__)
 
 PIPELINE_INTERVAL_SECONDS = 15
+UPGRADE_SEARCH_JOB_ID = "pdf_upgrade_search"
+DEFAULT_UPGRADE_SEARCH_CRON = "0 4 * * *"
+
+
+def apply_upgrade_search_schedule(pipeline: PipelineService, config: dict | None = None) -> None:
+    """Register, update, or remove the scheduled PDF→EPUB upgrade search per config.
+
+    Called at startup and whenever the pipeline config section is saved.
+    """
+    from backend.config import load_config
+    from backend.services.scheduler_service import scheduler
+
+    if config is None:
+        config = load_config()
+    upgrade_config = config.get("pipeline", {}).get("upgrade_pdf_search", {})
+
+    if not upgrade_config.get("enabled", True):
+        scheduler.remove_job(UPGRADE_SEARCH_JOB_ID)
+        logger.info("PDF→EPUB upgrade search disabled")
+        return
+
+    cron_expression = upgrade_config.get("cron_expression") or DEFAULT_UPGRADE_SEARCH_CRON
+    try:
+        trigger = CronTrigger.from_crontab(cron_expression)
+    except ValueError as exc:
+        logger.error("Invalid pipeline.upgrade_pdf_search.cron_expression %r: %s", cron_expression, exc)
+        return
+
+    scheduler.scheduler.add_job(
+        pipeline.search_upgrades,
+        trigger=trigger,
+        id=UPGRADE_SEARCH_JOB_ID,
+        name="PDF→EPUB upgrade search",
+        replace_existing=True,
+    )
+    logger.info("PDF→EPUB upgrade search registered (cron: %s)", cron_expression)
 
 
 class PipelineService:
@@ -91,7 +128,10 @@ class PipelineService:
             db.close()
 
     def search_single_book(self, book_id: int) -> int:
-        """Search and grab one WANTED/MISSING book (used by search-on-add for manual adds)."""
+        """Search and grab one WANTED/MISSING book (used by search-on-add for manual adds).
+
+        A PDF-backed library book gets an EPUB upgrade search instead.
+        """
         if self.search_service is None:
             logger.warning("search_single_book: no search_service configured, skipping")
             return 0
@@ -102,6 +142,8 @@ class PipelineService:
             if book is None:
                 logger.warning(f"search_single_book: book {book_id} not found")
                 return 0
+            if book.wants_epub_upgrade:
+                return self._search_upgrade(book, db)
             if book.status not in {BookStatus.WANTED, BookStatus.MISSING}:
                 logger.debug(f"search_single_book: book {book_id} in status {book.status!r}, skipping")
                 return 0
@@ -113,6 +155,175 @@ class PipelineService:
                 return 0
         finally:
             db.close()
+
+    def search_upgrades(self) -> int:
+        """Search every PDF-backed library book for an EPUB to replace it (scheduled, not per pipeline tick)."""
+        if self.search_service is None:
+            logger.warning("search_upgrades: no search_service configured, skipping")
+            return 0
+
+        db = self._session_factory()
+        grabbed = 0
+        try:
+            books = (
+                db.query(Book)
+                .filter(Book.status == BookStatus.IN_LIBRARY.value, Book.file_path.ilike("%.pdf"))
+                .order_by(Book.last_searched_at.asc().nullsfirst(), Book.id)
+                .all()
+            )
+            logger.info("search_upgrades: %d PDF-backed book(s) to check for an EPUB", len(books))
+            for book in books:
+                try:
+                    grabbed += self._search_upgrade(book, db)
+                except Exception as exc:
+                    logger.error(f"Upgrade search failed for '{book.title}': {exc}")
+                    db.rollback()
+            log_event("upgrade_search_completed", books=len(books), grabbed=grabbed)
+            return grabbed
+        finally:
+            db.close()
+
+    def _search_upgrade(self, book: Book, db: Any) -> int:
+        if self.search_service is None or self._active_upgrade(book, db) is not None:
+            return 0
+
+        author_name = book.author.name if book.author else ""
+        book.search_attempts = (book.search_attempts or 0) + 1
+        book.last_searched_at = datetime.now(UTC)
+        db.commit()
+
+        results = self.search_service.search_book(book.title, author_name, allow_pdf=False)
+        approved = [r for r in results or [] if r.approved and r.format != "pdf"]
+        if not approved:
+            logger.info(f"No EPUB upgrade found for '{book.title}' (attempt {book.search_attempts})")
+            return 0
+        return self.grab_upgrade(book, approved[0], db)
+
+    def grab_upgrade(self, book: Book, scored_result: ScoredResult, db: Any) -> int:
+        """Queue an EPUB download that will replace a PDF-backed book's file. The book stays IN_LIBRARY."""
+        if scored_result.approved is not True or scored_result.format == "pdf" or not book.wants_epub_upgrade:
+            return 0
+
+        existing = self._active_upgrade(book, db)
+        if existing is not None:
+            logger.info("Upgrade download already active for '%s' (id=%d)", book.title, existing.id)
+            return 0
+
+        torrent_hash = self._torrent_hash_for(scored_result)
+        if not torrent_hash:
+            logger.error("Could not derive info hash for upgrade of '%s' — skipping", book.title)
+            return 0
+        if db.query(Download).filter(Download.torrent_hash == torrent_hash).first() is not None:
+            logger.info("Torrent %s already tracked — skipping upgrade grab for '%s'", torrent_hash, book.title)
+            return 0
+
+        download = Download(
+            book_id=book.id,
+            torrent_hash=torrent_hash,
+            torrent_name=scored_result.title or book.title,
+            indexer_name=scored_result.indexer or "unknown",
+            download_url=scored_result.download_url or scored_result.magnet_url or "",
+            size=scored_result.size or 0,
+            seeders=scored_result.seeders or 0,
+            status=DownloadStatus.QUEUED,
+            is_upgrade=True,
+        )
+        db.add(download)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            logger.info("Race on torrent %s while grabbing upgrade for '%s'", torrent_hash, book.title)
+            return 0
+
+        logger.info(f"Grabbed EPUB upgrade for '{book.title}' from {download.indexer_name} (hash={torrent_hash})")
+        log_event("book_upgrade_grabbed", book_id=book.id, indexer=download.indexer_name, size=download.size or 0)
+        return 1
+
+    @staticmethod
+    def _active_upgrade(book: Book, db: Any) -> Download | None:
+        return (
+            db.query(Download)
+            .filter(
+                Download.book_id == book.id,
+                Download.is_upgrade.is_(True),
+                Download.status.in_(
+                    [DownloadStatus.QUEUED.value, DownloadStatus.DOWNLOADING.value, DownloadStatus.COMPLETED.value]
+                ),
+            )
+            .first()
+        )
+
+    def process_upgrades(self) -> int:
+        """Advance EPUB upgrade downloads: QUEUED → DOWNLOADING → COMPLETED → file swapped in (IMPORTED)."""
+        if self.download_service is None or self.import_service is None:
+            return 0
+
+        db = self._session_factory()
+        upgraded = 0
+        try:
+            downloads = (
+                db.query(Download)
+                .filter(
+                    Download.is_upgrade.is_(True),
+                    Download.status.in_(
+                        [DownloadStatus.QUEUED.value, DownloadStatus.DOWNLOADING.value, DownloadStatus.COMPLETED.value]
+                    ),
+                )
+                .all()
+            )
+            for download in downloads:
+                try:
+                    upgraded += self._advance_upgrade(download, db)
+                except Exception as exc:
+                    logger.error(f"Upgrade download {download.id} failed: {exc}")
+                    db.rollback()
+                    self._fail_download(download, db, str(exc))
+            return upgraded
+        finally:
+            db.close()
+
+    def _advance_upgrade(self, download: Download, db: Any) -> int:
+        download_service, import_service = self.download_service, self.import_service
+        assert download_service is not None and import_service is not None  # checked by process_upgrades
+
+        if download.status == DownloadStatus.QUEUED.value:
+            if not download_service.add_torrent(download):
+                self._fail_download(download, db, "add_torrent returned False")
+                return 0
+            if transition_download(download, DownloadStatus.DOWNLOADING, db):
+                db.commit()
+            else:
+                db.rollback()
+            return 0
+
+        if download.status == DownloadStatus.DOWNLOADING.value:
+            file_path = download_service.get_completed_file_path(download)
+            if file_path is None:
+                if download_service.is_torrent_complete(download):
+                    self._fail_download(download, db, "No EPUB file found in completed upgrade torrent")
+                return 0
+            download.file_path = str(file_path)
+            download.completed_at = datetime.now(UTC)
+            if not transition_download(download, DownloadStatus.COMPLETED, db):
+                db.rollback()
+                return 0
+            db.commit()
+
+        if not download.file_path:
+            self._fail_download(download, db, "No file path recorded after download")
+            return 0
+
+        import_service.replace_with_epub(download.book_id, download.file_path)
+        if not (
+            transition_download(download, DownloadStatus.IMPORTING, db)
+            and transition_download(download, DownloadStatus.IMPORTED, db)
+        ):
+            db.rollback()
+            return 0
+        db.commit()
+        logger.info("Upgraded book %d to EPUB via download %d", download.book_id, download.id)
+        return 1
 
     def process_searching_books(self) -> int:
         if self.search_service is None:
@@ -630,6 +841,7 @@ class PipelineService:
                         ("grabbed", self.process_grabbed_books),
                         ("downloading", self.process_downloading_books),
                         ("importing", self.process_importing_books),
+                        ("upgrades", self.process_upgrades),
                         ("self_heal", self.process_self_heal),
                         ("ereader_delivery", self.process_ereader_delivery_books),
                     ]:
@@ -648,6 +860,7 @@ class PipelineService:
                         grabbed=results.get("grabbed", 0),
                         downloading=results.get("downloading", 0),
                         importing=results.get("importing", 0),
+                        upgrades=results.get("upgrades", 0),
                         self_heal=results.get("self_heal", 0),
                         ereader_delivery=results.get("ereader_delivery", 0),
                     )
@@ -763,7 +976,7 @@ class PipelineService:
         )
         if not results:
             logger.info(
-                f"No EPUB results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
+                f"No results for '{book.title}' — returning to WANTED for retry (attempt {book.search_attempts})"
             )
             # Return book to WANTED state for retry on next pipeline cycle
             if not self._transition_book(book, BookStatus.WANTED, db=db):
@@ -805,6 +1018,7 @@ class PipelineService:
                 author_match=best.get("author_match", False),
                 rejections=best.get("rejections") or [],
                 approved=best.get("approved", True),
+                format=best.get("format"),
             )
 
         return self.grab_known_result(book, best, db)
@@ -824,13 +1038,7 @@ class PipelineService:
             logger.warning("Cannot grab known result for '%s' from status %s", book.title, book.status)
             return 0
 
-        torrent_hash = extract_info_hash_from_url(scored_result.magnet_url) or extract_info_hash_from_url(
-            scored_result.download_url
-        )
-        if not torrent_hash:
-            # Private trackers serve .torrent files instead of magnets — fetch the
-            # file to compute the real info hash (and spool it for qBittorrent).
-            torrent_hash = fetch_and_hash_torrent(scored_result.download_url)
+        torrent_hash = self._torrent_hash_for(scored_result)
         if not torrent_hash:
             logger.error(
                 "Could not derive info hash for '%s' from magnet=%r or url=%r — leaving WANTED",
@@ -922,6 +1130,17 @@ class PipelineService:
             size=download.size or 0,
         )
         return 1
+
+    @staticmethod
+    def _torrent_hash_for(scored_result: ScoredResult) -> str | None:
+        torrent_hash = extract_info_hash_from_url(scored_result.magnet_url) or extract_info_hash_from_url(
+            scored_result.download_url
+        )
+        if not torrent_hash:
+            # Private trackers serve .torrent files instead of magnets — fetch the
+            # file to compute the real info hash (and spool it for qBittorrent).
+            torrent_hash = fetch_and_hash_torrent(scored_result.download_url)
+        return torrent_hash
 
     def _fail_book(self, book: Book, db: Any, reason: str = "Pipeline book failure") -> None:
         try:

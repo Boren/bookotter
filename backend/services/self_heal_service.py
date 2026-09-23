@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, joinedload
 from backend.config import get_ereader_sync_shelves, get_first_real_ereader, load_config
 from backend.constants import SELF_HEAL_META_BATCH_SIZE, SELF_HEAL_META_MAX_ATTEMPTS
 from backend.models.book import Book, BookStatus, EpubMetaState
+from backend.services.book_formats import BookFormat, format_of
 from backend.services.epub_service import EpubMetadata, EpubService
 from backend.services.import_service import ImportService
 from backend.services.rename_service import RenameService
@@ -106,12 +107,14 @@ class SelfHealService:
             self._record_failure(book, "file_missing")
             return "meta_failed"
 
-        if self.epub_service.is_drm_protected(abs_path):
+        file_service = self.import_service.file_service(abs_path)
+        if file_service.is_drm_protected(abs_path):
             book.epub_meta_state = EpubMetaState.DRM.value
             log_event("self_heal_meta_drm", book_id=book.id)
             return "meta_drm"
 
-        if self._metadata_matches(book, self.epub_service.read_metadata(abs_path)):
+        compare_series = format_of(abs_path) != BookFormat.PDF
+        if self._metadata_matches(book, file_service.read_metadata(abs_path), compare_series=compare_series):
             book.epub_meta_state = EpubMetaState.SYNCED.value
             book.epub_meta_synced_at = naive_utcnow()
             return "meta_verified"
@@ -134,10 +137,11 @@ class SelfHealService:
         log_event("self_heal_meta_failed", book_id=book.id, reason=reason, attempts=book.epub_meta_attempts)
 
     @staticmethod
-    def _metadata_matches(book: Book, meta: EpubMetadata) -> bool:
+    def _metadata_matches(book: Book, meta: EpubMetadata, compare_series: bool = True) -> bool:
         """Narrow comparison mirroring what write_metadata embeds.
 
-        Title exact, single-author list, series only when the DB has one.
+        Title exact, single-author list, series only when the DB has one (and
+        the format can carry it — PDFs can't).
         Description/language/publisher are deliberately not compared — HTML
         stripping and source variations would flag spurious mismatches.
         """
@@ -145,7 +149,7 @@ class SelfHealService:
             return False
         if book.author is not None and meta.authors != [book.author.name]:
             return False
-        if book.series_name is not None:
+        if compare_series and book.series_name is not None:
             if meta.series != book.series_name:
                 return False
             if book.series_position is not None and meta.series_position != book.series_position:
