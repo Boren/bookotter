@@ -284,8 +284,11 @@ class PipelineService:
             db.close()
 
     def _advance_upgrade(self, download: Download, db: Any) -> int:
+        download_service, import_service = self.download_service, self.import_service
+        assert download_service is not None and import_service is not None  # checked by process_upgrades
+
         if download.status == DownloadStatus.QUEUED.value:
-            if not self.download_service.add_torrent(download):
+            if not download_service.add_torrent(download):
                 self._fail_download(download, db, "add_torrent returned False")
                 return 0
             if transition_download(download, DownloadStatus.DOWNLOADING, db):
@@ -295,9 +298,9 @@ class PipelineService:
             return 0
 
         if download.status == DownloadStatus.DOWNLOADING.value:
-            file_path = self.download_service.get_completed_file_path(download)
+            file_path = download_service.get_completed_file_path(download)
             if file_path is None:
-                if self.download_service.is_torrent_complete(download):
+                if download_service.is_torrent_complete(download):
                     self._fail_download(download, db, "No EPUB file found in completed upgrade torrent")
                 return 0
             download.file_path = str(file_path)
@@ -311,7 +314,7 @@ class PipelineService:
             self._fail_download(download, db, "No file path recorded after download")
             return 0
 
-        self.import_service.replace_with_epub(download.book_id, download.file_path)
+        import_service.replace_with_epub(download.book_id, download.file_path)
         if not (
             transition_download(download, DownloadStatus.IMPORTING, db)
             and transition_download(download, DownloadStatus.IMPORTED, db)
