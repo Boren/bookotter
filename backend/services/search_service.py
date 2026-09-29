@@ -9,7 +9,7 @@ from backend.clients.prowlarr_client import ProwlarrClient
 from backend.constants import EPUB_TITLE_SIMILARITY_THRESHOLD
 from backend.services.blocklist_service import BlocklistService
 from backend.utils.clock import naive_utcnow
-from backend.utils.similarity import author_surname_match, parse_release_title, title_similarity
+from backend.utils.similarity import author_surname_match, parse_release_title, title_contained, title_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -211,11 +211,12 @@ class SearchService:
             authors_a = [query_author] if query_author else []
             authors_b = [author for author in (result_author, parsed_author) if author]
             author_match = author_surname_match(authors_a, authors_b)
-            # Reject if title similarity below threshold AND no author match — protects
-            # against Prowlarr returning unrelated books that happen to share keywords.
+            # Below the similarity threshold, only accept a release by the same author that
+            # still contains the query title (bundles, subtitles). An author match alone
+            # would approve any other book by that author.
             if (
                 title_sim < EPUB_TITLE_SIMILARITY_THRESHOLD
-                and not author_match
+                and not (author_match and title_contained(query_title, parsed_title))
                 and "No candidate matches title" not in rejections
             ):
                 rejections.append("No candidate matches title")
