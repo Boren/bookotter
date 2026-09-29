@@ -4,6 +4,7 @@ from backend.utils.similarity import (
     author_surname_match,
     normalize_for_match,
     parse_release_title,
+    title_contained,
     title_similarity,
 )
 
@@ -80,3 +81,17 @@ class TestParseReleaseTitle:
         title, author = parse_release_title("Dune by Frank Herbert (retail) (epub)")
         assert title == "Dune"
         assert author == "Frank Herbert"
+
+
+class TestTitleContained:
+    def test_query_inside_bundle_title(self):
+        assert title_contained("The Name of the Wind", "The Name of the Wind and The Wise Man's Fear")
+
+    def test_partial_word_is_not_contained(self):
+        assert not title_contained("Dune", "Dunes of Arrakis")
+
+    def test_segment_after_colon_counts(self):
+        assert title_contained("World of Warcraft: Arthas", "Arthas: Rise of the Lich King")
+
+    def test_segment_before_colon_does_not_count(self):
+        assert not title_contained("World of Warcraft: Sylvanas", "World of Warcraft: War Crimes")

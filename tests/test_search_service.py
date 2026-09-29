@@ -177,7 +177,7 @@ class TestSimilarityFiltering:
         assert "No candidate matches title" in results[0].rejections
         assert results[0].title_similarity < 0.75
 
-    def test_low_similarity_with_author_match_passes(self, service, mock_prowlarr):
+    def test_low_similarity_with_author_match_is_rejected(self, service, mock_prowlarr):
         mock_prowlarr.search_book.return_value = [
             make_result(
                 title="Some Different Title EPUB",
@@ -188,7 +188,37 @@ class TestSimilarityFiltering:
         results = service.search_book("Dune", author="Frank Herbert")
 
         assert results[0].author_match is True
-        assert "No candidate matches title" not in results[0].rejections
+        assert "No candidate matches title" in results[0].rejections
+
+    def test_other_book_by_same_author_is_rejected(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [
+            make_result(title="War of the Ancients by Richard A Knaak [ENG / EPUB LIT MOBI PDF]")
+        ]
+
+        results = service.search_book("Night of the Dragon", author="Richard A. Knaak")
+
+        assert results[0].author_match is True
+        assert results[0].approved is False
+        assert "No candidate matches title" in results[0].rejections
+
+    def test_series_prefixed_query_matches_release_without_prefix(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [
+            make_result(title="Arthas: Rise of the Lich King by Christie Golden [ENG / EPUB MOBI]")
+        ]
+
+        results = service.search_book("World of Warcraft: Arthas", author="Christie Golden")
+
+        assert results[0].approved is True, results[0].rejections
+
+    def test_shared_series_prefix_alone_is_not_a_title_match(self, service, mock_prowlarr):
+        mock_prowlarr.search_book.return_value = [
+            make_result(title="World of Warcraft: War Crimes by Christie Golden [ENG / EPUB]")
+        ]
+
+        results = service.search_book("World of Warcraft: Sylvanas", author="Christie Golden")
+
+        assert results[0].approved is False
+        assert "No candidate matches title" in results[0].rejections
 
 
 class TestSimilarityRanking:

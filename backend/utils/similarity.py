@@ -34,6 +34,20 @@ def title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, na, nb).ratio()
 
 
+def title_contained(query_title: str, release_title: str) -> bool:
+    """Return True if the query title appears as a whole-word phrase in the release title.
+
+    The part after the last colon also counts, so a series-prefixed query
+    ('World of Warcraft: Arthas') finds a release named without the prefix.
+    """
+    haystack = f" {normalize_for_match(release_title)} "
+    for candidate in (query_title, query_title.rsplit(":", 1)[-1]):
+        needle = normalize_for_match(candidate)
+        if needle and f" {needle} " in haystack:
+            return True
+    return False
+
+
 _RELEASE_TAG_RE = re.compile(r"[\[(][^\])]*[\])]")
 
 
